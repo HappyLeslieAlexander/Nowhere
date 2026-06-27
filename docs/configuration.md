@@ -1,0 +1,185 @@
+# Configuration Reference
+
+The Portal is configured by one URL.
+
+```text
+portal://<shared-key>@<listen-host>:<listen-port>?tls=<mode>&spec=<spec>&alpn=<alpn>&net=<mode>&dial=<ip-or-auto>&rate=<mbps>&etar=<mbps>&crt=<path>&key=<path>&log=<level>
+```
+
+The URL username is the shared key. A password component is not supported. The
+listen port and a non-empty shared key are required. Unknown query parameters
+are ignored.
+
+Use percent encoding for reserved URL characters in the shared key, `spec`,
+`alpn`, and file paths.
+
+## Input Rules
+
+The shared key, `spec`, and `alpn` are percent-decoded as UTF-8. A literal `+`
+in `spec` or `alpn` remains `+`; it is not converted to a space. If a query key
+appears more than once, the first occurrence is used.
+
+| Input | Requirement | Decoded UTF-8 byte length |
+| --- | --- | --- |
+| shared key | Required and non-empty | `1..255` |
+| `spec` | Optional; empty means omitted | `1..255` when non-empty |
+| `alpn` | Optional; empty means omitted | `1..255` when non-empty |
+
+## Parameters
+
+| Parameter | Default | Semantics |
+| --- | --- | --- |
+| `tls` | `1` | `1` creates an in-memory self-signed certificate. `2` loads PEM files from `crt` and `key`. `0` and all other values are rejected. |
+| `spec` | `auto` | Seed for v1 authentication material, deterministic padding, and field order. |
+| `alpn` | `now/1` | TLS and QUIC ALPN value. It does not alter authentication, padding, or frame layout. |
+| `net` | `mix` | Selects ingress transports: `tcp` enables TLS/TCP, `udp` enables QUIC/UDP, and `mix` enables both. Missing and empty values select `mix`. |
+| `dial` | `auto` | Local IP literal for outbound TCP and UDP sockets. Empty, invalid, hostname, and `auto` values select the operating-system default. |
+| `rate` | `0` | Client-to-target traffic limit in Mbps. |
+| `etar` | `0` | Target-to-client traffic limit in Mbps. |
+| `crt` | Empty | PEM certificate chain used by `tls=2`. |
+| `key` | Empty | PEM private key used by `tls=2`. |
+| `log` | `info` | `none`, `debug`, `info`, `warn`, `error`, or `event`. An unknown value selects `info`. |
+
+`rate` and `etar` accept positive decimal integers. Zero, a negative value, an
+invalid value, or omission disables the corresponding direction. The conversion
+is:
+
+```text
+bytes_per_second = mbps * 125000
+```
+
+## Transport Capabilities
+
+`net` selects the listener transport. It does not directly select the proxied
+traffic type.
+
+| Listener transport | TCP proxy traffic | UDP proxy traffic |
+| --- | --- | --- |
+| TLS/TCP (`net=tcp`) | One TCP relay per authenticated connection | One UoT flow per authenticated connection |
+| QUIC/UDP (`net=udp`) | One TCP relay per bidirectional stream | Multiplexed QUIC DATAGRAM flows |
+| Both (`net=mix`) | Both paths above | Both paths above |
+
+UoT has no separate Portal setting. A compatible client selects it inside an
+authenticated TLS/TCP connection by using the reserved UoT request target and
+then sending length-prefixed UDP packets. See the
+[protocol specification](protocol.md#92-udp-over-tcp-uot) for the wire format.
+
+## Listener Address Rules
+
+An empty listen host binds separate IPv4 and IPv6 wildcard sockets on the same
+port for each selected transport:
+
+```text
+portal://secret@:2077
+```
+
+Bind one address family explicitly when required:
+
+```text
+portal://secret@0.0.0.0:2077
+portal://secret@[::]:2077
+```
+
+An IP literal binds that address. A hostname is resolved and the first resolved
+address is used. All selected sockets must bind before the Portal begins
+accepting traffic. In `net=mix`, a bind failure in either TCP or UDP fails
+startup.
+
+## TLS Modes
+
+`tls=1` generates a new self-signed certificate for `localhost` when the Portal
+starts:
+
+```text
+portal://secret@:2077?tls=1
+```
+
+Clients must explicitly trust or pin this mode. The generated certificate is
+not stable across restarts.
+
+`tls=2` loads a PEM certificate chain and private key:
+
+```text
+portal://secret@:2077?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem
+```
+
+Both files must be valid at startup. The same certificate and ALPN are used for
+TLS/TCP and QUIC.
+
+Plaintext `tls=0` is not supported.
+
+## Spec and ALPN
+
+`spec` and `alpn` are separate controls.
+
+```text
+effective_spec = decoded first `spec` value when non-empty, otherwise "auto"
+effective_alpn = decoded first `alpn` value when non-empty, otherwise "now/1"
+```
+
+Changing `spec` changes the v1 authentication constants, deterministic
+padding, and field order. Changing `alpn` changes TLS and QUIC negotiation
+only. Peers must agree on both values to interoperate.
+
+## Outbound Source Address
+
+`dial` optionally binds outbound sockets to a local IP address:
+
+```text
+portal://secret@:2077?dial=192.0.2.10
+portal://secret@:2077?dial=2001:db8::10
+```
+
+Only IP literals are accepted. `auto`, an empty value, a hostname, or an
+invalid address lets the operating system select the source address. When an IP
+is set, the Portal considers only target addresses from the same address
+family.
+
+## Logging Level
+
+The default level is `info`:
+
+```text
+portal://secret@:2077?log=info
+```
+
+Use `event` when only the machine-readable checkpoint records should be
+emitted:
+
+```text
+portal://secret@:2077?log=event
+```
+
+Use `none` only when another supervisor captures readiness and failure state.
+
+## Examples
+
+Dual-stack mixed service with defaults:
+
+```text
+portal://secret@:2077
+```
+
+TLS/TCP-only ingress, including TCP relay and UoT:
+
+```text
+portal://secret@:2077?net=tcp
+```
+
+QUIC-only ingress, including stream relay and DATAGRAM UDP:
+
+```text
+portal://secret@:2077?net=udp
+```
+
+PEM certificate with event logs:
+
+```text
+portal://secret@:2077?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem&log=event
+```
+
+Directional limits:
+
+```text
+portal://secret@:2077?rate=100&etar=200
+```

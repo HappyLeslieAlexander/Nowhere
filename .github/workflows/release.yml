@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*.*.*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cross
+      - name: Build and package
+        shell: bash
+        run: |
+          cross build --release --locked --target ${{ matrix.target }}
+          tar -czf "nowhere-${{ matrix.target }}.tar.gz" \
+            -C "target/${{ matrix.target }}/release" nowhere
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: nowhere-*.tar.gz

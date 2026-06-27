@@ -1,0 +1,30 @@
+[package]
+name = "nowhere"
+version = "1.2.3"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+bytes = "1.11"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+getrandom = "0.3"
+hmac = "0.13"
+humantime = "2.3"
+percent-encoding = "2.3"
+quinn = { version = "0.11.9", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2.2"
+sha2 = "0.11"
+socket2 = "0.6"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "net", "io-util", "time", "sync", "signal"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+tokio-util = "0.7"
+url = "2.5"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
