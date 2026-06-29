@@ -1,6 +1,6 @@
 # Nowhere
 
-> **独一无二的协议规范 (spec)。**
+> **独一无二的协议规范 -- spec。**
 
 大多数中继协议无论在何处运行，其形态都千篇一律。Nowhere 则不然。
 
@@ -68,7 +68,8 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release --locked
 ```
 
-Nowhere 使用 Rust 2024 版本（edition）。 
+Nowhere 使用 Rust 2024 版本（edition）。
+
 ## 贡献
 
 欢迎提交 [Issue](https://github.com/NodePassProject/Nowhere/issues) 和针对性强的 Pull Request。涉及协议变更时，必须在同一提交中更新测试向量与协议规范。
