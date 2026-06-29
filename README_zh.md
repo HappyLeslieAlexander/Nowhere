@@ -68,7 +68,8 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release --locked
 ```
 
-Nowhere 使用 Rust 2024 版本（edition）。 ## 贡献
+Nowhere 使用 Rust 2024 版本（edition）。 
+## 贡献
 
 欢迎提交 [Issue](https://github.com/NodePassProject/Nowhere/issues) 和针对性强的 Pull Request。涉及协议变更时，必须在同一提交中更新测试向量与协议规范。
 
