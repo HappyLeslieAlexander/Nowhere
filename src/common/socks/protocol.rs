@@ -89,5 +89,5 @@ pub(crate) use request::{read_request, send_command, write_reply};
 pub(crate) use udp::{decode_udp_packet, encode_udp_packet_into, parse_udp_header, udp_header};
 
 #[cfg(test)]
-#[path = "../../tests/common/socks_protocol.rs"]
+#[path = "../../tests/common/socks/protocol.rs"]
 mod tests;

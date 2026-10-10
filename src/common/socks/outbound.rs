@@ -307,3 +307,7 @@ async fn resolve_relay(relay: &SocksAddress, policy: &DialPolicy) -> Result<Sock
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/common/socks/outbound.rs"]
+mod tests;

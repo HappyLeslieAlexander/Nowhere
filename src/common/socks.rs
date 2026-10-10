@@ -27,5 +27,5 @@ pub(crate) use protocol::{
 pub(crate) use udp::OutboundUdpSocket;
 
 #[cfg(test)]
-#[path = "../tests/common/socks.rs"]
-mod tests;
+#[path = "../tests/common/socks/support.rs"]
+mod test_support;

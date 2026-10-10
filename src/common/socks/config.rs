@@ -195,3 +195,7 @@ fn validate_percent_encoding(raw: &str, name: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../tests/common/socks/config.rs"]
+mod tests;

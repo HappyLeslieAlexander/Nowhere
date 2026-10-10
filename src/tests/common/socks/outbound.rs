@@ -1,110 +1,23 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! SOCKS5 configuration and outbound dialing tests.
+//! Direct and SOCKS5 TCP/UDP dialing, source binding, and association lifecycle tests.
 
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use url::Url;
 
-use super::protocol::{
+use super::super::protocol::{
     ADDRESS_IPV4, AUTH_NONE, AUTH_PASSWORD, SOCKS_VERSION, encode_address, parse_udp_header,
     read_address,
 };
+use super::super::test_support::parse;
+use super::super::{COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE};
 use super::*;
 use crate::protocol::Target;
-
-fn parse(raw: &str) -> Result<Option<SocksConfig>> {
-    SocksConfig::from_url(&Url::parse(raw).unwrap())
-}
-
-#[test]
-fn parses_disabled_and_endpoint_forms() {
-    for raw in [
-        "portal://secret@127.0.0.1:2000",
-        "portal://secret@127.0.0.1:2000?socks=",
-        "portal://secret@127.0.0.1:2000?socks=none",
-    ] {
-        assert!(parse(raw).unwrap().is_none());
-    }
-
-    let domain = parse("portal://secret@127.0.0.1:2000?socks=proxy.test:1080")
-        .unwrap()
-        .unwrap();
-    assert_eq!(domain.endpoint(), "proxy.test:1080");
-
-    let ipv6 = parse("portal://secret@127.0.0.1:2000?socks=[::1]:1080")
-        .unwrap()
-        .unwrap();
-    assert_eq!(ipv6.endpoint(), "[::1]:1080");
-}
-
-#[test]
-fn parses_percent_encoded_credentials_without_exposing_them() {
-    let config =
-        parse("portal://secret@127.0.0.1:2000?socks=user%3Aname:p%40ss%26word@proxy.test:1080")
-            .unwrap()
-            .unwrap();
-    let credentials = config.credentials().unwrap();
-    assert_eq!(credentials.0, "user:name");
-    assert_eq!(credentials.1, "p@ss&word");
-    assert_eq!(config.endpoint(), "proxy.test:1080");
-    let debug = format!("{config:?}");
-    assert!(!debug.contains("user"));
-    assert!(!debug.contains("pass"));
-}
-
-#[test]
-fn rejects_ambiguous_or_invalid_configuration() {
-    for raw in [
-        "portal://secret@127.0.0.1:2000?socks=user@proxy.test:1080",
-        "portal://secret@127.0.0.1:2000?socks=:pass@proxy.test:1080",
-        "portal://secret@127.0.0.1:2000?socks=user:@proxy.test:1080",
-        "portal://secret@127.0.0.1:2000?socks=user:p:ass@proxy.test:1080",
-        "portal://secret@127.0.0.1:2000?socks=user:p+ass@proxy.test:1080",
-        "portal://secret@127.0.0.1:2000?socks=proxy.test:0",
-        "portal://secret@127.0.0.1:2000?socks=::1:1080",
-        "portal://secret@127.0.0.1:2000?socks=user:%GG@proxy.test:1080",
-    ] {
-        assert!(parse(raw).is_err(), "accepted {raw}");
-    }
-}
-
-#[test]
-fn duplicate_socks_uses_the_first_value() {
-    let config =
-        parse("portal://secret@127.0.0.1:2000?socks=proxy.test:1080&socks=other.test:1080")
-            .unwrap()
-            .unwrap();
-
-    assert_eq!(config.endpoint(), "proxy.test:1080");
-}
-
-#[test]
-fn malformed_unknown_query_key_is_ignored() {
-    let config = parse("portal://secret@127.0.0.1:2000?%FF=x&socks=proxy.test:1080")
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(config.endpoint(), "proxy.test:1080");
-}
-
-#[test]
-fn credential_lengths_follow_rfc_1929() {
-    let username = "u".repeat(255);
-    let password = "p".repeat(255);
-    let accepted =
-        format!("portal://secret@127.0.0.1:2000?socks={username}:{password}@proxy.test:1080");
-    assert!(parse(&accepted).is_ok());
-
-    let username = "u".repeat(256);
-    let rejected = format!("portal://secret@127.0.0.1:2000?socks={username}:p@proxy.test:1080");
-    assert!(parse(&rejected).is_err());
-}
 
 #[tokio::test]
 async fn tcp_connect_uses_only_no_auth_and_preserves_domain() {
@@ -131,7 +44,10 @@ async fn tcp_connect_uses_only_no_auth_and_preserves_domain() {
         .dial_tcp_target(&target, Duration::from_secs(2))
         .await
         .unwrap();
+    #[cfg(target_os = "linux")]
     assert!(dialer.ping_ms() > 0);
+    #[cfg(not(target_os = "linux"))]
+    assert_eq!(dialer.ping_ms(), 0);
     stream.write_all(b"ping").await.unwrap();
     let mut response = [0u8; 4];
     stream.read_exact(&mut response).await.unwrap();
@@ -217,7 +133,10 @@ async fn udp_associate_wraps_payload_and_keeps_control_alive() {
         .dial_udp_target(&target, Duration::from_secs(2))
         .await
         .unwrap();
+    #[cfg(target_os = "linux")]
     assert!(dialer.ping_ms() > 0);
+    #[cfg(not(target_os = "linux"))]
+    assert_eq!(dialer.ping_ms(), 0);
     let mut packet = Vec::new();
     assert_eq!(socket.send(b"hello", &mut packet).await.unwrap(), 5);
     let mut response = [0u8; 512];
@@ -251,10 +170,7 @@ async fn proxy_failure_never_falls_back_to_direct_target() {
             .unwrap();
     });
 
-    let config = parse(&format!(
-        "portal://secret@127.0.0.1:2000?socks={proxy_addr}"
-    ))
-    .unwrap();
+    let config = parse(&format!("portal://secret@127.0.0.1:2000?socks={proxy_addr}")).unwrap();
     let dialer = OutboundDialer::new("auto".into(), config);
     let protocol_target = Target::ip(target_addr).unwrap();
     assert!(
