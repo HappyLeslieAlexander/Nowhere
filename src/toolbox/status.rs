@@ -1,0 +1,158 @@
+// Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! Bounded local IPC snapshot collection and deterministic one-shot status output.
+
+use super::diagnostic::connection_failure_reason;
+use super::format::{bytes, duration_ms, panel};
+use crate::telemetry::{
+    Hello, InstanceRole, ServerMessage, Subscription, TelemetryClient, TelemetrySnapshot,
+    discover_instances,
+};
+use anyhow::{Context, Result, bail};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+
+const STATUS_TIMEOUT: Duration = Duration::from_secs(2);
+const STATUS_CONCURRENCY: usize = 8;
+
+pub async fn status() -> Result<()> {
+    let discovered = discover_instances().context("failed to discover local instances")?;
+    if discovered.is_empty() {
+        println!(
+            "{}",
+            panel("NOWHERE STATUS", &[("Status", "IDLE".to_owned())])
+        );
+        return Ok(());
+    }
+    let semaphore = Arc::new(Semaphore::new(STATUS_CONCURRENCY));
+    let mut tasks = JoinSet::new();
+    for instance in discovered {
+        let semaphore = semaphore.clone();
+        tasks.spawn(async move {
+            let _permit = semaphore.acquire_owned().await.expect("status semaphore");
+            (instance.pid, read_status(instance).await)
+        });
+    }
+    let mut items = Vec::new();
+    let mut failures = Vec::new();
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok((_, Ok(item))) => items.push(item),
+            Ok((pid, Err(error))) => {
+                failures.push(format!("PID {pid}: {}", connection_failure_reason(&error)))
+            }
+            Err(_) => failures.push("status task failed".to_owned()),
+        }
+    }
+    items.sort_by_key(|item| (item.role, item.pid, item.id.clone()));
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+        println!("{}", status_panel(item));
+    }
+    if !failures.is_empty() {
+        failures.sort();
+        bail!(
+            "{} local instance(s) could not be read: {}",
+            failures.len(),
+            failures.join("; ")
+        );
+    }
+    Ok(())
+}
+
+struct StatusItem {
+    role: &'static str,
+    pid: u32,
+    id: String,
+    lifecycle: String,
+    endpoint: String,
+    snapshot: TelemetrySnapshot,
+}
+
+async fn read_status(instance: crate::telemetry::DiscoveredInstance) -> Result<StatusItem> {
+    tokio::time::timeout(STATUS_TIMEOUT, async {
+        let client = TelemetryClient::connect(&instance, Subscription::Summary).await?;
+        let hello = client.hello().clone();
+        let (_, mut reader, _writer) = client.into_parts();
+        loop {
+            match reader.next_message().await? {
+                ServerMessage::Snapshot(snapshot) => return Ok(status_item(hello, snapshot)),
+                ServerMessage::Error { message } => {
+                    bail!("telemetry rejected status: {message}")
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .context("telemetry snapshot timed out")?
+}
+
+fn status_item(hello: Hello, snapshot: TelemetrySnapshot) -> StatusItem {
+    let role = match hello.instance.role {
+        InstanceRole::Portal => "PORTAL",
+        InstanceRole::Vector => "VECTOR",
+    };
+    StatusItem {
+        role,
+        pid: hello.instance.pid,
+        id: hello.instance.id,
+        lifecycle: match hello.lifecycle.to_ascii_uppercase().as_str() {
+            "STARTING" => "STARTING",
+            "READY" | "RUNNING" => "READY",
+            "DRAINING" | "STOPPING" => "DRAINING",
+            "STOPPED" => "STOPPED",
+            "FAILED" | "ERROR" => "FAILED",
+            _ => "UNKNOWN",
+        }
+        .to_owned(),
+        endpoint: crate::telemetry::display_endpoint(&hello.instance.endpoint),
+        snapshot,
+    }
+}
+
+fn status_panel(item: &StatusItem) -> String {
+    let upload = item
+        .snapshot
+        .tcp_logical_up
+        .saturating_add(item.snapshot.udp_logical_up);
+    let download = item
+        .snapshot
+        .tcp_logical_down
+        .saturating_add(item.snapshot.udp_logical_down);
+    panel(
+        &format!("{} · PID {}", item.role, item.pid),
+        &[
+            ("Status", item.lifecycle.clone()),
+            ("Endpoint", item.endpoint.clone()),
+            ("Uptime", duration_ms(item.snapshot.uptime_ms)),
+            (
+                "Flows",
+                format!(
+                    "TCP {} · UDP {}",
+                    item.snapshot.tcp_active, item.snapshot.udp_active
+                ),
+            ),
+            (
+                "Carriers",
+                format!(
+                    "TLS {} · QUIC {}",
+                    item.snapshot.tls_carriers_active, item.snapshot.quic_carriers_active
+                ),
+            ),
+            (
+                "Traffic",
+                format!("↑ {} · ↓ {}", bytes(upload), bytes(download)),
+            ),
+        ],
+    )
+}
+
+#[cfg(test)]
+#[path = "../tests/toolbox/status.rs"]
+mod tests;
