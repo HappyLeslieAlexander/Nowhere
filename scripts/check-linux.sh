@@ -53,6 +53,9 @@ container run --rm --init --progress plain \
     "$image" \
     sh -c '
         set -eu
+        if ! grep -Eq "^::1[[:space:]]+localhost([[:space:]]|$)" /etc/hosts; then
+            printf "\n::1 localhost\n" >> /etc/hosts
+        fi
         if ! rustup toolchain list | grep -Fq "$NOWHERE_RUST_TOOLCHAIN"; then
             rustup toolchain install "$NOWHERE_RUST_TOOLCHAIN" \
                 --profile minimal --component rustfmt --component clippy
