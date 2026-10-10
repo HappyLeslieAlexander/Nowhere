@@ -324,6 +324,70 @@ async fn flow_limit_is_per_flow_and_other_flows_survive() {
     echo.abort();
 }
 #[tokio::test]
+async fn egress_reconnects_with_new_owner_and_does_not_recover_old_flows() {
+    let h = Harness::new("egress", false).await;
+    let egress = crate::Egress::new(
+        h.url("egress", "udp", false),
+        Logger::new(LogLevel::None, false),
+    )
+    .unwrap();
+    let task = tokio::spawn(egress.run());
+    let slot = h.inner.egress_slot.as_ref().unwrap();
+    let owner = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(owner) = slot.connection() {
+                break owner;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        h.inner
+            .forward
+            .stats
+            .tcp_active
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert_eq!(
+        h.inner
+            .forward
+            .stats
+            .udp_active
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    owner.close();
+    let new = tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            if let Ok(new) = slot.connection()
+                && !Arc::ptr_eq(&owner, &new)
+            {
+                break new;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!slot.release(&owner, &h.inner.forward.telemetry));
+    assert!(Arc::ptr_eq(&new, &slot.connection().unwrap()));
+    assert_eq!(
+        h.inner
+            .forward
+            .telemetry
+            .snapshot_receiver()
+            .borrow()
+            .egress_online,
+        Some(true)
+    );
+    task.abort();
+    let _ = task.await;
+    h.close().await;
+}
+#[tokio::test]
 async fn udp_reset_and_stop_sending_reclaim_only_the_owned_flow() {
     let h = Harness::new("direct", false).await;
     let (target, echo) = udp_echo().await;
@@ -568,6 +632,48 @@ async fn a_full_udp_flow_queue_does_not_block_another_flow_and_counters_reclaim(
         .await;
     h.close().await;
     echo.abort();
+}
+
+#[tokio::test]
+async fn egress_source_binding_applies_only_to_targets_and_does_not_fallback() {
+    let h = Harness::new("egress", false).await;
+    let mut url = h.url("egress", "udp", false);
+    url.query_pairs_mut().append_pair("dial4", "192.0.2.254");
+    let egress = crate::Egress::new(url, Logger::new(LogLevel::None, false)).unwrap();
+    let task = tokio::spawn(egress.run());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !h.inner.egress_slot.as_ref().unwrap().online() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let (tcp, tcp_task) = tcp_echo().await;
+    let (udp, udp_task) = udp_echo().await;
+    for net in ["tcp", "udp"] {
+        let client = h.client(net, false);
+        assert_eq!(
+            client.open_tcp(&tcp).await.err().unwrap().setup_result(),
+            Some(SetupResult::DialFailed)
+        );
+        assert_eq!(
+            crate::vector::udp_flow::open_udp(client.clone(), &udp)
+                .await
+                .err()
+                .unwrap()
+                .setup_result(),
+            Some(SetupResult::DialFailed)
+        );
+        client
+            .close(tokio::time::Instant::now() + Duration::from_secs(1))
+            .await;
+        assert!(h.inner.egress_slot.as_ref().unwrap().online());
+    }
+    task.abort();
+    let _ = task.await;
+    h.close().await;
+    tcp_task.abort();
+    udp_task.abort();
 }
 
 #[tokio::test]

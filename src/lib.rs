@@ -4,7 +4,9 @@
 //! Library entry point for the Nowhere Vector, Portal and Egress runtimes.
 
 mod common;
+mod egress;
 mod portal;
+pub use egress::Egress;
 mod protocol;
 mod telemetry;
 mod toolbox;

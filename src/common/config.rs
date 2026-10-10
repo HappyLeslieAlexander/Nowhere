@@ -135,6 +135,10 @@ fn parse_telemetry_interval(raw: Option<&str>) -> Result<Duration> {
     Ok(value)
 }
 
+pub fn service_cooldown() -> Duration {
+    env_duration("NOW_SERVICE_COOLDOWN", Duration::from_secs(3))
+}
+
 pub fn shutdown_timeout() -> Duration {
     env_duration("NOW_SHUTDOWN_TIMEOUT", Duration::from_secs(5))
 }
