@@ -126,32 +126,63 @@ fn status_panel(item: &StatusItem) -> String {
         .snapshot
         .tcp_download_bytes
         .saturating_add(item.snapshot.udp_download_bytes);
-    panel(
-        &format!("{} · PID {}", item.role, item.pid),
-        &[
-            ("Status", item.lifecycle.clone()),
-            ("Endpoint", item.endpoint.clone()),
-            ("Uptime", duration_ms(item.snapshot.uptime_ms)),
-            (
-                "Flows",
-                format!(
-                    "TCP {} · UDP {}",
-                    item.snapshot.tcp_active, item.snapshot.udp_active
-                ),
+    let mut rows = vec![
+        ("Status", item.lifecycle.clone()),
+        ("Endpoint", item.endpoint.clone()),
+        ("Uptime", duration_ms(item.snapshot.uptime_ms)),
+        (
+            "Flows",
+            format!(
+                "TCP {} · UDP {}",
+                item.snapshot.tcp_active, item.snapshot.udp_active
             ),
-            (
-                "Carriers",
-                format!(
-                    "TLS {} · QUIC {}",
-                    item.snapshot.tls_carriers_active, item.snapshot.quic_carriers_active
-                ),
+        ),
+        (
+            "Carriers",
+            format!(
+                "TLS {} · QUIC {}",
+                item.snapshot.tls_carriers_active, item.snapshot.quic_carriers_active
             ),
+        ),
+        (
+            "Traffic",
+            format!("↑ {} · ↓ {}", bytes(upload), bytes(download)),
+        ),
+        (
+            "RTT",
+            item.snapshot
+                .ping_ms
+                .map_or_else(|| "—".to_owned(), |ms| format!("{ms}ms")),
+        ),
+        (
+            "CPU",
+            item.snapshot
+                .cpu_percent
+                .map_or_else(|| "—".to_owned(), |value| format!("{value:.1}%")),
+        ),
+        (
+            "Memory",
+            item.snapshot
+                .rss_bytes
+                .map_or_else(|| "—".to_owned(), bytes),
+        ),
+        (
+            "FDs",
+            item.snapshot
+                .open_fds
+                .map_or_else(|| "—".to_owned(), |value| value.to_string()),
+        ),
+    ];
+    if let Some(online) = item.snapshot.egress_online {
+        rows.insert(
+            1,
             (
-                "Traffic",
-                format!("↑ {} · ↓ {}", bytes(upload), bytes(download)),
+                "Egress",
+                if online { "ONLINE" } else { "OFFLINE" }.to_owned(),
             ),
-        ],
-    )
+        );
+    }
+    panel(&format!("{} · PID {}", item.role, item.pid), &rows)
 }
 
 #[cfg(test)]
