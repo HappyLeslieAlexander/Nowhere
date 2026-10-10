@@ -206,3 +206,7 @@ impl Drop for TelemetryServer {
         local::cleanup(&self.endpoint);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/telemetry/ipc/server.rs"]
+mod tests;

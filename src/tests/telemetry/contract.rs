@@ -136,3 +136,16 @@ fn published_examples_are_valid_and_invalid_as_documented() {
         assert!(serde_json::from_value::<ClientMessage>(value.clone()).is_err());
     }
 }
+
+#[test]
+fn snapshot_round_trips_transport_counters() {
+    let snapshot = TelemetrySnapshot {
+        tls_carriers_active: 2,
+        quic_carriers_active: 3,
+        tcp_logical_up: 4,
+        ..TelemetrySnapshot::default()
+    };
+    let encoded = serde_json::to_vec(&snapshot).unwrap();
+    let decoded: TelemetrySnapshot = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded, snapshot);
+}

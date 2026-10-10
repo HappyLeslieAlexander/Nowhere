@@ -179,3 +179,7 @@ where
         serde_json::from_slice(&payload).context("telemetry: failed to decode JSON frame")
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/telemetry/ipc/frame.rs"]
+mod tests;

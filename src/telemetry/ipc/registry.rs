@@ -104,3 +104,7 @@ pub(super) fn valid_instance(instance: &DiscoveredInstance) -> bool {
 pub(super) fn registry_path(registry_name: &str) -> PathBuf {
     registry_directory().join(format!("{registry_name}.json"))
 }
+
+#[cfg(test)]
+#[path = "../../tests/telemetry/ipc/registry.rs"]
+mod tests;
