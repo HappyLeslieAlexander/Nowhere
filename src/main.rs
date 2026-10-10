@@ -1,15 +1,15 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Command-line entry point for Vector and Portal.
+//! Command-line entry point for Vector, Portal and Egress.
 
 use std::env;
 use std::{error, fmt};
 
 use anyhow::{Context, Result, bail};
 use nowhere::{
-    LogLevel, Logger, Portal, Vector, generate_key, query_first, run_fingerprint, run_probe,
-    run_status, validate_endpoint_url_input,
+    Egress, LogLevel, Logger, Portal, Vector, generate_key, query_first, run_fingerprint,
+    run_probe, run_status, validate_endpoint_url_input,
 };
 use url::{ParseError, Url};
 
@@ -31,6 +31,7 @@ Usage:
   nowhere                              Show help and exit
   nowhere <portal-url>                 Run a Portal relay
   nowhere <vector-url>                 Run a SOCKS ingress Vector
+  nowhere <egress-url>                 Run a QUIC Egress
   nowhere generate-key                 Generate a random 128-bit key as hex
   nowhere fingerprint <nowhere-url>    Read the TLS certificate SHA-256 fingerprint
   nowhere probe <vector-url> <target>  Test one real TCP Flow
@@ -42,6 +43,7 @@ URL forms:
   portal://<key>@<host>:<port>[?<options>]
   portal://<key>@<host>/tcp:<port>/udp:<port>[?<options>]
   vector://<key>@<host>:<port>?in=[user:pass@]host:port[&net=tcp|udp]
+  egress://<key>@<host>:<port>[?<options>]
   nowhere://<key>@<host>:<port>[?<options>][#<name>]  For fingerprint
 
 Options:
@@ -68,7 +70,7 @@ Endpoint syntax:
   *                           Portal wildcard; clients require a concrete host.
 
 Constraints:
-  out=egress requires a QUIC listener and rejects dial*.
+  Egress uses QUIC; out=egress requires a QUIC listener and rejects dial*.
   Shared keys require exactly 32 lowercase hex text characters.
   Unknown parameters are ignored; first recognized duplicate wins.
   probe sends no target payload. fingerprint queries TCP/TLS only.
@@ -149,8 +151,10 @@ async fn start(args: Vec<String>) -> Result<()> {
 
     let command_url = parse_command_url(&args[1]).with_context(|| "invalid configuration URL")?;
     let scheme = command_url.scheme().to_string();
-    if !matches!(scheme.as_str(), "portal" | "vector") {
-        bail!("invalid configuration URL: scheme must be portal or vector, found {scheme:?}");
+    if !matches!(scheme.as_str(), "portal" | "vector" | "egress") {
+        bail!(
+            "invalid configuration URL: scheme must be portal, vector or egress, found {scheme:?}"
+        );
     }
     let query =
         query_first(&command_url, &["log"]).with_context(|| "invalid configuration URL query")?;
@@ -165,6 +169,7 @@ async fn start(args: Vec<String>) -> Result<()> {
             let vector = Vector::new(command_url, logger)?;
             vector.run().await
         }
+        "egress" => Egress::new(command_url, logger)?.run().await,
         _ => unreachable!("scheme was validated above"),
     }
 }

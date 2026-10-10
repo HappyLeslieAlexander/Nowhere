@@ -196,7 +196,7 @@ async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors
     for (raw, expected) in [
         (
             format!("ftp://{KEY}@localhost:2000"),
-            "scheme must be portal or vector",
+            "scheme must be portal, vector or egress",
         ),
         (
             format!("portal://{KEY}@*/tcp:2000?out=egress"),
@@ -223,6 +223,10 @@ async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors
             "net selects an unavailable carrier",
         ),
         (
+            format!("egress://{KEY}@localhost/tcp:2000"),
+            "net selects an unavailable carrier",
+        ),
+        (
             format!("portal://{KEY}@*/tcp:2000/../udp:2001"),
             "must not contain '.' or '..' segments",
         ),
@@ -246,6 +250,7 @@ async fn service_key_rejections_identify_the_role_without_starting_a_service() {
     for (role, context, ingress) in [
         ("portal", "Portal listener", ""),
         ("vector", "Vector configuration", "&in=127.0.0.1:1080"),
+        ("egress", "Egress configuration", ""),
     ] {
         for morph in [0, 1] {
             for key in [
