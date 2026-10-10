@@ -1,425 +1,197 @@
 # Configuration
 
-URLs and environment variables have the same meaning on Linux, macOS, and
-Windows. Shell quoting and filesystem path syntax follow the host platform;
-see [Platforms](platforms.md).
+Configure roles, transports and a fixed exit with service URLs.
 
-## Service endpoint grammar
+## Contents
 
-Portal, Vector, and native Portal chaining share one endpoint model:
+- [Role URLs](#role-urls)
+- [Endpoints](#endpoints)
+- [Vector URL](#vector-url)
+- [Portal URL](#portal-url)
+- [Egress URL](#egress-url)
+- [Parsing and effective configuration](#parsing-and-effective-configuration)
+- [Runtime environment](#runtime-environment)
+
+## Role URLs
+
+| Role | URL | Primary settings |
+|---|---|---|
+| Vector | `vector://KEY@HOST:PORT` | SOCKS ingress `in`; transport `net` |
+| Portal | `portal://KEY@HOST:PORT` | Listeners; fixed exit `out` |
+| Egress | `egress://KEY@HOST:PORT` | QUIC registration; target source selection `dial*` |
+
+Shared Key is percent-decoded once and used as text bytes. Vector, Portal and
+Egress require exactly 32 lowercase hexadecimal text characters. Generate a valid
+key with `nowhere generate-key` and use the same value on the peers. Service
+URLs do not accept a password component or display-name fragment.
+
+## Endpoints
+
+Declare a common port or separate carrier ports:
 
 ```text
-portal://KEY@HOST:PORT[?QUERY]
-portal://KEY@HOST/CARRIER:PORT[/CARRIER:PORT][?QUERY]
-
-vector://KEY@HOST:PORT?QUERY
-vector://KEY@HOST/CARRIER:PORT[/CARRIER:PORT]?QUERY
-
-next=KEY@HOST:PORT
-next=KEY@HOST/CARRIER:PORT[/CARRIER:PORT]
+portal://KEY@HOST:PORT
+portal://KEY@HOST/tcp:PORT/udp:PORT
+vector://KEY@HOST:PORT?in=127.0.0.1:1080&net=tcp
+egress://KEY@HOST:PORT
 ```
 
-The outer URL remains a standard URL. `KEY` is URL userinfo, `HOST` is the URL
-host, and each `CARRIER:PORT` is a path segment. RFC 3986 defines the standard
-[authority](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2) and allows
-the colon in a [path segment](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.3),
-so the explicit form does not replace or extend URL authority grammar.
+Portal uses one common host with TCP and UDP ports declared independently.
+A compact Portal endpoint enables both transports. Explicit paths may declare
+one or both carriers, once each.
 
-| Form | Enabled carriers | Ports | Address-family policy |
-|---|---|---|---|
-| `HOST:PORT` | TCP and UDP | Shared | Unrestricted |
-| `HOST/tcp:PORT` | TCP only | TCP port | Unrestricted |
-| `HOST/udp:PORT` | UDP only | UDP port | Unrestricted |
-| `HOST/tcp:PORT/udp:PORT` | TCP and UDP | Independent | Unrestricted |
-| `HOST/tcp4:PORT/udp6:PORT` | TCP and UDP | Independent | TCP IPv4, UDP IPv6 |
-
-Carrier names have the same meaning in every role:
-
-| Carrier | Transport | Accepted address family |
+| Carrier declaration | Transport | Address family |
 |---|---|---|
-| `tcp` | TLS over TCP | IPv4 and IPv6 |
-| `tcp4` | TLS over TCP | IPv4 only |
-| `tcp6` | TLS over TCP | IPv6 only |
-| `udp` | QUIC over UDP | IPv4 and IPv6 |
-| `udp4` | QUIC over UDP | IPv4 only |
-| `udp6` | QUIC over UDP | IPv6 only |
+| `tcp` | Dedicated TLS | IPv4 or IPv6 |
+| `udp` | QUIC | IPv4 or IPv6 |
+| `tcp4`, `udp4` | TLS or QUIC respectively | IPv4 only |
+| `tcp6`, `udp6` | TLS or QUIC respectively | IPv6 only |
 
-`tcp` and `udp` mean that the endpoint does not restrict the address family.
-They do not require both families to exist on the host. An IP literal narrows
-an unrestricted carrier naturally; an explicit suffix that conflicts with the
-literal is invalid.
+Client hosts must be concrete. Portal accepts `*` or an empty listen host.
+Unrestricted wildcard listeners may omit an unavailable family with a warning;
+explicit families and concrete binds fail on errors. See
+[network exposure](platforms.md#network-exposure) for socket and firewall rules.
 
-Both carriers always share `HOST`. Use separate service URLs when TCP and UDP
-must use different IP addresses or hostnames. The explicit path controls which
-carriers exist, so an omitted carrier is disabled rather than assigned a
-default port.
-
-Canonical output lists TCP before UDP regardless of input order. It uses the
-compact form when both carriers are unrestricted and use the same port;
-otherwise it prints the explicit path. Effective configuration, logs, and the
-TUI use this normalized endpoint and omit the shared key.
-
-## Shared keys
-
-Generate keys with `nowhere generate-key`. Portal requires its listener
-key and each enabled `next` key to match `[0-9a-f]{32,64}` after URL percent
-decoding. Missing keys, uppercase letters, non-hex characters, whitespace,
-and other lengths fail startup before certificate loading, DNS resolution, or
-listening. There is no bypass. The TLS `key=` parameter is a PEM private-key
-path and is unrelated to this shared-key rule.
-
-The generator draws 16 random bytes from the operating system and prints them
-as 32 lowercase hex characters, providing 128 bits of random entropy. Format
-validation cannot establish generation provenance or entropy; generate a fresh
-key rather than constructing a matching string. Keys are neither trimmed nor
-case-normalized.
-
-Authentication and Morph derive from all ASCII key-text bytes after percent
-decoding, **without hex decoding**. Vector, `probe`, and `fingerprint` accept
-1–255 decoded key bytes. A connection to Portal requires the exact key
-text configured on that hop. `<generated-key>` in examples means the actual generator output.
-
-Lengths from 32 to 64 are inclusive; odd lengths are accepted.
-
-## Portal URL
-
-```text
-portal://<generated-key>@host:port?tls=1&log=info
-portal://<generated-key>@*:2000?tls=1&log=info
-portal://<generated-key>@*/tcp:2006/udp:2017?tls=1&log=info
-portal://<generated-key>@host/tcp4:2006/udp6:2017?tls=1&log=info
-portal://<generated-key>@*:2000?tls=1&morph=1&log=info
-```
-
-The compact `host:port` form enables TLS/TCP and QUIC/UDP on the same port.
-The explicit path enables only the listed carriers. `tcp` and `udp` accept
-either address family; suffix `4` or `6` to restrict that carrier. Each carrier
-may appear at most once.
-
-Both carriers share the host; their ports and address families are independent.
-The wildcard `*` expands to separate IPv4 and IPv6 sockets, with IPv6 sockets
-set to `V6ONLY`. Hostnames resolve at startup to all matching, deduplicated
-addresses; listeners do not refresh DNS while running.
-
-An unrestricted wildcard listener can omit an unavailable address family with
-a warning. Each declared carrier must bind at least one address. Explicit
-address families, concrete addresses, occupied ports, and permission failures
-cause startup to fail and release the listeners already opened.
-
-The Portal host controls binding:
-
-| Host | Listener behavior |
-|---|---|
-| empty in compact form | Alias for `*` |
-| `*` | Separate wildcard sockets for every permitted address family |
-| IPv4 literal | Bind that IPv4 address |
-| bracketed IPv6 literal | Bind that IPv6 address |
-| hostname | Resolve once and bind every matching, deduplicated address |
-
-IPv6 TCP and UDP listeners set `V6ONLY`, including wildcard listeners. A
-dual-stack wildcard therefore consists of distinct `0.0.0.0` and `[::]`
-sockets instead of relying on an operating-system dual-stack default.
-
-| Query | Values | Default |
-|---|---|---|
-| `tls` | `1` generated certificate, `2` supplied certificate | `1` |
-| `crt`, `key` | PEM paths, required with `tls=2` | — |
-| `rate`, `etar` | Mbps, `0` disables limit | `0` |
-| `dial` | `auto` or local IP; an IP restricts outbound to its family | `auto` |
-| `dial4` | `auto` or local IPv4; mutually exclusive with `dial` | `auto` |
-| `dial6` | `auto` or local IPv6; mutually exclusive with `dial` | `auto` |
-| `morph` | `0` bare TLS/QUIC wire, `1` keyed wire transform | `0` |
-| `socks` | outbound SOCKS5 configuration | disabled |
-| `next` | `<generated-key>@host:port` or explicit carrier endpoint | disabled |
-| `up`, `down` | native next-hop policy: `tcp`, `udp`, or `mix` | only carrier, otherwise `tcp` |
-| `mux` | native next-hop TLS: `0` dedicated lanes, `1` Mux when TCP is possible | `0` |
-| `sni` | native next-hop DNS name override, or `none` to use the endpoint host | endpoint host |
-| `pin` | native next-hop certificate SHA-256 pin, or `none` | `none` |
-| `log` | `none`, `debug`, `info`, `warn`, `error` | `info` |
-
-Outbound source selection uses one of two mutually exclusive modes:
-
-| Configuration | IPv4 source | IPv6 source |
-|---|---|---|
-| No dial parameters, or `dial=auto` | System automatic | System automatic |
-| `dial=192.0.2.10` | `192.0.2.10` | Disabled |
-| `dial=2001:db8::10` | Disabled | `2001:db8::10` |
-| `dial4=192.0.2.10` | `192.0.2.10` | System automatic |
-| `dial6=2001:db8::10` | System automatic | `2001:db8::10` |
-| `dial4=192.0.2.10&dial6=2001:db8::10` | `192.0.2.10` | `2001:db8::10` |
-
-Any occurrence of `dial`, including `dial=auto`, conflicts with `dial4` or
-`dial6`. Both parameters accept lowercase `auto`; omitting either means
-automatic source selection for that family. Recognized duplicate keys keep
-only their first value. Effective configuration prints `dial=...` for `dial`
-mode and both `dial4=...` and `dial6=...` for dual-stack mode, including when
-both are automatic.
-
-Source addresses must be bare IP literals after the normal query decoding.
-Empty values, hostnames, ports, brackets, zone IDs, and wrong-family literals
-are invalid. `dial6` also rejects IPv4-mapped IPv6 literals. `0.0.0.0` and `::`
-are valid wildcard bind addresses, matching `dial` behavior; with
-`dial4` or `dial6` they do not disable the other family.
-
-The policy applies to direct TCP/UDP targets, local SOCKS5 control and UDP
-relay sockets, and native `next` TCP/QUIC sockets. SOCKS5 control and relay
-addresses may use different families; each selects its own local source.
-The policy does not constrain the SOCKS5 server's connection to the final
-target. Inbound listener families do not constrain outbound families.
-
-Startup validates syntax only. Source availability is checked when a socket
-is bound. A failed bind follows the candidate retry loop, allowing
-another family to succeed, but never silently replaces a configured source
-with automatic binding. Dialing follows DNS order, sequential attempts, and
-configured timeout boundaries. UDP connect success does not establish remote
-reachability.
-
-Portal applies `dial`, `dial4`, and `dial6` to its outbound connections.
-Standalone Vector, `probe`, and `fingerprint` also ignore these Portal-only
-source parameters and use system-selected source addresses.
-
-When `next` is enabled, `up`, `down`, `mux`, `sni`, and `pin` configure that
-upstream hop. TLS/QUIC handshakes and authentication run independently on each
-hop. These upstream options are ignored when `next` is absent or `none`.
-`socks` and `next` are mutually exclusive outbound paths.
-
-`morph=1` controls both the Portal listener and its native `next` client. The
-listener derives Morph keys from the outer Portal key; the `next` client derives
-them from the key inside `next`. The nested value never carries an inner query.
+Vector selects one carrier with `net=tcp|udp`, default `tcp`. Both carriers
+forward TCP and UDP business Flows. Egress always selects QUIC. A compact
+client endpoint supplies the selected carrier's port; an explicit path must
+include that carrier.
 
 ## Vector URL
 
-```text
-vector://<generated-key>@host:port?up=tcp&down=tcp&socks=127.0.0.1:1080
-vector://<generated-key>@host/tcp:2006?socks=127.0.0.1:1080
-vector://<generated-key>@host/udp6:2017?socks=127.0.0.1:1080
-vector://<generated-key>@host/tcp:2006/udp:2017?up=tcp&down=udp&socks=127.0.0.1:1080
-vector://<generated-key>@host:2000?morph=1&socks=127.0.0.1:1080
-```
-
-Vector uses the TCP carrier port only for TLS and the UDP carrier port only for
-QUIC. Hostname results are filtered independently for each carrier. `tcp4` and
-`udp4` never fall through to IPv6, and `tcp6` and `udp6` never fall through to
-IPv4. If no resolved address matches the selected family, dialing fails with a
-configuration-specific address error.
-
-When an endpoint declares one carrier, omitted `up` and `down` both select that
-carrier. When both carriers exist, each omitted direction selects TCP. An
-explicit direction may select only a declared carrier, and `mix` requires both
-TCP and UDP. These checks run before the SOCKS listener begins accepting
-traffic. The transport default does not enable Mux; omitted `mux` remains `0`.
-
-| Query | Values | Default |
+| Parameter | Meaning | Default |
 |---|---|---|
-| `up`, `down` | `tcp`, `udp`, or `mix` | only carrier, otherwise `tcp` |
-| `mux` | `0` dedicated TLS lanes, `1` TLS Mux | `0` |
-| `sni` | verified DNS name override, or `none` to use the endpoint host | endpoint host |
-| `pin` | certificate SHA-256 pin, or `none` | `none` |
-| `rate`, `etar` | Mbps, `0` disables limit | `0` |
-| `morph` | `0` bare TLS/QUIC wire, `1` keyed wire transform | `0` |
-| `socks` | required local listen address, optionally credentials | — |
-| `log` | logging threshold | `info` |
+| `in` | SOCKS ingress `[USER:PASS@]HOST:PORT` | Required for a service; optional for probe |
+| `net` | `tcp` for dedicated TLS; `udp` for QUIC | `tcp` |
+| `sni` | Verified DNS server name | Endpoint host |
+| `pin` | Exact certificate SHA-256 | System CA and hostname verification |
+| `morph` | `0` or `1`; peers share the key and setting | `0` |
+| `rate`, `etar` | Upload/download Mbps; `0` disables the limit | `0` |
+| `log` | `none`, `debug`, `info`, `warn`, `error` | `info` |
 
-## Native next endpoint
+A pin is exactly 64 lowercase hexadecimal characters. A missing, empty or
+`none` pin uses normal certificate verification. An empty or `none` SNI uses
+the endpoint host. Obtain a fingerprint with `nowhere fingerprint` and compare
+it through a trusted channel before configuring it. See
+[certificate trust](security.md#certificate-trust).
 
-Vector and native `next` require system CA and server-name validation unless
-an explicit certificate `pin` is configured. Empty or `none` values for `sni`
-or `pin` do not disable validation. A self-signed Portal requires its exact
-certificate fingerprint in `pin=`. See [Security](security.md).
+Upload and download follow the Vector-to-Target business direction, regardless
+of which transport peer establishes the connection.
 
-The `next` value omits a scheme but otherwise uses the Vector endpoint grammar:
+## Portal URL
+
+| Parameter | Meaning | Default |
+|---|---|---|
+| `out` | `direct`, `egress`, or `[USER:PASS@]HOST:PORT` SOCKS5 exit | `direct` |
+| `tls` | `1` generated certificate; `2` supplied PEM certificate/key | `1` |
+| `crt`, `key` | PEM paths; required exactly when `tls=2` | Absent |
+| `dial` | Source IP/single-family policy, or `auto` | Automatic |
+| `dial4`, `dial6` | Family-specific source IP, or `auto` | Automatic |
+| `morph`, `rate`, `etar`, `log` | Same meaning as Vector | `0`, `0`, `0`, `info` |
+
+`out=egress` requires a QUIC listener and conflicts with every explicit `dial*`
+parameter, including `auto`. The first registered Egress owns the Slot; another
+connection receives BUSY. An offline Egress fails new Flows immediately without
+waiting, queuing or falling back to direct access. See [Egress](egress.md).
+
+### Target source selection
+
+`dial` is mutually exclusive with `dial4` and `dial6`. Explicit source binding
+errors fail the dial; they do not trigger an unbound retry.
+
+### SOCKS credentials
+
+Credentials are split at raw delimiters before each component is decoded once.
+Percent-encode reserved credential characters. For example:
 
 ```text
-portal://<relay-key>@*/tcp4:2006?next=<origin-key>@origin.example/udp6:2017
-portal://<relay-key>@:2000?next=<origin-key>@origin.example/tcp:2006/udp:2017&up=tcp&down=udp
+out=a%3Ab:p%40ss@127.0.0.1:1080
 ```
 
-The local Portal listener and upstream endpoint are independent. The first
-example accepts inbound TLS/TCP over IPv4 and opens the next hop with QUIC/UDP
-over IPv6. A carrier or family chosen locally does not constrain the next hop.
+The decoded username is `a:b` and the password is `p@ss`. Vector's `in` uses
+the same credential parsing rules.
 
-`next` must contain exactly one encoded shared key, `@`, and one endpoint. Its
-host must be concrete; `*` is invalid. It has no inner query or fragment.
-`up`, `down`, `mux`, `sni`, `pin`, and `morph` remain query parameters of the outer
-Portal URL. The nested key follows the same strict format as the listener key.
-Percent escapes in the nested key are decoded once when upstream credentials
-are built. Generate a separate key for every hop and configure both peers with
-that hop's exact key.
+## Egress URL
 
-The `dial` IP from the outer Portal URL also constrains native upstream
-connections. The selected endpoint family and the local `dial` family must
-both match a resolved upstream address. No connection crosses an explicit
-family boundary to recover from a failure. In dual-stack source mode,
-`dial4` and `dial6` only bind matching candidates; an unused family binding is
-allowed (for example, `next=<generated-key>@host/tcp4:2000&dial6=::1`).
+Egress accepts `sni`, `pin`, `morph`, `rate`, `etar`, `log` and target `dial*`.
+Connection options have the same defaults as Vector. Transport is fixed to QUIC.
 
-## Option scope
-
-```text
-Portal URL
-    |
-    +-- listener: endpoint path, tls, crt, key, morph
-    +-- relay:    rate, etar, dial or dial4/dial6, log
-    |
-    +-- outbound path
-          |
-          +-- direct target access
-          +-- socks  --> SOCKS5 proxy --> target
-          +-- next   --> {up, down, mux, sni, pin, morph} --> Portal
-
-Vector URL
-    |
-    +-- Portal client: up, down, mux, sni, pin, morph
-    +-- SOCKS5 edge:   socks
-    +-- relay:         rate, etar, log
-```
-
-`rate` limits client-to-target traffic and `etar` limits target-to-client
-traffic. The direction names have the same meaning through a native Portal
-chain.
-
-`mix` is a per-flow client policy. A single mixed direction randomly selects
-TLS/TCP or QUIC/UDP; a fixed direction always uses its configured carrier.
-`mix/mix` uses one correlated choice and resolves only to `tcp/tcp` or
-`udp/udp`. The resolved pair is fixed for the flow and is the only value
-written to FlowHeader. Each native Portal hop resolves its policy
-independently.
-
-| `up` ↓ / `down` → | `tcp` | `udp` | `mix` |
-|---|---|---|---|
-| `tcp` | TT | TQ | TT ↔ TQ |
-| `udp` | QT | QQ | QT ↔ QQ |
-| `mix` | TT ↔ QT | TQ ↔ QQ | TT ↔ QQ |
-
-T means TLS/TCP and Q means QUIC/UDP; uplink is written first. `↔` marks the
-two routes eligible for the initial random choice and the single pre-commit
-fallback.
-
-The primary route must acquire all lanes within `NOW_MIX_FALLBACK_TIMEOUT`
-(default `1s`). Failure or timeout discards its local resources and starts the
-other allowed route once with a new flow ID. READY failures, target dial
-failures, and established payload failures do not trigger fallback. The policy
-has no health score or circuit breaker. Both carriers must be declared for
-`mix`; a single-carrier endpoint rejects a policy that selects the absent
-carrier.
-
-With `mux=1`, one session shares a pool of at most eight full-duplex TLS carriers.
-New flows reuse idle carriers; when all are busy and a slot is available,
-they establish another carrier. Establishments may run in parallel and count
-against the same eight slots. At capacity, flows choose the lowest credit/queue
-occupancy, breaking ties by live streams plus pending reservations. Connecting
-carriers also accept reservations to balance cold bursts. Existing streams do not migrate, and a full pool
-continues accepting new streams until a carrier's 4,096-stream resource ceiling.
-There is no stream-density target.
-A carrier closes after 30 seconds
-fully idle. With `mux=0`, every TLS-carried
-Flow owns one on-demand lane that closes with the Flow. Mux applies when at
-least one direction is `tcp` or `mix`. `udp/udp&mux=1` canonicalizes to
-`mux=0`.
-
-Portal and Vector use only the fixed ALPN `nw2`. A peer that does not offer
-`nw2` cannot establish a carrier. The `alpn` query is ignored under the
-normal unknown-parameter rule. Portal's `mux` option controls only
-its `next` client. Inbound Portal connections accept a `0xff`-marked Mux carrier
-or an unmarked dedicated lane on the same listener.
-
-Morph is hop-local and has no negotiation or fallback. Both endpoints must
-configure the same value. Compact `HOST:PORT` endpoints apply it to TCP and
-UDP on the shared port; explicit paths apply it only to the carrier entries
-present in the path. Values other than `0` and `1`, including an empty value,
-are configuration errors. Duplicate `morph` keys follow the general rule that
-the first recognized value wins. Every Morph-enabled endpoint on a hop must use
-the same wire contract; Morph has no version negotiation or fallback.
-
-For `tls=2`, `crt` and `key` are native filesystem paths. Quote the complete
-URL when a Windows path, space, `&`, or another shell-significant character is
-present.
-
-## URL parsing rules
-
-- The shared key occupies the URL username. Password userinfo and fragments are
-  invalid.
-- Endpoints use either `HOST:PORT` or
-  `HOST/CARRIER:PORT[/CARRIER:PORT]`; the forms cannot be combined. Empty path
-  segments, trailing slashes, unknown or duplicate carriers, and zero ports are
-  invalid.
-- Portal allows `*` as the wildcard listen host. The compact
-  `portal://<generated-key>@:port` form is equivalent to `*`; explicit
-  carrier paths require a host. Vector and `next` reject `*`.
-- IP literals must agree with an explicit `4` or `6` carrier suffix. Hostnames
-  are filtered to the selected address family.
-- Reserved bytes in shared keys, nested credentials, and query values use
-  percent encoding.
-- Recognized query keys use their first occurrence. Later duplicates and
-  unknown keys are ignored.
-- The `net` query is an unknown parameter and has no effect. `/tcp:PORT` and
-  `/udp:PORT` select a single carrier; compact endpoints enable both carriers.
-- `socks=user:pass@host:port` enables RFC 1929 authentication. Omitting the
-  credentials enables SOCKS5 no-auth.
-
-The following inputs fail validation before a Portal or Vector reaches its
-running state:
-
-| Invalid shape | Reason |
+| Connection | Source selection |
 |---|---|
-| `host:2000/tcp:2006` | Compact authority port and carrier path are mutually exclusive |
-| `host/tcp:2006/` | Trailing slash creates an empty carrier segment |
-| `host/tcp:2006/tcp6:2006` | TCP is declared more than once |
-| `host/sctp:2000` | Carrier name is unknown |
-| `192.0.2.1/tcp6:2006` | IPv4 literal conflicts with IPv6-only TCP |
-| `host/tcp:0` | Carrier ports are limited to `1..=65535` |
-| `*/tcp:2006` on Vector or `next` | Wildcard is limited to Portal listeners |
+| Egress to Portal | Ordinary automatic source selection |
+| Egress to Target | `dial`, or `dial4`/`dial6`, if configured |
 
-Errors identify the role and invalid endpoint component, exit with a nonzero
-status, and do not print shared keys. Dot segments, including percent-encoded
-forms, are rejected before a URL parser can normalize the path.
+Target `dial*` also applies to Egress's target DNS work. Egress waits for ACCEPTED
+before target dialing, even if a business Stream arrives first. A reconnect
+creates a new connection and does not recover previous Flows.
 
-## Environment
+## Parsing and effective configuration
 
-Durations use humantime syntax such as `250ms`, `15s`, `2m`, or `1h`.
+Unknown parameters and their values are ignored. For recognized parameters,
+the first duplicate wins; an invalid first value is an error. Portal defaults
+to `out=direct` when `out` is absent. Unknown parameters do not change that default.
+
+| Query | Result |
+|---|---|
+| `net=tcp&net=udp` | Vector selects TLS |
+| `net=invalid&net=tcp` | Configuration error |
+| An unknown parameter with no `out` | Portal keeps its default direct output |
+
+Startup INFO uses `Vector starting:`, `Portal starting:` or `Egress starting:`
+followed by a redacted role URL. Query fields use `&` and have a fixed order:
+
+| Role | Field order |
+|---|---|
+| Vector | `in`, `net`, `sni`, `pin`, `morph`, `rate`, `etar`, `log` |
+| Portal | `out`, `tls`, applicable `dial*`, `morph`, `rate`, `etar`, `log` |
+| Egress | `sni`, `pin`, `dial*`, `morph`, `rate`, `etar`, `log` |
+
+The order groups ingress or output selection, transport and certificate
+verification, target dialing, Morph, traffic limits and logging. Defaults are explicit.
+`dial*` is either `dial` or `dial4` followed by `dial6`; omitted family bindings
+appear as `auto`. Portal with `out=egress` omits `dial*`. Egress omits `net`
+because its Portal connection always uses QUIC.
+
+Shared Key and SOCKS credentials are absent. Portal omits `crt` and `key`,
+including when `tls=2`; certificate loading and validation still apply.
+Unknown and inapplicable options are omitted. Environment-based runtime budgets
+and timeouts are documented separately below. The URL is a diagnostic view;
+credentials and certificate files must be supplied separately to launch a service.
+[Telemetry metadata](telemetry.md#privacy-and-trust) reports only pin presence.
+
+## Runtime environment
+
+Set environment variables before starting the service. Byte sizes use integer
+values; duration settings use values such as `5s` or `250ms`.
 
 | Variable | Default | Purpose |
-|---|---:|---|
-| `NOW_MORPH_TCP_PRELUDE` | `full8` | Client TCP Morph prelude policy: `low7` (7-bit Random) or `full8` (8-bit Random) |
-| `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC and TLS Mux profile: `memory`, `balanced`, or `throughput` |
-| `NOW_QUIC_UDP_QUEUE_BYTES` | `4 MiB` | QUIC datagram and reassembly byte budget |
-| `NOW_FLOW_PAIR_TIMEOUT` | `15s` | Portal split-flow pairing deadline |
-| `NOW_FLOW_SETUP_TIMEOUT` | `20s` | Client wait for `SetupResult` |
-| `NOW_MIX_FALLBACK_TIMEOUT` | `1s` | Primary Mix route preparation budget before fallback |
-| `NOW_TCP_DATA_BUF_SIZE` | `32 KiB` | Per-direction TCP relay buffer size |
-| `NOW_UDP_DATA_BUF_SIZE` | `64 KiB` | UDP target receive buffer size |
-| `NOW_TCP_DIAL_TIMEOUT` | `15s` | Portal TCP target dial deadline |
-| `NOW_UDP_DIAL_TIMEOUT` | `15s` | Portal UDP target setup deadline |
-| `NOW_TCP_READ_TIMEOUT` | `30s` | Opposite-direction TCP half-close grace period |
-| `NOW_UDP_IDLE_TIMEOUT` | `2m` | UDP flow and QUIC idle timeout |
-| `NOW_HANDSHAKE_TIMEOUT` | `5s` | TLS, authentication, and request phase deadline |
-| `NOW_TELEMETRY_INTERVAL` | `1s` | TUI sample period; accepted range is `250ms..60s` |
-| `NOW_SERVICE_COOLDOWN` | `3s` | Client transport reconnect delay |
-| `NOW_SHUTDOWN_TIMEOUT` | `5s` | Graceful shutdown deadline |
-| `NOW_RELOAD_INTERVAL` | `1h` | Supplied-certificate reload interval |
+|---|---|---|
+| `NOW_TCP_DATA_BUF_SIZE` | `32768` | TCP copy buffer bytes |
+| `NOW_UDP_DATA_BUF_SIZE` | `65536` | UDP buffer bytes |
+| `NOW_TCP_DIAL_TIMEOUT`, `NOW_UDP_DIAL_TIMEOUT` | `15s` | Target dial limits |
+| `NOW_HANDSHAKE_TIMEOUT` | `5s` | Transport/authentication limit |
+| `NOW_FLOW_SETUP_TIMEOUT` | `20s` | Flow setup limit |
+| `NOW_TCP_READ_TIMEOUT` | `30s` | TCP half-close completion limit |
+| `NOW_UDP_IDLE_TIMEOUT` | `120s` | UDP Flow/QUIC idle limit |
+| `NOW_QUIC_UDP_QUEUE_BYTES` | `4194304` | Connection-wide queue/reassembly reservation |
+| `NOW_SHUTDOWN_TIMEOUT` | `5s` | Bounded drain |
+| `NOW_TELEMETRY_INTERVAL` | `1s` | Sampling interval; allowed `250ms`–`60s` |
+| `NOW_RELOAD_INTERVAL` | `1h` | Supplied certificate reload |
+| `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect backoff |
+| `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
+| `NOW_MORPH_TCP_PRELUDE` | `full8` | Morph prelude mode: `full8` or `low7` |
 
-TLS Mux shares the transport profile's 4/8, 8/16, or 16/32 MiB stream/connection
-receive windows with QUIC. A Mux carrier retains at most 4,096 active and
-locally closed flow states and
-has 512 queued frame slots; queued payload remains charged against the connection
-window. Each flow has at most one DATA frame queued or being written, so a bulk
-writer cannot fill the shared queue. Receive queues are bounded by byte credit
-without blocking unrelated flows on per-flow frame counts. The application
-shares at most eight carriers across both directions and retires
-fully idle shards after 30 seconds. Resource admission
-allows up to 1,024 accepted SOCKS clients and 1,024 active SOCKS UDP targets per
-Vector. Portal pairing admits up to 4,096 active or pending claims per
-authenticated session and 65,536 total. QUIC stream credit
-grows with live and pending QUIC
-flows, reserving setup headroom of at least 64 streams or 25% of that count and
-stopping at the per-session claim budget.
-Stream credit tracks demand without excessive eager allocation.
-Byte budgets and setup, pairing, and idle deadlines apply; per-flow
-Mux metadata and Vector SOCKS target tasks have the resource ceilings described
-above. These do not impose an aggregate limit on Portal sessions or target sockets.
+### QUIC window profiles
 
-Portal and Vector use the same QUIC profile regardless of the client Mux setting.
-The stream/connection/send windows are respectively 4/8/8 MiB for `memory`,
-8/16/16 MiB for `balanced`, and 16/32/32 MiB for `throughput`. These are
-flow-control ceilings, not eager allocations. Larger windows are useful only
-when the required bandwidth-delay product justifies their in-flight memory.
+| Profile | Stream receive | Connection receive | Send window |
+|---|---:|---:|---:|
+| `memory` | 4 MiB | 8 MiB | 8 MiB |
+| `balanced` | 8 MiB | 16 MiB | 16 MiB |
+| `throughput` | 16 MiB | 32 MiB | 32 MiB |
+
+Portal uses a 64 KiB connection receive window before authentication and raises
+it after success. Transport windows are separate from UDP application budgets
+and do not represent total process memory.
+
+Telemetry samples inside every service process, even without IPC subscribers
+or stdout logging. See [Telemetry](telemetry.md) for the observation contract.
