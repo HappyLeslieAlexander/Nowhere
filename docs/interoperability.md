@@ -1,106 +1,75 @@
 # Interoperability
 
-## Peer contract
+Implement compatible peers using the byte layouts, ordering and lifetime rules
+of the [Nowhere Wire Protocol](protocol.md).
 
-The `nw2` contract is fixed under the
-[protocol compatibility policy](protocol.md#protocol-status-and-compatibility).
-Product versions evolve independently. Incompatible changes require a distinct
-protocol identifier and explicit out-of-band selection for pre-ALPN Morph.
+## Contents
 
-Every TLS/TCP and QUIC/UDP carrier uses TLS 1.3 and the ALPN `nw2`. The client
-offers `nw2`, and the server accepts a carrier only when TLS selects it. The
-authentication derivation, flow headers, setup results, and Mux frames follow
-the [Nowhere wire protocol](protocol.md).
+- [Transport and authentication](#transport-and-authentication)
+- [Flow direction and framing](#flow-direction-and-framing)
+- [UDP delivery and lifetime](#udp-delivery-and-lifetime)
+- [Morph](#morph)
+- [Reference vectors and observation](#reference-vectors-and-observation)
 
-Portal and Vector use the same wire contract. Alternate clients and native
-Portal chains follow it as peers rather than relying on a separately versioned
-SDK.
+## Transport and authentication
 
-V2 uses 7-byte Mux headers and 4-byte QUIC UDP base headers (12 bytes for
-fragments), with a shared 30-bit flow ID range. The `nw2` protocol fixes these
-frame layouts; peers and every native Portal hop use the same contract.
+| Requirement | Contract |
+|---|---|
+| TLS | TLS 1.3 with certificate trust and hostname verification, or an exact pin |
+| ALPN | `nw3` only; other values are rejected without negotiation or fallback |
+| Early data | 0-RTT is disabled, including on resumed connections |
+| Shared Key | Exactly 32 lowercase hexadecimal text characters after one percent decode; used as text bytes |
+| Authentication | A 16-byte tag bound to role, transport and the normal TLS exporter |
 
-## Key and security policy
+The role KDF distinguishes Vector and Egress. A shared credential grants both
+role authorities; derivation does not create independent permissions.
 
-Portal requires listener and enabled `next` keys to match `[0-9a-f]{32,64}`
-after URL percent decoding. Generate a fresh key with `nowhere generate-key`
-and configure all peers on that hop with its exact output. Each native hop
-should have an independently generated key. Authentication and Morph use the
-complete ASCII text bytes, without hex decoding. Vector and toolbox client
-parsers accept 1–255 decoded key bytes; Portal admission requires 32–64
-lowercase hex characters, including odd lengths.
+## Flow direction and framing
 
-System CA and server-name verification are the default for native Nowhere
-clients. Self-signed Portals require an exact certificate pin obtained through
-a trusted channel. Remote `fingerprint` inspection alone does not establish
-trust. These configuration policies tighten security without changing frames.
+Each connection has one business Stream initiator:
 
-## Endpoint contract
-
-Portal listeners, Vector remotes, and Portal `next` endpoints share two forms:
-
-```text
-HOST:PORT
-HOST/CARRIER:PORT[/CARRIER:PORT]
-```
-
-The compact form declares TLS/TCP and QUIC/UDP on one numeric port. The explicit
-form declares only the listed carriers and may select separate ports or address
-families. An empty Portal host, as in `portal://<generated-key>@:2000`, selects the wildcard
-listener. Vector and `next` endpoints require a dialable host.
-
-Endpoint syntax selects local sockets and is not transmitted on the wire. The
-complete grammar and validation rules are in [Configuration](configuration.md).
-
-## Morph contract
-
-Peers use `morph=1` on both ends of a hop or `morph=0` on both ends. Morph has
-no in-band marker or negotiation. TCP begins with one opaque 64-byte client
-prelude and a 12-byte nonce, then uses direction-specific stream keys. The
-receiver consumes the prelude without interpreting it, so the `low7` and
-`full8` sender policies require no server-side selection. UDP carries one
-12-byte nonce per datagram and uses direction-specific datagram keys. The exact
-HKDF labels, counter origin, byte limits, and wire layout are normative in
-[Protocol](protocol.md).
-
-The Morph wire contract is incompatible with Nowhere 2.0.x. Both peers on each
-Morph-enabled hop must implement the same transform. With `morph=0`, the hop
-uses bare TLS/QUIC and has no Morph bootstrap.
-
-Implementations must preserve TCP stream offsets across partial I/O and treat
-each GSO/GRO segment as a separate UDP datagram. QUIC sees the decoded packet
-length; the physical UDP path sees 12 additional bytes. Interoperability tests
-should use fixed derivation and ChaCha20 vectors before attempting a live TLS
-or QUIC handshake.
-
-## TLS lane contract
-
-| Mux setting | TLS behavior | Failure scope |
+| Connection | Transport initiator | Business Flow initiator |
 |---|---|---|
-| `mux=0` | One authenticated connection per logical flow | One flow |
-| `mux=1` | Logical streams share TLS carriers | Every stream on the failed carrier |
+| Vector to Portal over TLS or QUIC | Vector | Vector |
+| Egress to Portal over QUIC | Egress | Portal |
 
-After the 32-byte AuthFrame, `0xff` selects Mux framing; every other valid first
-byte starts a dedicated FlowHeader. Portal accepts both lane forms on the same
-TLS listener.
+Role-direction violations close the connection. Each Flow starts with TCP `0`
+or UDP `1`, followed by the [Target encoding](protocol.md#flowstart-and-target).
+All other FlowStart bits are invalid. READY is required before target payload.
+TLS uses one Flow per connection; QUIC uses one bidirectional Stream per Flow.
+Ordinary Flow errors end the affected Flow.
 
-The Mux pool is full duplex and shared by both logical directions. It opens
-carriers lazily, reuses idle carriers, selects the least occupied carrier at
-capacity, and contains at most eight connecting or established carriers per
-session. A fully idle carrier closes after 30 seconds. Each carrier has a
-4,096-stream resource ceiling.
+## UDP delivery and lifetime
 
-## Route contract
+QUIC UDP IDs derive from the control Stream after direction and range checks.
+IDs are valid only within that connection and cannot be truncated or reused
+across connections. An authentication-only Stream creates no UDP route.
 
-Uplink and downlink independently use TLS/TCP or QUIC/UDP. Every concrete route
-uses the same FlowHeader, Target, pairing, setup-result, and relay semantics.
-`mix` is a local client policy that resolves to a concrete route before the
-FlowHeader is sent.
+UDP control Streams remain open after READY and provide reliable lifetime
+signals. FIN, RESET, STOP_SENDING, idle timeout or connection loss reclaims the
+Flow. DATAGRAM CLOSE is auxiliary; fragments, queues and reassembly stay bounded.
+TLS UDP carries length-prefixed complete packets over its dedicated connection.
 
-| `up` / `down` | `tcp` | `udp` | `mix` |
-|---|---|---|---|
-| `tcp` | TT | TQ | TT or TQ |
-| `udp` | QT | QQ | QT or QQ |
-| `mix` | TT or QT | TQ or QQ | TT or QQ |
+Portal bridges complete business packets. Each side uses its own connection
+identity, Stream-derived ID, fragmentation and path MTU. See
+[UDP flows](protocol.md#udp-flows) and [QUIC datagrams](protocol.md#quic-datagrams).
 
-T denotes TLS/TCP and Q denotes QUIC/UDP, with uplink first.
+## Morph
+
+Peers agree on Shared Key and whether Morph is enabled. Derivation uses
+`nowhere/nw3/morph` as the root domain and `tcp c2s`, `tcp s2c`, `udp c2s`,
+`udp s2c` as direction info. Directions follow the transport initiator and acceptor.
+
+Morph preserves the specified prelude, nonce and ChaCha20 positions. UDP
+segment/GSO/GRO handling preserves datagram boundaries. Follow the
+[Morph specification](protocol.md#morph) exactly.
+
+## Reference vectors and observation
+
+Use the independent [wire vectors](../src/tests/protocol/vectors.json) and
+[Morph vectors](../src/tests/transport/morph.rs) when validating a peer.
+See [Testing](testing.md) for boundary, replay and lifecycle coverage.
+
+Third-party observers implement the [Telemetry JSON contract](telemetry.md).
+They consume public IPC independently of the forwarding protocol, Rust modules
+and status text.
