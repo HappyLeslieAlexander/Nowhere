@@ -108,5 +108,5 @@ fn normalize_rate(rate: i64) -> i64 {
 }
 
 #[cfg(test)]
-#[path = "../tests/transport/rate_bucket.rs"]
+#[path = "../tests/transport/rate_bucket_support.rs"]
 mod test_support;

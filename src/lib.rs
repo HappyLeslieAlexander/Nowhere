@@ -22,5 +22,5 @@ pub use tui::run_tui;
 pub use vector::Vector;
 
 #[cfg(test)]
-#[path = "tests/tls_support.rs"]
+#[path = "tests/common/tls_support.rs"]
 mod tls_test_support;
