@@ -1,427 +1,53 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Vector URL parsing and configuration defaults tests.
+//! Vector carrier selection, defaults, query validation, and effective configuration tests.
 
 use super::*;
-
-fn parse(raw: &str) -> Result<VectorConfig> {
-    VectorConfig::from_url(&Url::parse(raw)?)
+fn parse(query: &str) -> Result<VectorConfig> {
+    VectorConfig::from_url(
+        &Url::parse(&format!(
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?in=127.0.0.1:1080&{query}"
+        ))
+        .unwrap(),
+    )
 }
-
 #[test]
-fn dual_carrier_endpoint_defaults_to_tcp_without_mux() {
-    let config = parse("vector://secret@example.com:2000?socks=:1080").unwrap();
-    assert_eq!(config.up, CarrierMode::Tcp);
-    assert_eq!(config.down, CarrierMode::Tcp);
-    assert_eq!(config.mux, MuxMode::Disabled);
-    assert_eq!(config.sni, None);
-    assert_eq!(config.pin, None);
-    assert_eq!(config.socks.host, "");
-    assert_eq!(config.socks.port, 1080);
-}
-
-#[test]
-fn explicit_endpoints_select_ports_families_and_single_carrier_defaults() {
-    let tcp = parse("vector://secret@example.com/tcp4:2006?socks=:1080").unwrap();
-    assert_eq!(tcp.up, CarrierMode::Tcp);
-    assert_eq!(tcp.down, CarrierMode::Tcp);
-    assert_eq!(tcp.portal_endpoint(), "example.com/tcp4:2006");
-
-    let udp = parse("vector://secret@example.com/udp6:2017?socks=:1080").unwrap();
-    assert_eq!(udp.up, CarrierMode::Udp);
-    assert_eq!(udp.down, CarrierMode::Udp);
-    assert_eq!(udp.mux, MuxMode::Disabled);
-
-    let mixed = parse("vector://secret@example.com/udp6:2017/tcp4:2006?socks=:1080").unwrap();
-    assert_eq!(mixed.portal_endpoint(), "example.com/tcp4:2006/udp6:2017");
-    assert_eq!(mixed.remote.tcp.unwrap().port, 2006);
-    assert_eq!(mixed.remote.udp.unwrap().port, 2017);
-    assert_eq!(mixed.up, CarrierMode::Tcp);
-    assert_eq!(mixed.down, CarrierMode::Tcp);
-    assert_eq!(mixed.mux, MuxMode::Disabled);
-}
-
-#[test]
-fn omitted_directions_keep_independent_tcp_defaults_and_explicit_mux() {
-    for endpoint in ["example.com:2000", "example.com/udp6:2017/tcp4:2006"] {
-        for (query, up, down) in [
-            ("", "tcp", "tcp"),
-            ("&up=udp", "udp", "tcp"),
-            ("&down=udp", "tcp", "udp"),
-            ("&up=mix", "mix", "tcp"),
-            ("&down=mix", "tcp", "mix"),
-        ] {
-            for (mux_query, mux) in [("", MuxMode::Disabled), ("&mux=1", MuxMode::Enabled)] {
-                let raw = format!("vector://secret@{endpoint}?socks=:1080{query}{mux_query}");
-                let config = parse(&raw).unwrap();
-                assert_eq!(config.up.to_string(), up, "{raw}");
-                assert_eq!(config.down.to_string(), down, "{raw}");
-                assert_eq!(config.mux, mux, "{raw}");
-                assert!(
-                    config
-                        .effective_url()
-                        .contains(&format!("up={up}&down={down}&mux={mux}&")),
-                    "{raw}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn policy_must_use_declared_carriers() {
-    for raw in [
-        "vector://secret@example.com/tcp:2006?up=udp&socks=:1080",
-        "vector://secret@example.com/udp:2017?down=tcp&socks=:1080",
-        "vector://secret@example.com/tcp:2006?up=mix&socks=:1080",
-    ] {
-        assert!(parse(raw).is_err(), "accepted {raw}");
-    }
-}
-
-#[test]
-fn tcp_pair_defaults_to_dedicated_lanes() {
+fn defaults_unknown_and_removed_options_are_ignored() {
     let config =
-        parse("vector://secret@example.com:2000?up=tcp&down=tcp&socks=127.0.0.1:1080").unwrap();
-    assert_eq!(config.mux, MuxMode::Disabled);
-}
-
-#[test]
-fn parses_all_route_policies() {
-    let cases = [
-        ("tcp", "tcp"),
-        ("tcp", "udp"),
-        ("udp", "tcp"),
-        ("udp", "udp"),
-        ("mix", "tcp"),
-        ("mix", "udp"),
-        ("tcp", "mix"),
-        ("udp", "mix"),
-        ("mix", "mix"),
-    ];
-    for (up, down) in cases {
-        let config = parse(&format!(
-            "vector://secret@example.com:2000?up={up}&down={down}&socks=:1080"
-        ))
-        .unwrap();
-        assert_eq!(config.up.to_string(), up);
-        assert_eq!(config.down.to_string(), down);
-        assert!(
-            config
-                .effective_url()
-                .contains(&format!("up={up}&down={down}"))
-        );
-    }
-}
-
-#[test]
-fn mux_is_available_for_tcp_or_mix_and_normalized_for_pure_udp() {
-    for (up, down) in [
-        ("tcp", "tcp"),
-        ("tcp", "udp"),
-        ("udp", "tcp"),
-        ("mix", "tcp"),
-        ("mix", "udp"),
-        ("tcp", "mix"),
-        ("udp", "mix"),
-        ("mix", "mix"),
-    ] {
-        let config = parse(&format!(
-            "vector://secret@example.com:2000?up={up}&down={down}&mux=1&socks=:1080"
-        ))
-        .unwrap();
-        assert_eq!(config.mux, MuxMode::Enabled, "up={up} down={down}");
-    }
-
-    let config =
-        parse("vector://secret@example.com:2000?up=udp&down=udp&mux=1&socks=:1080").unwrap();
-    assert_eq!(config.mux, MuxMode::Disabled);
-    assert!(config.effective_url().contains("up=udp&down=udp"));
-    assert!(config.effective_url().contains("&mux=0&"));
-}
-
-#[test]
-fn parses_authenticated_socks_and_preserves_plus() {
-    let config = parse(
-        "vector://secret@example.com:2000?socks=user%2Bname:p%40ss%3Aword@%5B%3A%3A1%5D:1080",
-    )
-    .unwrap();
-    let credentials = config.socks.credentials.unwrap();
-    assert_eq!(credentials.as_pair(), ("user+name", "p@ss:word"));
-    assert_eq!(config.socks.host, "::1");
-}
-
-#[test]
-fn rejects_missing_or_empty_socks() {
-    assert!(parse("vector://secret@example.com:2000").is_err());
-    assert!(parse("vector://secret@example.com:2000?socks=").is_err());
-}
-
-#[test]
-fn ignores_unknown_values_and_keeps_the_first_duplicate() {
-    let config = parse(
-        "vector://secret@example.com:2000?wat=1&%FF=x&alpn=private/2&pool=8&up=tcp&up=udp&down=tcp&socks=:1080&socks=:1081",
-    )
-    .unwrap();
-    assert_eq!(config.up, CarrierMode::Tcp);
-    assert_eq!(config.down, CarrierMode::Tcp);
-    assert_eq!(config.socks.port, 1080);
-    assert!(!config.effective_url().contains("alpn="));
-    assert!(!config.effective_url().contains("pool="));
-}
-
-#[test]
-fn rejects_invalid_selected_values_but_accepts_disabled_identity_options() {
-    assert!(parse("vector://secret@example.com:2000?socks=:1080&up=auto").is_err());
-    assert!(parse("vector://secret@example.com:2000?socks=:1080&rate=-1").is_err());
-    for sni in ["", "none"] {
-        let config = parse(&format!(
-            "vector://secret@example.com:2000?sni={sni}&socks=:1080"
-        ))
-        .unwrap();
-        assert_eq!(config.sni, None);
-        assert!(config.effective_url().contains("&sni=none&"));
-    }
-    for pin in ["", "none"] {
-        let config = parse(&format!(
-            "vector://secret@example.com:2000?pin={pin}&socks=:1080"
-        ))
-        .unwrap();
-        assert_eq!(config.pin, None);
-        assert!(config.effective_url().contains("&pin=none&"));
-    }
-
-    let config = parse("vector://secret@example.com:2000?pin&socks=:1080").unwrap();
-    assert_eq!(config.pin, None);
-}
-
-#[test]
-fn effective_url_uses_canonical_order_and_prints_identity_options() {
-    let config = parse(
-        "vector://secret@example.com:2000?log=debug&alpn=private&mux=1&pool=8&down=tcp&up=tcp&sni=relay.example&pin=abc&etar=2&rate=1&socks=:1080",
-    )
-    .unwrap();
+        parse("rev=garbage&mux=bad&up=udp&down=no&next=bad&socks=bad&unknown=%ZZ").unwrap();
+    assert_eq!(config.net, CarrierMode::Tcp);
     assert_eq!(
         config.effective_url(),
-        "vector://example.com:2000?up=tcp&down=tcp&mux=1&sni=relay.example&pin=abc&rate=1&etar=2&morph=0&socks=:1080"
+        "vector://localhost:2000?in=127.0.0.1:1080&net=tcp&sni=localhost&pin=none&morph=0&rate=0&etar=0&log=info"
     );
+    assert!(!config.effective_url().contains("secret"));
+    assert!(!config.effective_url().contains("rev="));
+    assert!(!config.effective_url().contains("socks="));
+    assert_eq!(parse("net=udp&net=bad").unwrap().net, CarrierMode::Udp);
+    assert!(parse("net=bad&net=udp").is_err());
 }
-
 #[test]
-fn morph_is_strict_optional_and_uses_the_first_value() {
-    let disabled = parse("vector://secret@example.com:2000?socks=:1080").unwrap();
-    assert!(!disabled.morph);
-    assert!(disabled.morph_keys.is_none());
-
-    let enabled = parse("vector://secret@example.com:2000?morph=1&morph=0&socks=:1080").unwrap();
-    assert!(enabled.morph);
-    assert!(enabled.morph_keys.is_some());
-    assert!(enabled.effective_url().contains("&morph=1&"));
-
-    for value in ["", "2", "true"] {
-        assert!(
-            parse(&format!(
-                "vector://secret@example.com:2000?morph={value}&socks=:1080"
-            ))
-            .is_err()
-        );
-    }
-}
-
-#[test]
-fn ignores_removed_alpn_and_validates_mux_inputs() {
-    for raw in [
-        "vector://secret@example.com:2000?socks=:1080&mux=",
-        "vector://secret@example.com:2000?socks=:1080&mux=2",
-        "vector://secret@example.com:2000?socks=:1080&mux=true",
-        "vector://secret@example.com:2000?socks=:1080&mux=-1",
+fn recognized_invalid_values_and_missing_ingress_fail() {
+    for query in [
+        "net=", "net=quic", "morph=2", "rate=-1", "etar=no", "log=bad", "pin=bad",
     ] {
-        assert!(parse(raw).is_err(), "URL unexpectedly accepted: {raw}");
+        assert!(parse(query).is_err(), "{query}");
     }
-    for alpn in [String::new(), "a".repeat(256)] {
-        let config = parse(&format!(
-            "vector://secret@example.com:2000?socks=:1080&alpn={alpn}"
-        ))
-        .unwrap();
-        assert!(!config.effective_url().contains("alpn="));
-    }
+    let url = Url::parse("vector://0123456789abcdef0123456789abcdef@localhost:2000").unwrap();
+    assert!(VectorConfig::from_url(&url).is_err());
+    assert!(PortalClientConfig::from_probe_url(&url).is_ok());
 }
-
 #[test]
-fn preserves_pin_without_early_validation() {
-    for pin in ["abc", "ABCDEF", "not-a-fingerprint"] {
-        let config = parse(&format!(
-            "vector://secret@example.com:2000?pin={pin}&socks=:1080"
-        ))
-        .unwrap();
-        assert_eq!(config.pin.as_deref(), Some(pin));
-    }
-}
-
-#[test]
-fn rejects_invalid_authority_shape() {
-    assert!(parse("vector://example.com:2000?socks=:1080").is_err());
-    assert!(parse("vector://secret:password@example.com:2000?socks=:1080").is_err());
-    assert!(parse("vector://secret@example.com?socks=:1080").is_err());
-    assert!(parse("vector://secret@example.com:2000/?socks=:1080").is_err());
-    assert!(parse("vector://secret@example.com:2000/path?socks=:1080").is_err());
-}
-
-#[test]
-fn normalizes_ipv6_portal_authority() {
-    let config = parse("vector://secret@[::1]:2000?socks=127.0.0.1:1080").unwrap();
-    assert_eq!(config.remote.host, "::1");
-    assert_eq!(config.portal_endpoint(), "[::1]:2000");
-}
-
-#[test]
-fn upstream_authority_decodes_percent_encoded_hex_and_ipv6() {
-    let query = HashMap::from([
-        ("up".to_owned(), "tcp".to_owned()),
-        ("down".to_owned(), "tcp".to_owned()),
-    ]);
-    let (config, credentials) = PortalClientConfig::from_upstream_authority(
-        "%30123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@[::1]:2080",
-        &query,
-        &"::2".into(),
+fn ingress_credentials_split_before_single_decode_and_are_redacted() {
+    let url = Url::parse(
+        "vector://0123456789abcdef0123456789abcdef@localhost:2000?in=a%3Ab:p%2540ss@127.0.0.1:1080",
     )
     .unwrap();
-
-    assert_eq!(config.endpoint(), "[::1]:2080");
-    assert_eq!(config.dial_policy.to_string(), "dial=::2");
+    let config = VectorConfig::from_url(&url).unwrap();
     assert_eq!(
-        credentials,
-        crate::protocol::Credentials::from_shared_key(
-            b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        )
-        .unwrap()
+        config.socks.credentials.as_ref().unwrap().as_pair(),
+        ("a:b", "p%40ss")
     );
-}
-
-#[test]
-fn upstream_morph_derives_from_the_nested_shared_key() {
-    let query = HashMap::from([("morph".to_owned(), "1".to_owned())]);
-    let (config, _) = PortalClientConfig::from_upstream_authority(
-        "23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01@origin.example:2080",
-        &query,
-        &"auto".into(),
-    )
-    .unwrap();
-    let actual = config.morph_keys.unwrap().udp_keys();
-
-    assert_eq!(
-        actual,
-        MorphKeys::derive(b"23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01")
-            .udp_keys()
-    );
-    assert_ne!(actual, MorphKeys::derive(b"outer-key").udp_keys());
-}
-
-#[test]
-fn upstream_authority_decodes_the_shared_key_exactly_once() {
-    let query = HashMap::new();
-    let error = PortalClientConfig::from_upstream_authority(
-        "%2530123456789abcdef0123456789abcdef@origin.example/udp:2080",
-        &query,
-        &"auto".into(),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("32–64 lowercase hexadecimal characters")
-    );
-}
-
-#[test]
-fn upstream_authority_accepts_explicit_carriers() {
-    let query = HashMap::new();
-    let (config, _) = PortalClientConfig::from_upstream_authority(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/tcp6:2006",
-        &query,
-        &"auto".into(),
-    )
-    .unwrap();
-    assert_eq!(config.endpoint(), "origin.example/tcp6:2006");
-    assert_eq!(config.up, CarrierMode::Tcp);
-    assert_eq!(config.down, CarrierMode::Tcp);
-}
-
-#[test]
-fn upstream_authority_requires_unambiguous_key_endpoint_separator() {
-    let query = HashMap::new();
-    for authority in [
-        "missing-separator.example:2080",
-        "part@key@origin.example:2080",
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example",
-        "@origin.example:2080",
-    ] {
-        assert!(
-            PortalClientConfig::from_upstream_authority(authority, &query, &"auto".into()).is_err(),
-            "authority accepted: {authority}"
-        );
-    }
-}
-
-#[test]
-fn upstream_authority_rejects_every_invalid_endpoint_shape() {
-    let query = HashMap::new();
-    for (authority, expected) in [
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@*:2000",
-            "wildcard host is only valid",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example:2000/tcp:2006",
-            "choose either HOST:PORT",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/tcp:2006/",
-            "trailing slash",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/tcp:2006/tcp6:2006",
-            "TCP carrier is declared more than once",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/udp:0",
-            "1..=65535",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/sctp:2000",
-            "unknown carrier",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@192.0.2.1/udp6:2017",
-            "address family does not match",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/tcp:2006?inner=1",
-            "expected shared-key and one endpoint",
-        ),
-        (
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@origin.example/tcp:2006#fragment",
-            "expected shared-key and one endpoint",
-        ),
-        ("bad%GG@origin.example/tcp:2006", "malformed percent escape"),
-    ] {
-        let error = PortalClientConfig::from_upstream_authority(authority, &query, &"auto".into())
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains(expected), "{authority} returned {error:?}");
-        assert!(
-            !error.contains("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@"),
-            "error leaked the next shared key"
-        );
-    }
-}
-
-#[test]
-fn standalone_vector_ignores_portal_source_parameters() {
-    let config = VectorConfig::from_url(&Url::parse("vector://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef@localhost:2000?socks=127.0.0.1:1080&dial=127.0.0.1&dial4=bad&dial6=bad").unwrap()).unwrap();
-    assert_eq!(
-        config.portal_client_config().dial_policy.to_string(),
-        "dial=auto"
-    );
+    assert!(!config.effective_url().contains("p%40ss"));
 }

@@ -4,7 +4,6 @@
 //! Payload-oriented direct and SOCKS5 UDP socket facade.
 
 use std::io::ErrorKind;
-use std::net::SocketAddr;
 use std::ops::Range;
 
 use anyhow::{Context, Result, bail};
@@ -19,13 +18,6 @@ pub(crate) enum OutboundUdpSocket {
 }
 
 impl OutboundUdpSocket {
-    pub(crate) fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        match self {
-            Self::Direct(socket) => socket.local_addr(),
-            Self::Socks(association) => association.socket.local_addr(),
-        }
-    }
-
     pub(crate) async fn send(&self, payload: &[u8], packet: &mut Vec<u8>) -> Result<usize> {
         match self {
             Self::Direct(socket) => socket.send(payload).await.map_err(Into::into),

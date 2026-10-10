@@ -4,13 +4,13 @@
       "type": "hello",
       "data": {
         "instance": {
-          "telemetry_protocol": "nowhere.telemetry",
+          "telemetry_protocol": "nowhere.telemetry.3",
           "id": "0123456789abcdef0123456789abcdef",
           "role": "portal",
           "pid": 42,
           "version": "3.0.0-dev",
           "endpoint": "*:2077",
-          "config_summary": "listen=*:2077 tls=1 rate=0 etar=0 dial=auto morph=0 socks=none next=none",
+          "config_summary": "listen=*:2077 tls=1 rate=0 etar=0 dial=auto morph=0 out=direct log=info",
           "telemetry_interval_ms": 1000
         },
         "lifecycle": "READY",
@@ -49,25 +49,143 @@
       }
     },
     {
-      "type": "access_finish",
+      "type": "access_start",
       "data": {
         "sequence": 2,
-        "truncated": false,
+        "id": 1,
+        "timestamp_ms": 1770000000000,
+        "protocol": "tcp",
+        "client": "C001",
+        "peer": "P001",
+        "target": "example.com:443",
+        "carrier": "tls"
+      }
+    },
+    {
+      "type": "access_finish",
+      "data": {
+        "sequence": 3,
         "id": 1,
         "timestamp_ms": 1770000000462,
         "duration_ms": 462,
         "protocol": "tcp",
         "client": "C001",
-        "path_peers": [
-          "P001"
-        ],
         "target": "example.com:443",
-        "initial_uplink": "tcp",
-        "initial_downlink": "udp",
         "upload_bytes": 1864,
         "download_bytes": 6431,
         "outcome": "success",
-        "error": null
+        "error": null,
+        "peer": "P001",
+        "carrier": "tls"
+      }
+    },
+    {
+      "type": "snapshot",
+      "data": {
+        "sequence": 1,
+        "timestamp_ms": 1770000000000,
+        "uptime_ms": 1000,
+        "tcp_upload_bytes": 0,
+        "tcp_download_bytes": 0,
+        "udp_upload_bytes": 0,
+        "udp_download_bytes": 0,
+        "tls_upload_bytes": 0,
+        "tls_download_bytes": 0,
+        "quic_upload_bytes": 0,
+        "quic_download_bytes": 0,
+        "tls_carriers_active": 0,
+        "quic_carriers_active": 0,
+        "ping_ms": null,
+        "tcp_active": 0,
+        "udp_active": 0,
+        "cpu_percent": null,
+        "rss_bytes": null,
+        "open_fds": null,
+        "egress_online": null
+      }
+    },
+    {
+      "type": "hello",
+      "data": {
+        "instance": {
+          "telemetry_protocol": "nowhere.telemetry.3",
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "role": "vector",
+          "pid": 43,
+          "version": "3.0.0-dev",
+          "endpoint": "relay.example:2000",
+          "config_summary": "portal=relay.example:2000 in=127.0.0.1:1080 net=udp sni=relay.example pin=present morph=0 rate=0 etar=0 log=info",
+          "telemetry_interval_ms": 1000
+        },
+        "lifecycle": "READY",
+        "lifecycle_reason": "LISTENING"
+      }
+    },
+    {
+      "type": "hello",
+      "data": {
+        "instance": {
+          "telemetry_protocol": "nowhere.telemetry.3",
+          "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "role": "egress",
+          "pid": 44,
+          "version": "3.0.0-dev",
+          "endpoint": "relay.example:2000",
+          "config_summary": "portal=relay.example:2000 sni=relay.example pin=present morph=0 dial=auto rate=0 etar=0 log=info",
+          "telemetry_interval_ms": 1000
+        },
+        "lifecycle": "READY",
+        "lifecycle_reason": "LISTENING"
+      }
+    },
+    {
+      "type": "snapshot",
+      "data": {
+        "sequence": 1,
+        "timestamp_ms": 1770000000000,
+        "uptime_ms": 1000,
+        "tcp_upload_bytes": 0,
+        "tcp_download_bytes": 0,
+        "udp_upload_bytes": 0,
+        "udp_download_bytes": 0,
+        "tls_upload_bytes": 0,
+        "tls_download_bytes": 0,
+        "quic_upload_bytes": 0,
+        "quic_download_bytes": 0,
+        "tls_carriers_active": 0,
+        "quic_carriers_active": 0,
+        "ping_ms": null,
+        "tcp_active": 0,
+        "udp_active": 0,
+        "cpu_percent": null,
+        "rss_bytes": null,
+        "open_fds": null,
+        "egress_online": false
+      }
+    },
+    {
+      "type": "snapshot",
+      "data": {
+        "sequence": 1,
+        "timestamp_ms": 1770000000000,
+        "uptime_ms": 1000,
+        "tcp_upload_bytes": 0,
+        "tcp_download_bytes": 0,
+        "udp_upload_bytes": 0,
+        "udp_download_bytes": 0,
+        "tls_upload_bytes": 0,
+        "tls_download_bytes": 0,
+        "quic_upload_bytes": 0,
+        "quic_download_bytes": 0,
+        "tls_carriers_active": 0,
+        "quic_carriers_active": 1,
+        "ping_ms": null,
+        "tcp_active": 0,
+        "udp_active": 0,
+        "cpu_percent": null,
+        "rss_bytes": null,
+        "open_fds": null,
+        "egress_online": true
       }
     }
   ],

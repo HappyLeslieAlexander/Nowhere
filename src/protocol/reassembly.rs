@@ -36,17 +36,6 @@ pub enum ReassemblyDropReason {
     InvalidLength,
 }
 
-impl ReassemblyDropReason {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::MetadataConflict => "conflicting UDP fragment metadata",
-            Self::DuplicateConflict => "conflicting duplicate UDP fragment",
-            Self::ByteLimit => "UDP reassembly resource limit reached",
-            Self::InvalidLength => "invalid UDP fragment length",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReassemblyOutcome<R = ()> {
     Pending {

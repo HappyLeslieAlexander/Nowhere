@@ -1,54 +1,19 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Tests for UDP read cancellation, owned payloads, and MTU drops.
-
-use std::time::Duration;
-
-use bytes::Bytes;
-use tokio::io::AsyncWriteExt;
+//! UDP tunnel payload ownership and receive-budget lifetime tests.
 
 use super::*;
 
-#[tokio::test]
-async fn cancelled_uot_read_retains_partial_length_header() {
-    let (reader, mut writer) = tokio::io::duplex(64);
-    let mut reader: BoxReader = Box::pin(reader);
-    let mut state = UotReadState::default();
-    let mut payload = Vec::new();
-
-    writer.write_all(&[0]).await.unwrap();
-    assert!(
-        tokio::time::timeout(
-            Duration::from_millis(25),
-            state.read_packet(&mut reader, &mut payload),
-        )
-        .await
-        .is_err()
-    );
-    assert_eq!(state.header_read, 1);
-
-    writer.write_all(&[3, b'a', b'b', b'c']).await.unwrap();
-    assert_eq!(
-        state.read_packet(&mut reader, &mut payload).await.unwrap(),
-        Some(3)
-    );
-    assert_eq!(payload, b"abc");
-    assert_eq!(state.header_read, 0);
-}
-
 #[test]
-fn owned_quic_packet_reaches_socks_encoder_without_intermediate_copy() {
+fn owned_quic_packet_retains_budget_until_consumed() {
     let payload = Bytes::from_static(b"zero-copy");
     let pointer = payload.as_ptr();
-    let packet = ReceivedUdpPacket::Owned(payload);
-    assert_eq!(packet.len(), 9);
-    assert_eq!(packet.payload(&[]), b"zero-copy");
+    let budget = Arc::new(tokio::sync::Semaphore::new(9));
+    let permit = crate::common::reserve_udp_budget(budget.clone(), 9).unwrap();
+    let packet = ReceivedUdpPacket::Owned(BudgetedDatagram::new(payload, permit));
     assert_eq!(packet.payload(&[]).as_ptr(), pointer);
-}
-
-#[test]
-fn mtu_drop_is_nonfatal_and_not_accounted_as_delivered() {
-    assert!(quic_datagram_delivered(UdpDatagramSend::Sent));
-    assert!(!quic_datagram_delivered(UdpDatagramSend::DroppedTooLarge));
+    assert_eq!(budget.available_permits(), 0);
+    drop(packet);
+    assert_eq!(budget.available_permits(), 9);
 }

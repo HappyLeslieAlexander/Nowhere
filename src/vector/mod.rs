@@ -3,16 +3,13 @@
 
 //! Native Rust client exposed by the `vector://` command URL.
 
-mod client;
-mod config;
+pub(crate) mod client;
+pub(crate) mod config;
 mod event;
 mod flow;
-mod flow_id;
-mod route;
-mod session;
 mod socks;
-mod tls;
-mod udp_flow;
+pub(crate) mod tls;
+pub(crate) mod udp_flow;
 
 use std::sync::Arc;
 
@@ -27,16 +24,13 @@ pub(crate) use self::client::PortalClient;
 pub(crate) use self::config::PortalClientConfig;
 use self::config::VectorConfig;
 pub(crate) use self::flow::{BoxReader, BoxWriter, OpenFlowError, TcpTunnel, TcpTunnelGuard};
-use self::flow_id::FlowIdAllocator;
-use self::session::{ClientSignals, QuicManager, TlsManager};
-use self::tls::ClientTls;
 pub(crate) use self::tls::fetch_certificate_fingerprint;
 pub(crate) use self::udp_flow::{ReceivedUdpPacket, UdpTunnel, UdpTunnelReceiver, UdpTunnelSender};
 use crate::common::{
-    LatencyTracker, LifeReason, LifeState, Logger, ShutdownSignals, rate_limit_bytes_per_second,
-    shutdown_timeout, tcp_data_buf_size, telemetry_interval, udp_data_buf_size,
+    LifeReason, LifeState, Logger, ShutdownSignals, rate_limit_bytes_per_second, shutdown_timeout,
+    tcp_data_buf_size, telemetry_interval, udp_data_buf_size,
 };
-use crate::protocol::{Credentials, SESSION_ID_LEN};
+use crate::protocol::Credentials;
 use crate::telemetry::TelemetryServer;
 use crate::telemetry::{InstanceRole, TelemetryHub};
 use crate::transport::{Buffers, RateLimiter, Stats};
@@ -45,7 +39,18 @@ const SOCKS_CLIENT_RESOURCE_LIMIT: usize = 1024;
 const SOCKS_UDP_TARGET_RESOURCE_LIMIT: usize = 1024;
 
 pub struct Vector {
+    runtime: ForwardVector,
+}
+struct ForwardVector {
     inner: Arc<VectorInner>,
+}
+impl Vector {
+    pub fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
+        ForwardVector::new(parsed_url, logger).map(|runtime| Self { runtime })
+    }
+    pub async fn run(self) -> Result<()> {
+        self.runtime.run().await
+    }
 }
 
 pub(super) struct VectorInner {
@@ -63,8 +68,8 @@ pub(super) struct VectorInner {
     shutdown: CancellationToken,
 }
 
-impl Vector {
-    pub fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
+impl ForwardVector {
+    fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
         let result = Self::build(parsed_url, logger.clone());
         if result.is_err() {
             logger.flush();
@@ -78,21 +83,13 @@ impl Vector {
             telemetry_interval().context("vector::Vector::new: invalid NOW_TELEMETRY_INTERVAL")?;
         let credentials = Credentials::new(&parsed_url)?;
         let telemetry_summary = format!(
-            "portal={} up={} down={} mux={} morph={} socks={} rate={} etar={} sni={} pin={}",
+            "portal={} in={} {} rate={} etar={} log={}",
             config.portal_endpoint(),
-            config.up,
-            config.down,
-            config.mux,
-            u8::from(config.morph),
             config.socks.endpoint(),
+            config.effective_route(),
             config.rate_mbps,
             config.etar_mbps,
-            config.sni.as_deref().unwrap_or("none"),
-            if config.pin.is_some() {
-                "present"
-            } else {
-                "none"
-            },
+            config.log
         );
         let telemetry = TelemetryHub::for_current_process(
             InstanceRole::Vector,
@@ -158,17 +155,17 @@ impl Vector {
         match TelemetryServer::bind(self.inner.telemetry.clone()) {
             Ok(server) => {
                 telemetry_tasks.spawn(server.run(telemetry_shutdown.clone()));
-                telemetry_tasks.spawn(event::telemetry_loop(
-                    self.inner.clone(),
-                    telemetry_shutdown.clone(),
-                ));
             }
             Err(_) => self.inner.logger.warn(format_args!(
-                "vector::Vector::run: LOCAL_IPC_UNAVAILABLE; continuing without telemetry"
+                "vector::Vector::run: LOCAL_IPC_UNAVAILABLE; continuing without local IPC"
             )),
         }
+        telemetry_tasks.spawn(event::telemetry_loop(
+            self.inner.clone(),
+            telemetry_shutdown.clone(),
+        ));
         self.inner.logger.info(format_args!(
-            "vector::Vector::run: starting: {}",
+            "Vector starting: {}",
             self.inner.config.effective_url()
         ));
         if self.inner.config.socks.authenticated() {
@@ -283,7 +280,3 @@ fn vector_listener_exit_error(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/vector.rs"]
-mod tests;

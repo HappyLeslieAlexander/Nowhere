@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Shared transport flow-control budgets for QUIC and TLS Mux.
+//! Shared transport flow-control budgets for QUIC connections.
 
 use anyhow::{Result, bail};
 

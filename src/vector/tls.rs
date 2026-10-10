@@ -25,17 +25,17 @@ use crate::transport::{MorphKeys, MorphTcpStream};
 
 use super::config::PortalClientConfig;
 
-pub(super) const EXPORTER_LABEL: &[u8] = b"EXPORTER-Nowhere-Auth";
+pub(crate) use crate::protocol::AUTH_EXPORTER_LABEL as EXPORTER_LABEL;
 
 #[derive(Clone)]
-pub(super) struct ClientTls {
+pub(crate) struct ClientTls {
     rustls: Arc<rustls::ClientConfig>,
     server_name: ServerName<'static>,
     morph_keys: Option<MorphKeys>,
 }
 
 impl ClientTls {
-    pub(super) fn new(config: &PortalClientConfig) -> Result<Self> {
+    pub(crate) fn new(config: &PortalClientConfig) -> Result<Self> {
         let provider = Arc::new(ring::default_provider());
         let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
             .with_protocol_versions(&[&rustls::version::TLS13])
@@ -84,13 +84,13 @@ impl ClientTls {
         })
     }
 
-    pub(super) fn quic_client_config(&self) -> Result<quinn::ClientConfig> {
+    pub(crate) fn quic_client_config(&self) -> Result<quinn::ClientConfig> {
         let quic_crypto = QuicClientConfig::try_from(self.rustls.clone())
             .map_err(|error| anyhow!("vector::tls::ClientTls::quic_client_config: {error}"))?;
         Ok(quinn::ClientConfig::new(Arc::new(quic_crypto)))
     }
 
-    pub(super) fn quic_server_name(&self) -> String {
+    pub(crate) fn quic_server_name(&self) -> String {
         match &self.server_name {
             ServerName::DnsName(name) => name.as_ref().to_owned(),
             ServerName::IpAddress(address) => std::net::IpAddr::from(*address).to_string(),
@@ -98,7 +98,7 @@ impl ClientTls {
         }
     }
 
-    pub(super) async fn connect_tcp(
+    pub(crate) async fn connect_tcp(
         &self,
         endpoint: &str,
         dial_policy: &crate::common::DialPolicy,
@@ -118,7 +118,7 @@ impl ClientTls {
         .await
         .map_err(|_| anyhow!("vector::tls::connect_tcp: TLS handshake timeout"))?
         .context("vector::tls::connect_tcp: TLS handshake failed")?;
-        require_nw2(tls.get_ref().1.alpn_protocol())
+        require_nw3(tls.get_ref().1.alpn_protocol())
             .context("vector::tls::connect_tcp: invalid negotiated protocol")?;
         let mut exporter = [0u8; TLS_EXPORTER_LEN];
         tls.get_ref()
@@ -158,17 +158,17 @@ pub(crate) async fn fetch_certificate_fingerprint(config: &PortalClientConfig) -
     Ok(certificate_sha256(certificate))
 }
 
-pub(super) fn require_quic_nw2(connection: &Connection) -> Result<()> {
+pub(crate) fn require_quic_nw3(connection: &Connection) -> Result<()> {
     let handshake = connection
         .handshake_data()
         .ok_or_else(|| anyhow!("vector::tls: QUIC handshake data unavailable"))?
         .downcast::<HandshakeData>()
         .map_err(|_| anyhow!("vector::tls: unexpected QUIC handshake data"))?;
-    require_nw2(handshake.protocol.as_deref())
+    require_nw3(handshake.protocol.as_deref())
         .context("vector::tls: invalid QUIC negotiated protocol")
 }
 
-fn require_nw2(alpn: Option<&[u8]>) -> Result<()> {
+fn require_nw3(alpn: Option<&[u8]>) -> Result<()> {
     match alpn {
         Some(ALPN) => Ok(()),
         Some(_) => bail!("unsupported negotiated ALPN"),

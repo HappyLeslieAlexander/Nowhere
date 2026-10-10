@@ -7,6 +7,12 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 pub(crate) fn server_certificate_pin(server: &rustls::ServerConfig) -> String {
+    crate::common::certificate_sha256(&server_certificate_der(server))
+}
+
+pub(crate) fn server_certificate_der(
+    server: &rustls::ServerConfig,
+) -> rustls::pki_types::CertificateDer<'static> {
     let mut client_config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -27,5 +33,5 @@ pub(crate) fn server_certificate_pin(server: &rustls::ServerConfig) -> String {
         .cert_resolver
         .resolve(accepted.client_hello())
         .unwrap();
-    crate::common::certificate_sha256(&key.cert[0])
+    key.cert[0].clone()
 }

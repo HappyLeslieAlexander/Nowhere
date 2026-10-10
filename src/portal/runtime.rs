@@ -1,185 +1,173 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Portal runtime orchestration, listener supervision, and bounded flow drain.
+//! Portal listener supervision, independent telemetry, and graceful shutdown.
 
-use anyhow::{Context, Result};
-use quinn::Endpoint;
-use tokio::net::TcpListener;
-use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
-
+use super::{Portal, PortalInner, conn};
 use crate::common::{LifeReason, LifeState, ShutdownSignals};
 use crate::telemetry::TelemetryServer;
-
-use super::listener::{accept_endpoint_loop, accept_tcp_loop, listen_endpoint, listen_tcp};
-use super::{Portal, event};
-
+use anyhow::{Context, Result};
+use std::sync::Arc;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 mod binding;
-mod shutdown;
-
-struct ShutdownTrigger {
-    reason: LifeReason,
-    failure: Option<anyhow::Error>,
-}
-
-struct RunningPortal {
-    portal: Portal,
-    signals: ShutdownSignals,
-    endpoints: Vec<Endpoint>,
-    quic_listeners: JoinSet<()>,
-    tcp_listener_tasks: JoinSet<()>,
-    telemetry_tasks: JoinSet<()>,
-    telemetry_shutdown: CancellationToken,
-    stop_accepting: CancellationToken,
-    force_shutdown: CancellationToken,
-}
-
 impl Portal {
     pub async fn run(self) -> Result<()> {
-        self.inner.telemetry.set_lifecycle(
+        let forward = &self.inner.forward;
+        forward.telemetry.set_lifecycle(
             LifeState::Starting.to_string(),
             LifeReason::Startup.to_string(),
         );
-
-        let mut signals = match ShutdownSignals::new()
-            .context("portal::run: failed to install shutdown signal handlers")
-        {
-            Ok(signals) => signals,
-            Err(error) => return self.start_failed(error),
-        };
-        let endpoints = match self.listen_endpoints() {
-            Ok(endpoints) => endpoints,
-            Err(error) => return self.start_failed(error),
-        };
-        let tcp_listeners = match self.listen_tcp_listeners() {
-            Ok(listeners) => listeners,
-            Err(error) => return self.start_failed(error),
-        };
+        let mut signals = ShutdownSignals::new()?;
+        let tcp = self.listen_tcp_listeners()?;
+        let endpoints = self.listen_endpoints()?;
+        let stop = CancellationToken::new();
+        let mut listeners = JoinSet::new();
+        for listener in tcp {
+            let portal = self.inner.clone();
+            let stop = stop.clone();
+            listeners.spawn(async move {
+                tcp_loop(portal, listener, stop).await;
+                LifeReason::TcpListenerExit
+            });
+        }
         for endpoint in &endpoints {
-            if let Ok(address) = endpoint.local_addr() {
-                self.inner
-                    .logger
-                    .info(format_args!("portal::run: listening on QUIC/UDP {address}"));
-            }
+            let portal = self.inner.clone();
+            let stop = stop.clone();
+            let endpoint = endpoint.clone();
+            listeners.spawn(async move {
+                quic_loop(portal, endpoint, stop).await;
+                LifeReason::QuicListenerExit
+            });
         }
-        for listener in &tcp_listeners {
-            if let Ok(address) = listener.local_addr() {
-                self.inner
-                    .logger
-                    .info(format_args!("portal::run: listening on TLS/TCP {address}"));
-            }
-        }
-        let telemetry_shutdown = CancellationToken::new();
-        let mut telemetry_tasks: JoinSet<()> = JoinSet::new();
-        match TelemetryServer::bind(self.inner.telemetry.clone()) {
+        let telemetry_stop = CancellationToken::new();
+        let mut observation = JoinSet::new();
+        match TelemetryServer::bind(forward.telemetry.clone()) {
             Ok(server) => {
-                telemetry_tasks.spawn(server.run(telemetry_shutdown.clone()));
-                telemetry_tasks.spawn(event::telemetry_loop(
-                    self.inner.clone(),
-                    telemetry_shutdown.clone(),
-                ));
+                observation.spawn(server.run(telemetry_stop.clone()));
             }
-            Err(_) => self.inner.logger.warn(format_args!(
-                "portal::run: LOCAL_IPC_UNAVAILABLE; continuing without telemetry"
+            Err(_) => forward.logger.warn(format_args!(
+                "Portal: LOCAL_IPC_UNAVAILABLE; continuing without local IPC"
             )),
         }
-
-        self.log_info("starting");
-        let stop_accepting = CancellationToken::new();
-        let force_shutdown = CancellationToken::new();
-
-        let mut quic_listeners = JoinSet::new();
-        for endpoint in endpoints.iter().cloned() {
-            let portal = self.inner.clone();
-            let stop_accepting = stop_accepting.clone();
-            let force_shutdown = force_shutdown.clone();
-            quic_listeners.spawn(async move {
-                accept_endpoint_loop(portal, endpoint, stop_accepting, force_shutdown).await;
-            });
-        }
-
-        let mut tcp_listener_tasks = JoinSet::new();
-        for listener in tcp_listeners {
-            let portal = self.inner.clone();
-            let stop_accepting = stop_accepting.clone();
-            let force_shutdown = force_shutdown.clone();
-            tcp_listener_tasks.spawn(async move {
-                accept_tcp_loop(portal, listener, stop_accepting, force_shutdown).await;
-            });
-        }
-
-        self.inner.telemetry.set_lifecycle(
+        let f = forward.clone();
+        let sample_stop = telemetry_stop.clone();
+        let interval = self.inner.runtime.telemetry_interval;
+        observation.spawn(async move {
+            let mut ticks = tokio::time::interval(interval);
+            loop {
+                tokio::select! {
+                    _ = sample_stop.cancelled() => break,
+                    _ = ticks.tick() => {
+                        let ping = match &f.outbound {
+                            super::forward::Outlet::Network(dialer) => dialer.ping_ms(),
+                            super::forward::Outlet::Egress(slot) => slot.connection().map_or(0, |q| q.connection.rtt().as_millis().max(1) as u64),
+                        };
+                        f.telemetry.capture_and_publish(&f.stats, ping);
+                    }
+                }
+            }
+        });
+        forward
+            .logger
+            .info(format_args!("Portal starting: {}", self.inner.effective));
+        forward.telemetry.set_lifecycle(
             LifeState::Ready.to_string(),
             LifeReason::Listening.to_string(),
         );
-        let trigger = tokio::select! {
-            signal = signals.recv() => match signal {
-                Ok(reason) => ShutdownTrigger { reason, failure: None },
-                Err(error) => ShutdownTrigger {
-                    reason: LifeReason::SigInt,
-                    failure: Some(error.context("portal::run: shutdown signal stream failed")),
-                },
-            },
-            result = quic_listeners.join_next(), if !quic_listeners.is_empty() => {
-                ShutdownTrigger {
-                    reason: LifeReason::QuicListenerExit,
-                    failure: Some(listener_exit_error("QUIC", result)),
-                }
-            },
-            result = tcp_listener_tasks.join_next(), if !tcp_listener_tasks.is_empty() => {
-                ShutdownTrigger {
-                    reason: LifeReason::TcpListenerExit,
-                    failure: Some(listener_exit_error("TCP", result)),
-                }
-            },
-        };
-
-        RunningPortal {
-            portal: self,
-            signals,
-            endpoints,
-            quic_listeners,
-            tcp_listener_tasks,
-            telemetry_tasks,
-            telemetry_shutdown,
-            stop_accepting,
-            force_shutdown,
-        }
-        .shutdown(trigger)
+        let reason = tokio::select! {reason=signals.recv()=>reason?,exit=listeners.join_next()=>exit.and_then(Result::ok).unwrap_or(LifeReason::QuicListenerExit)};
+        forward
+            .telemetry
+            .set_lifecycle(LifeState::Draining.to_string(), reason.to_string());
+        stop.cancel();
+        forward.shutdown.cancel();
+        let drained = tokio::time::timeout(self.inner.runtime.shutdown_timeout, async {
+            while listeners.join_next().await.is_some() {}
+        })
         .await
-    }
-
-    fn start_failed(&self, error: anyhow::Error) -> Result<()> {
-        self.inner.telemetry.set_lifecycle(
-            LifeState::Stopped.to_string(),
-            LifeReason::StartFailed.to_string(),
-        );
-        self.inner.logger.flush();
-        Err(error)
-    }
-
-    fn log_info(&self, prefix: &str) {
-        self.inner.logger.info(format_args!(
-            "portal::run: {prefix}: {}",
-            self.effective_url()
-        ));
-    }
-}
-
-fn listener_exit_error(
-    name: &str,
-    result: Option<std::result::Result<(), tokio::task::JoinError>>,
-) -> anyhow::Error {
-    match result {
-        Some(Ok(())) => anyhow::anyhow!("portal::run: {name} listener exited unexpectedly"),
-        Some(Err(error)) => {
-            anyhow::anyhow!("portal::run: {name} listener task failed: {error}")
+        .is_ok();
+        if drained {
+            forward.telemetry.set_lifecycle(
+                LifeState::Draining.to_string(),
+                LifeReason::Drained.to_string(),
+            );
         }
-        None => anyhow::anyhow!("portal::run: {name} listener set became empty unexpectedly"),
+        listeners.abort_all();
+        while listeners.join_next().await.is_some() {}
+        for endpoint in endpoints {
+            endpoint.close(0u32.into(), b"shutdown");
+        }
+        forward.telemetry.set_lifecycle(
+            LifeState::Stopped.to_string(),
+            if drained {
+                LifeReason::CleanupComplete
+            } else {
+                LifeReason::Timeout
+            }
+            .to_string(),
+        );
+        forward.telemetry.capture_and_publish(&forward.stats, 0);
+        telemetry_stop.cancel();
+        while observation.join_next().await.is_some() {}
+        forward.logger.flush();
+        Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/portal/runtime.rs"]
-mod family_error_tests;
+pub(super) async fn tcp_loop(
+    portal: Arc<PortalInner>,
+    listener: tokio::net::TcpListener,
+    stop: CancellationToken,
+) {
+    let mut tasks = JoinSet::new();
+    loop {
+        tokio::select! {
+            _ = stop.cancelled() => break,
+            accepted = listener.accept() => match accepted {
+                Ok((stream, peer)) => {
+                    let Some(admission) = portal.unauthenticated_admission.try_acquire(peer.ip()) else { continue; };
+                    let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else { continue; };
+                    let p = portal.clone();
+                    tasks.spawn(async move {
+                        let _permit = permit;
+                        if let Err(error) = conn::tcp(p.clone(), stream, peer, admission).await {
+                            p.forward.logger.debug(format_args!("TLS connection failed: {}", crate::telemetry::diagnostic_reason(&format!("{error:#}"))));
+                        }
+                    });
+                }
+                Err(_) => break,
+            },
+            _ = tasks.join_next(), if !tasks.is_empty() => {},
+        }
+    }
+    while tasks.join_next().await.is_some() {}
+}
+pub(super) async fn quic_loop(
+    portal: Arc<PortalInner>,
+    endpoint: quinn::Endpoint,
+    stop: CancellationToken,
+) {
+    let mut tasks = JoinSet::new();
+    loop {
+        tokio::select! {
+            _ = stop.cancelled() => break,
+            incoming = endpoint.accept() => {
+                let Some(incoming) = incoming else { break; };
+                if !incoming.remote_address_validated() {
+                    let _ = incoming.retry();
+                    continue;
+                }
+                let Some(admission) = portal.unauthenticated_admission.try_acquire(incoming.remote_address().ip()) else { incoming.ignore(); continue; };
+                let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else { incoming.ignore(); continue; };
+                let p = portal.clone();
+                tasks.spawn(async move {
+                    let _permit = permit;
+                    if let Err(error) = conn::quic(p.clone(), incoming, admission).await {
+                        p.forward.logger.debug(format_args!("QUIC connection failed: {}", crate::telemetry::diagnostic_reason(&format!("{error:#}"))));
+                    }
+                });
+            },
+            _ = tasks.join_next(), if !tasks.is_empty() => {},
+        }
+    }
+    while tasks.join_next().await.is_some() {}
+}

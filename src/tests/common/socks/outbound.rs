@@ -37,7 +37,7 @@ async fn tcp_connect_uses_only_no_auth_and_preserves_domain() {
         stream.write_all(&payload).await.unwrap();
     });
 
-    let config = parse(&format!("portal://secret@127.0.0.1:2000?socks={endpoint}")).unwrap();
+    let config = parse(&format!("portal://secret@127.0.0.1:2000?out={endpoint}")).unwrap();
     let dialer = OutboundDialer::new("auto".into(), config);
     let target = Target::domain("target.test", 443).unwrap();
     let mut stream = dialer
@@ -70,7 +70,7 @@ async fn authenticated_connect_cannot_downgrade_to_no_auth() {
     });
 
     let config = parse(&format!(
-        "portal://secret@127.0.0.1:2000?socks=user:pass@{endpoint}"
+        "portal://secret@127.0.0.1:2000?out=user:pass@{endpoint}"
     ))
     .unwrap();
     let dialer = OutboundDialer::new("auto".into(), config);
@@ -126,7 +126,7 @@ async fn udp_associate_wraps_payload_and_keeps_control_alive() {
         assert_eq!(control.read(&mut eof).await.unwrap(), 0);
     });
 
-    let config = parse(&format!("portal://secret@127.0.0.1:2000?socks={endpoint}")).unwrap();
+    let config = parse(&format!("portal://secret@127.0.0.1:2000?out={endpoint}")).unwrap();
     let dialer = OutboundDialer::new("127.0.0.1".into(), config);
     let target = Target::domain("dns.test", 53).unwrap();
     let socket = dialer
@@ -170,7 +170,7 @@ async fn proxy_failure_never_falls_back_to_direct_target() {
             .unwrap();
     });
 
-    let config = parse(&format!("portal://secret@127.0.0.1:2000?socks={proxy_addr}")).unwrap();
+    let config = parse(&format!("portal://secret@127.0.0.1:2000?out={proxy_addr}")).unwrap();
     let dialer = OutboundDialer::new("auto".into(), config);
     let protocol_target = Target::ip(target_addr).unwrap();
     assert!(
@@ -205,7 +205,7 @@ async fn udp_association_ends_when_control_connection_closes() {
         write_test_reply(&mut control, relay_addr).await;
     });
 
-    let config = parse(&format!("portal://secret@127.0.0.1:2000?socks={endpoint}")).unwrap();
+    let config = parse(&format!("portal://secret@127.0.0.1:2000?out={endpoint}")).unwrap();
     let dialer = OutboundDialer::new("auto".into(), config);
     let target = Target::domain("dns.test", 53).unwrap();
     let socket = dialer
@@ -257,7 +257,7 @@ async fn each_udp_flow_uses_a_distinct_association() {
         drop(relays);
     });
 
-    let config = parse(&format!("portal://secret@127.0.0.1:2000?socks={endpoint}")).unwrap();
+    let config = parse(&format!("portal://secret@127.0.0.1:2000?out={endpoint}")).unwrap();
     let dialer = OutboundDialer::new("auto".into(), config);
     let first_target = Target::domain("one.test", 53).unwrap();
     let first = dialer
@@ -387,7 +387,7 @@ async fn socks_control_and_udp_relay_select_sources_independently() {
         v4: Some("127.0.0.1".parse().unwrap()),
         v6: Some("::1".parse().unwrap()),
     };
-    let config = parse(&format!("portal://secret@localhost:2000?socks={proxy}")).unwrap();
+    let config = parse(&format!("portal://secret@localhost:2000?out={proxy}")).unwrap();
     let dialer = OutboundDialer::new(policy, config);
     tokio::time::timeout(Duration::from_secs(3), async {
         let socket = dialer
@@ -450,7 +450,7 @@ async fn socks_tcp_selects_source_without_restricting_the_remote_target_family()
             v4: Some("127.0.0.1".parse().unwrap()),
             v6: Some("::1".parse().unwrap()),
         };
-        let config = parse(&format!("portal://secret@localhost:2000?socks={proxy}")).unwrap();
+        let config = parse(&format!("portal://secret@localhost:2000?out={proxy}")).unwrap();
         let dialer = OutboundDialer::new(policy, config);
         tokio::time::timeout(Duration::from_secs(3), async {
             let mut stream = dialer

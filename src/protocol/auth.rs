@@ -11,15 +11,11 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use url::Url;
 
 use super::util::decode_url_username;
-use super::{SESSION_ID_LEN, SessionId};
 
 pub const TLS_EXPORTER_LEN: usize = 32;
-pub const AUTH_TAG_LEN: usize = 16;
-pub const AUTH_FRAME_LEN: usize = SESSION_ID_LEN + AUTH_TAG_LEN;
-
-const AUTH_ROOT_SALT_LABEL: &[u8] = b"nowhere/nw2/auth-root";
-const AUTH_KEY_INFO: &[u8] = b"authentication";
-
+pub const AUTH_FRAME_LEN: usize = 16;
+pub const AUTH_EXPORTER_LABEL: &[u8] = b"EXPORTER-Nowhere-nw3-Auth";
+const AUTH_ROOT_SALT_LABEL: &[u8] = b"nowhere/nw3/auth-root";
 pub type AuthKey = [u8; 32];
 pub type TlsExporter = [u8; TLS_EXPORTER_LEN];
 pub type AuthFrame = [u8; AUTH_FRAME_LEN];
@@ -27,37 +23,48 @@ pub type AuthFrame = [u8; AUTH_FRAME_LEN];
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum AuthTransport {
-    TlsTcp = 0x01,
-    Quic = 0x02,
+    TlsTcp = 1,
+    Quic = 2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectionRole {
+    Vector,
+    Egress,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Credentials {
-    pub auth_key: AuthKey,
+    pub vector_key: AuthKey,
+    pub egress_key: AuthKey,
 }
 
 impl Credentials {
-    pub(crate) fn for_portal(parsed_url: &Url, context: &str) -> Result<Self> {
+    pub(crate) fn for_service(parsed_url: &Url, context: &str) -> Result<Self> {
         let shared_key = Self::decode_shared_key(parsed_url)
             .map_err(|error| anyhow::anyhow!("{context}: {error}; use nowhere generate-key"))?;
-        if !(32..=64).contains(&shared_key.len())
+        if shared_key.len() != 32
             || !shared_key
                 .iter()
                 .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         {
             bail!(
-                "{context}: shared key must be 32–64 lowercase hexadecimal characters; use nowhere generate-key"
+                "{context}: shared key must be exactly 32 lowercase hexadecimal characters; use nowhere generate-key"
             );
         }
         Self::from_shared_key(&shared_key)
     }
 
     pub fn new(parsed_url: &Url) -> Result<Self> {
-        if parsed_url.password().is_some() {
-            bail!("password credentials are not supported; put the shared key before '@'");
-        }
-        let shared_key = Self::decode_shared_key(parsed_url)?;
-        Self::from_shared_key(&shared_key)
+        Self::for_service(
+            parsed_url,
+            match parsed_url.scheme() {
+                "vector" => "Vector configuration",
+                "egress" => "Egress configuration",
+                "portal" => "Portal listener",
+                _ => "Shared Key",
+            },
+        )
     }
 
     pub(crate) fn decode_shared_key(parsed_url: &Url) -> Result<Vec<u8>> {
@@ -82,93 +89,67 @@ impl Credentials {
             bail!("shared key exceeds the 255-byte limit");
         }
         Ok(Self {
-            auth_key: derive_auth_key(shared_key),
+            vector_key: derive_key(shared_key, b"vector-authentication"),
+            egress_key: derive_key(shared_key, b"egress-authentication"),
         })
     }
-}
-
-pub fn derive_auth_key(shared_key: &[u8]) -> AuthKey {
-    let salt = Sha256::digest(AUTH_ROOT_SALT_LABEL);
-    let auth_root = hmac_sha256(salt.as_ref(), shared_key);
-
-    let mut mac = Hmac::<Sha256>::new_from_slice(&auth_root).expect("HMAC accepts a 32-byte key");
-    mac.update(AUTH_KEY_INFO);
-    mac.update(&[1]);
-    let bytes = mac.finalize().into_bytes();
-    let mut auth_key = [0; 32];
-    auth_key.copy_from_slice(&bytes);
-    auth_key
-}
-
-pub fn encode_auth_frame(
-    auth_key: AuthKey,
-    transport: AuthTransport,
-    exporter: &TlsExporter,
-    session_id: SessionId,
-) -> AuthFrame {
-    let tag = authentication_tag(auth_key, transport, exporter, &session_id);
-    let mut frame = [0; AUTH_FRAME_LEN];
-    frame[..SESSION_ID_LEN].copy_from_slice(&session_id);
-    frame[SESSION_ID_LEN..].copy_from_slice(&tag);
-    frame
-}
-
-pub fn validate_auth_frame(
-    frame: &[u8],
-    auth_key: AuthKey,
-    transport: AuthTransport,
-    exporter: &TlsExporter,
-) -> Result<SessionId> {
-    if frame.len() != AUTH_FRAME_LEN {
-        bail!("protocol::auth::validate_auth_frame: invalid authentication frame");
-    }
-
-    let mut session_id = [0; SESSION_ID_LEN];
-    session_id.copy_from_slice(&frame[..SESSION_ID_LEN]);
-    let expected = authentication_tag(auth_key, transport, exporter, &session_id);
-    if !bool::from(frame[SESSION_ID_LEN..].ct_eq(&expected)) {
-        bail!("protocol::auth::validate_auth_frame: invalid authentication frame");
-    }
-    Ok(session_id)
-}
-
-pub async fn read_auth_frame<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    auth_key: AuthKey,
-    transport: AuthTransport,
-    exporter: &TlsExporter,
-) -> Result<SessionId> {
-    let mut frame = [0; AUTH_FRAME_LEN];
-    reader
-        .read_exact(&mut frame)
-        .await
-        .context("protocol::auth::read_auth_frame: failed to read authentication frame")?;
-    validate_auth_frame(&frame, auth_key, transport, exporter)
-}
-
-fn authentication_tag(
-    auth_key: AuthKey,
-    transport: AuthTransport,
-    exporter: &TlsExporter,
-    session_id: &SessionId,
-) -> [u8; AUTH_TAG_LEN] {
-    let mut mac = Hmac::<Sha256>::new_from_slice(&auth_key).expect("HMAC accepts a 32-byte key");
-    mac.update(&[transport as u8]);
-    mac.update(exporter);
-    mac.update(session_id);
-    let bytes = mac.finalize().into_bytes();
-    let mut tag = [0; AUTH_TAG_LEN];
-    tag.copy_from_slice(&bytes[..AUTH_TAG_LEN]);
-    tag
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(data);
-    let bytes = mac.finalize().into_bytes();
-    let mut output = [0; 32];
-    output.copy_from_slice(&bytes);
-    output
+    mac.finalize().into_bytes().into()
+}
+fn derive_key(shared_key: &[u8], info: &[u8]) -> AuthKey {
+    let salt = Sha256::digest(AUTH_ROOT_SALT_LABEL);
+    let root = hmac_sha256(&salt, shared_key);
+    let mut input = info.to_vec();
+    input.push(1);
+    hmac_sha256(&root, &input)
+}
+pub fn encode_auth_frame(
+    key: AuthKey,
+    transport: AuthTransport,
+    exporter: &TlsExporter,
+) -> AuthFrame {
+    let mut input = [0; TLS_EXPORTER_LEN + 1];
+    input[0] = transport as u8;
+    input[1..].copy_from_slice(exporter);
+    hmac_sha256(&key, &input)[..AUTH_FRAME_LEN]
+        .try_into()
+        .expect("fixed tag")
+}
+pub fn validate_auth_frame(
+    frame: &[u8],
+    credentials: &Credentials,
+    transport: AuthTransport,
+    exporter: &TlsExporter,
+) -> Result<ConnectionRole> {
+    if frame.len() != AUTH_FRAME_LEN {
+        bail!("invalid authentication frame length");
+    }
+    let vector = encode_auth_frame(credentials.vector_key, transport, exporter);
+    let egress = encode_auth_frame(credentials.egress_key, transport, exporter);
+    let is_vector = bool::from(frame.ct_eq(&vector));
+    let is_egress = bool::from(frame.ct_eq(&egress));
+    match (is_vector, is_egress) {
+        (true, false) => Ok(ConnectionRole::Vector),
+        (false, true) if transport == AuthTransport::Quic => Ok(ConnectionRole::Egress),
+        _ => bail!("invalid authentication tag or role"),
+    }
+}
+pub async fn read_auth_frame<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    credentials: &Credentials,
+    transport: AuthTransport,
+    exporter: &TlsExporter,
+) -> Result<ConnectionRole> {
+    let mut frame = [0; AUTH_FRAME_LEN];
+    reader
+        .read_exact(&mut frame)
+        .await
+        .context("failed to read authentication frame")?;
+    validate_auth_frame(&frame, credentials, transport, exporter)
 }
 
 #[cfg(test)]

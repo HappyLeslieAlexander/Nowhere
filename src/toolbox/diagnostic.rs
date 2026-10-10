@@ -20,7 +20,7 @@ pub(super) fn connection_failure_reason(error: &anyhow::Error) -> String {
         ),
         (
             "vector::tls::connect_tcp: invalid negotiated protocol",
-            "Portal did not negotiate nw2 ALPN",
+            "Portal did not negotiate nw3 ALPN",
         ),
         (
             "vector::tls::ClientTls::new: system root loading failed:",
@@ -97,10 +97,6 @@ pub(super) fn connection_failure_reason(error: &anyhow::Error) -> String {
         (
             "vector::tls::connect_tcp: failed to dial",
             "TCP connection failed",
-        ),
-        (
-            "vector::PortalClient::new: failed to generate logical session ID:",
-            "session randomness unavailable",
         ),
         (
             "vector::PortalClient::new: failed to build client TLS policy",

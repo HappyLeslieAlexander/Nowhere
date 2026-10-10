@@ -78,8 +78,8 @@ fn diagnostic_templates_never_publish_arbitrary_error_text() {
     assert_eq!(error_reason("secret-key"), "operation failed");
     assert_eq!(error_reason("application closed"), "application closed");
     assert_eq!(error_reason("idle timeout"), "idle timeout");
-    assert_eq!(error_reason("mux reader failure"), "mux reader failure");
-    assert_eq!(error_reason("mux writer failure"), "mux writer failure");
+    assert_eq!(error_reason("mux reader failure"), "operation failed");
+    assert_eq!(error_reason("mux writer failure"), "operation failed");
     assert_eq!(
         error_reason("flow setup rejected: dial failed"),
         "target connection failed"
@@ -91,18 +91,36 @@ fn diagnostic_templates_never_publish_arbitrary_error_text() {
 }
 
 #[test]
-fn mux_close_reasons_survive_runtime_sanitization() {
+fn removed_route_fallback_messages_are_not_published() {
+    assert_eq!(
+        runtime_message(
+            RuntimeKind::Carrier,
+            RuntimeLevel::Warn,
+            "route failed before commit; retrying alternate carrier: secret-key"
+        ),
+        "Carrier warning"
+    );
+    assert_eq!(
+        runtime_message(
+            RuntimeKind::Carrier,
+            RuntimeLevel::Info,
+            "QUIC carrier replaced"
+        ),
+        "Carrier update"
+    );
+}
+
+#[test]
+fn carrier_close_reasons_survive_runtime_sanitization() {
     for reason in [
         "application closed",
         "idle timeout",
         "unexpected EOF",
-        "mux reader failure",
-        "mux writer failure",
         "protocol error",
     ] {
-        let message = format!("TLS mux carrier disconnected: {reason}");
+        let message = format!("QUIC carrier disconnected: {reason}");
         assert_eq!(
-            runtime_message(RuntimeKind::Mux, RuntimeLevel::Info, &message),
+            runtime_message(RuntimeKind::Carrier, RuntimeLevel::Info, &message),
             message
         );
     }
@@ -186,13 +204,13 @@ fn operator_metadata_preserves_ports_and_effective_options_without_secrets() {
     }
     assert_eq!(
         config_summary(
-            "listen=0.0.0.0:2077 tls=1 rate=100 etar=-1 dial=0.0.0.0 morph=1 socks=127.0.0.1:1080 next=relay.example:3077 next.up=udp next.down=mix next.mux=1 next.sni=relay.example next.pin=012345secret key=secret crt=/private/cert socks_password=secret secret"
+            "listen=0.0.0.0:2077 tls=1 rate=100 etar=-1 dial=0.0.0.0 morph=1 socks=127.0.0.1:1080 next=relay.example:3077 next.up=udp next.mux=1 next.sni=relay.example next.pin=012345secret key=secret crt=/private/cert socks_password=secret secret"
         ),
-        "listen=0.0.0.0:2077 tls=1 rate=100 etar=-1 dial=0.0.0.0 morph=1 socks=127.0.0.1:1080 next=relay.example:3077 next.up=udp next.down=mix next.mux=1 next.sni=relay.example next.pin=present"
+        "listen=0.0.0.0:2077 tls=1 rate=100 etar=-1 dial=0.0.0.0 morph=1"
     );
     assert_eq!(
-        config_summary("socks=user:password@127.0.0.1:1080 sni=bad\x1b[31m mux=secret"),
-        "socks=<redacted>"
+        config_summary("in=user:password@127.0.0.1:1080 sni=bad\x1b[31m mux=secret"),
+        "in=<redacted>"
     );
 }
 
@@ -212,6 +230,18 @@ fn dual_stack_source_summary_retains_only_valid_family_values() {
     );
     assert_eq!(
         config_summary("dial4=::1 dial6=127.0.0.1 dial6=::ffff:192.0.2.1 dial4=secret dial6=bad"),
+        ""
+    );
+}
+
+#[test]
+fn removed_reverse_options_are_excluded_from_effective_config() {
+    for mode in ["0", "1"] {
+        let summary = format!("portal=relay.example:2077 rev={mode} key=secret");
+        assert_eq!(config_summary(&summary), "portal=relay.example:2077");
+    }
+    assert_eq!(
+        config_summary("rev= rev=2 rev=true rev=secret next.rev=1"),
         ""
     );
 }

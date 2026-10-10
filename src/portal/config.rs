@@ -10,7 +10,7 @@ use tokio::sync::Semaphore;
 
 use crate::common::{DEFAULT_TELEMETRY_INTERVAL, MAX_TELEMETRY_INTERVAL, MIN_TELEMETRY_INTERVAL};
 
-use super::DEFAULT_QUIC_UDP_QUEUE_BYTES;
+const DEFAULT_QUIC_UDP_QUEUE_BYTES: usize = 4 * 1024 * 1024;
 
 const DEFAULT_TCP_DATA_BUF_SIZE: usize = 32 * 1024;
 const DEFAULT_UDP_DATA_BUF_SIZE: usize = 64 * 1024;
@@ -21,26 +21,24 @@ const DEFAULT_UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(60 * 60);
-const DEFAULT_FLOW_PAIR_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct PortalRuntimeConfig {
-    pub(super) udp_queue_bytes: usize,
-    pub(super) tcp_data_buf_size: usize,
-    pub(super) udp_data_buf_size: usize,
-    pub(super) tcp_dial_timeout: Duration,
-    pub(super) udp_dial_timeout: Duration,
-    pub(super) tcp_read_timeout: Duration,
-    pub(super) udp_idle_timeout: Duration,
-    pub(super) handshake_timeout: Duration,
-    pub(super) telemetry_interval: Duration,
-    pub(super) shutdown_timeout: Duration,
-    pub(super) reload_interval: Duration,
-    pub(super) flow_pair_timeout: Duration,
+pub(crate) struct PortalRuntimeConfig {
+    pub(crate) udp_queue_bytes: usize,
+    pub(crate) tcp_data_buf_size: usize,
+    pub(crate) udp_data_buf_size: usize,
+    pub(crate) tcp_dial_timeout: Duration,
+    pub(crate) udp_dial_timeout: Duration,
+    pub(crate) tcp_read_timeout: Duration,
+    pub(crate) udp_idle_timeout: Duration,
+    pub(crate) handshake_timeout: Duration,
+    pub(crate) telemetry_interval: Duration,
+    pub(crate) shutdown_timeout: Duration,
+    pub(crate) reload_interval: Duration,
 }
 
 impl PortalRuntimeConfig {
-    pub(super) fn from_env() -> Result<Self> {
+    pub(crate) fn from_env() -> Result<Self> {
         Self::from_source(|name| match std::env::var(name) {
             Ok(value) => Ok(Some(value)),
             Err(std::env::VarError::NotPresent) => Ok(None),
@@ -118,11 +116,6 @@ impl PortalRuntimeConfig {
         )?;
         let reload_interval =
             read_duration(&mut source, "NOW_RELOAD_INTERVAL", DEFAULT_RELOAD_INTERVAL)?;
-        let flow_pair_timeout = read_duration(
-            &mut source,
-            "NOW_FLOW_PAIR_TIMEOUT",
-            DEFAULT_FLOW_PAIR_TIMEOUT,
-        )?;
 
         Ok(Self {
             udp_queue_bytes,
@@ -136,7 +129,6 @@ impl PortalRuntimeConfig {
             telemetry_interval,
             shutdown_timeout,
             reload_interval,
-            flow_pair_timeout,
         })
     }
 }

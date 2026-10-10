@@ -4,13 +4,12 @@
 //! Protocol helpers shared by internal tests.
 
 use anyhow::{Context, Result, bail};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use super::{FlowHeader, FlowResult, SetupResult, Target};
+use super::Target;
 
-pub(crate) use super::datagram::{UdpFrame, decode_udp_frame};
-pub(crate) use super::flow::decode_flow_header;
 pub(crate) use super::reassembly::ReassemblyDropReason;
+pub(crate) use super::request::decode_target;
 
 pub(crate) fn encode_udp_data(flow_id: u32, payload: &[u8]) -> Result<Vec<u8>> {
     if payload.len() > super::datagram::UDP_PACKET_MAX {
@@ -39,16 +38,6 @@ pub(crate) fn encode_udp_data_fragments(
         super::datagram::encode_udp_fragments(flow_id, packet_id, payload, max_datagram_size)?
             .collect(),
     )
-}
-
-pub(crate) fn encode_flow_header(header: FlowHeader) -> Result<[u8; super::FLOW_HEADER_LEN]> {
-    super::write_flow_header(header)
-}
-
-impl FlowHeader {
-    pub(crate) const fn carries_target(self) -> bool {
-        matches!(self.role, super::FlowRole::Duplex | super::FlowRole::Open)
-    }
 }
 
 pub(crate) fn encode_target(target: &Target) -> Result<Vec<u8>> {
@@ -104,16 +93,6 @@ impl Target {
     }
 }
 
-impl SetupResult {
-    pub(crate) const fn is_ready(self) -> bool {
-        matches!(self, Self::Ready)
-    }
-}
-
-pub(crate) fn encode_flow_result(result: FlowResult) -> [u8; 1] {
-    super::result::encode_setup_result(result.into())
-}
-
 pub(crate) fn encode_udp_packet(payload: &[u8]) -> Result<Vec<u8>> {
     let header = super::uot::encode_udp_packet_header(payload.len())?;
     let mut output = Vec::with_capacity(header.len() + payload.len());
@@ -126,9 +105,37 @@ pub(crate) async fn read_udp_packet<R: AsyncRead + Unpin>(
     reader: &mut R,
 ) -> Result<Option<Vec<u8>>> {
     let mut payload = Vec::new();
-    let Some(payload_len) = super::uot::read_udp_packet_into(reader, &mut payload).await? else {
+    let Some(payload_len) = read_udp_packet_into(reader, &mut payload).await? else {
         return Ok(None);
     };
     debug_assert_eq!(payload_len, payload.len());
     Ok(Some(payload))
+}
+
+pub(crate) async fn read_udp_packet_into<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    payload: &mut Vec<u8>,
+) -> Result<Option<usize>> {
+    let mut first = [0; 1];
+    let count = reader
+        .read(&mut first)
+        .await
+        .context("protocol::uot::read_udp_packet: failed to read packet length")?;
+    if count == 0 {
+        payload.clear();
+        return Ok(None);
+    }
+
+    let mut second = [0; 1];
+    reader
+        .read_exact(&mut second)
+        .await
+        .context("protocol::uot::read_udp_packet: truncated packet length")?;
+    let payload_len = u16::from_be_bytes([first[0], second[0]]) as usize;
+    payload.resize(payload_len, 0);
+    reader
+        .read_exact(payload)
+        .await
+        .context("protocol::uot::read_udp_packet: truncated packet payload")?;
+    Ok(Some(payload_len))
 }

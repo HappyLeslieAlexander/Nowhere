@@ -3,231 +3,163 @@
 
 //! Portal construction from URL configuration.
 
-use std::sync::Arc;
-
-use anyhow::Result;
-use tokio_util::sync::CancellationToken;
-use url::Url;
-
+use super::{
+    Portal, PortalInner, admission,
+    egress::EgressSlot,
+    forward::{Forwarder, Outlet},
+};
 use crate::common::{
     DEFAULT_RATE_LIMIT, DialPolicy, Logger, OutboundDialer, ServiceEndpoint, SocksConfig,
-    first_raw_query_value, new_server_configs_with_reload_interval, query_first,
-    rate_limit_bytes_per_second, resolve_bind_addrs,
+    new_server_configs_with_reload_interval, query_first, rate_limit_bytes_per_second,
+    resolve_bind_addrs,
 };
 use crate::protocol::Credentials;
 use crate::telemetry::{InstanceRole, TelemetryHub};
-use crate::transport::MorphKeys;
-use crate::transport::{Buffers, RateLimiter, Stats};
-use crate::vector::{PortalClient, PortalClientConfig};
-
-use super::listener::configure_transport;
-use super::{NetworkMode, Portal, PortalInner, UdpFlowLimits, admission, outbound::PortalOutbound};
-
+use crate::transport::{Buffers, MorphKeys, RateLimiter, Stats};
+use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+use url::Url;
 const PORTAL_QUERY_PARAMETERS: &[&str] = &[
-    "tls", "crt", "key", "rate", "etar", "dial", "dial4", "dial6", "morph", "socks", "log",
+    "tls", "crt", "key", "rate", "etar", "dial", "dial4", "dial6", "morph", "out", "log",
 ];
-const PORTAL_UPSTREAM_PARAMETERS: &[&str] = &["up", "down", "mux", "sni", "pin"];
-
 impl Portal {
-    pub fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
-        Self::new_with_listen_host(parsed_url, None, logger)
-    }
-
     pub fn new_with_listen_host(
-        parsed_url: Url,
+        url: Url,
         listen_host: Option<&str>,
         logger: Logger,
     ) -> Result<Self> {
-        let result = Self::build(parsed_url, listen_host, logger.clone());
-        if result.is_err() {
-            logger.flush();
+        if url.scheme() != "portal" || url.password().is_some() || url.fragment().is_some() {
+            anyhow::bail!("invalid Portal URL");
         }
-        result
-    }
-
-    fn build(parsed_url: Url, listen_host: Option<&str>, logger: Logger) -> Result<Self> {
-        if parsed_url.scheme() != "portal" {
-            anyhow::bail!("Portal configuration: URL scheme must be portal");
-        }
-        if parsed_url.password().is_some() {
-            anyhow::bail!("Portal configuration: password userinfo is not supported");
-        }
-        if parsed_url.fragment().is_some() {
-            anyhow::bail!("Portal configuration: URL fragments are not supported");
-        }
-        let mut query = query_first(&parsed_url, PORTAL_QUERY_PARAMETERS)
-            .map_err(|e| anyhow::anyhow!("Portal configuration: invalid query: {e}"))?;
-        validate_query(&query).map_err(|e| anyhow::anyhow!("Portal configuration: {e}"))?;
-        let mut service_endpoint = ServiceEndpoint::parse(&parsed_url, true, "Portal endpoint")?;
-        let bind_host = listen_host
-            .unwrap_or(service_endpoint.host.as_str())
-            .to_owned();
-        if listen_host == Some("") {
-            service_endpoint.host = "*".to_owned();
-        }
-        let credentials = Credentials::for_portal(&parsed_url, "Portal listener")?;
-        query.extend(query_first(&parsed_url, &["next"]).map_err(|error| {
-            anyhow::anyhow!(
-                "Portal next endpoint: invalid key or endpoint encoding: {error}; use nowhere generate-key"
-            )
-        })?);
-        let morph = query.get("morph").is_some_and(|value| value == "1");
-        let morph_keys = morph
-            .then(|| MorphKeys::from_url(&parsed_url))
+        let query = query_first(&url, PORTAL_QUERY_PARAMETERS)?;
+        validate_query(&query)?;
+        let endpoint = ServiceEndpoint::parse(&url, true, "Portal endpoint")?;
+        let bind_host = listen_host.unwrap_or(&endpoint.host);
+        let credentials = Credentials::for_service(&url, "Portal listener")?;
+        let runtime = super::config::PortalRuntimeConfig::from_env()?;
+        let morph_keys = (query.get("morph").is_some_and(|s| s == "1"))
+            .then(|| MorphKeys::from_url(&url))
             .transpose()?;
-        let runtime = super::config::PortalRuntimeConfig::from_env()
-            .map_err(|e| anyhow::anyhow!("Portal configuration: invalid runtime setting: {e}"))?;
-        let network_mode =
-            NetworkMode::from_carriers(service_endpoint.has_tcp(), service_endpoint.has_udp());
-        let dial_policy = DialPolicy::from_query(&query)
-            .map_err(|e| anyhow::anyhow!("Portal configuration: {e}"))?;
-        let socks = SocksConfig::from_url(&parsed_url)
-            .map_err(|e| anyhow::anyhow!("Portal configuration: invalid socks parameter: {e}"))?;
-        let next = match query.get("next").map(String::as_str) {
-            None | Some("none") => None,
-            Some("") => anyhow::bail!("Portal configuration: next must not be empty"),
-            Some(_) => {
-                query.extend(
-                    query_first(&parsed_url, PORTAL_UPSTREAM_PARAMETERS).map_err(|e| {
-                        anyhow::anyhow!("Portal configuration: invalid upstream query: {e}")
-                    })?,
-                );
-                let raw = first_raw_query_value(&parsed_url, "next")
-                    .expect("decoded next came from the raw query");
-                Some(PortalClientConfig::from_upstream_authority(
-                    raw,
-                    &query,
-                    &dial_policy,
-                )?)
+        let out = query.get("out").map(String::as_str).unwrap_or("direct");
+        let slot = if out == "egress" {
+            if endpoint.udp.is_none() {
+                anyhow::bail!("out=egress requires QUIC listener");
             }
+            if ["dial", "dial4", "dial6"]
+                .iter()
+                .any(|key| query.contains_key(*key))
+            {
+                anyhow::bail!("out=egress conflicts with explicit dial settings");
+            }
+            Some(Arc::new(EgressSlot::default()))
+        } else {
+            None
         };
-        if socks.is_some() && next.is_some() {
-            anyhow::bail!("Portal configuration: socks and next are mutually exclusive");
-        }
-        let rate_limit = parse_rate(&query, "rate")?;
-        let etar_limit = parse_rate(&query, "etar")?;
-
+        let dial = DialPolicy::from_query(&query)?;
+        let socks = if !matches!(out, "direct" | "egress") {
+            SocksConfig::from_url(&url)?
+        } else {
+            None
+        };
+        let out_label = socks
+            .as_ref()
+            .map_or_else(|| out.to_owned(), SocksConfig::endpoint);
+        let rate = parse_rate(&query, "rate")?;
+        let etar = parse_rate(&query, "etar")?;
         let (tls_mode, tls_server_config, mut quic_server_config) =
-            new_server_configs_with_reload_interval(
-                &parsed_url,
-                runtime.reload_interval,
-                logger.clone(),
-            )
-            .map_err(|e| anyhow::anyhow!("Portal configuration: invalid TLS settings: {e}"))?;
-
-        let endpoint_addr = service_endpoint.canonical();
-        let tcp_bind_addrs = service_endpoint
-            .tcp
-            .map(|endpoint| resolve_bind_addrs(&bind_host, endpoint))
-            .transpose()
-            .map_err(|e| anyhow::anyhow!("Portal endpoint: failed to resolve TCP address: {e}"))?
-            .unwrap_or_default();
-        let udp_bind_addrs = service_endpoint
-            .udp
-            .map(|endpoint| resolve_bind_addrs(&bind_host, endpoint))
-            .transpose()
-            .map_err(|e| anyhow::anyhow!("Portal endpoint: failed to resolve UDP address: {e}"))?
-            .unwrap_or_default();
-
-        configure_transport(
+            new_server_configs_with_reload_interval(&url, runtime.reload_interval, logger.clone())?;
+        super::listener::configure_transport(
             &mut quic_server_config,
             runtime.udp_idle_timeout,
-            None,
+            Some(std::time::Duration::from_secs(15)),
             morph_keys.is_some(),
         )?;
-
-        let read_bps = rate_limit_bytes_per_second(rate_limit) as i64;
-        let write_bps = rate_limit_bytes_per_second(etar_limit) as i64;
-        let rate_limiter = RateLimiter::new(read_bps, write_bps).map(Arc::new);
-        let udp_flow_limits = UdpFlowLimits {
-            queue_bytes: runtime.udp_queue_bytes,
-        };
-        let socks_endpoint = socks
-            .as_ref()
-            .map(SocksConfig::endpoint)
-            .unwrap_or_else(|| "none".to_owned());
-        let next_summary = next.as_ref().map_or_else(
-            || "next=none".to_owned(),
-            |(config, _)| {
-                format!(
-                    "next={} {}",
-                    config.endpoint(),
-                    config
-                        .effective_route()
-                        .split_whitespace()
-                        .map(|option| format!("next.{option}"))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                )
+        let log = query.get("log").map(String::as_str).unwrap_or("info");
+        let effective = format!(
+            "portal://{}?out={out_label}&tls={tls_mode}{}&morph={}&rate={rate}&etar={etar}&log={log}",
+            endpoint.canonical(),
+            if slot.is_some() {
+                String::new()
+            } else {
+                format!("&{}", dial.to_string().replace(' ', "&"))
             },
-        );
-        let telemetry_summary = format!(
-            "listen={endpoint_addr} tls={tls_mode} rate={rate_limit} etar={etar_limit} {dial_policy} morph={} socks={socks_endpoint} {next_summary}",
-            u8::from(morph),
+            u8::from(morph_keys.is_some())
         );
         let telemetry = TelemetryHub::for_current_process(
             InstanceRole::Portal,
-            endpoint_addr.clone(),
-            telemetry_summary,
+            endpoint.canonical(),
+            format!(
+                "listen={} out={out_label} tls={tls_mode} rate={rate} etar={etar} morph={}{} log={log}",
+                endpoint.canonical(),
+                u8::from(morph_keys.is_some()),
+                if slot.is_some() {
+                    String::new()
+                } else {
+                    format!(" {dial}")
+                }
+            ),
             runtime.telemetry_interval,
         );
-        let outbound = match next {
-            Some((config, credentials)) => PortalOutbound::portal(PortalClient::new(
-                config,
-                &credentials,
-                Arc::new(Stats::default()),
-                false,
-                telemetry.clone(),
-                CancellationToken::new(),
-            )?),
-            None => PortalOutbound::network(OutboundDialer::new(dial_policy, socks)),
+        if slot.is_some() {
+            telemetry.set_egress_online(Some(false));
+        }
+        let outbound = match &slot {
+            Some(slot) => Outlet::Egress(slot.clone()),
+            None => Outlet::Network(Arc::new(OutboundDialer::new(dial, socks))),
         };
-
+        let forward = Arc::new(Forwarder {
+            runtime,
+            outbound,
+            logger,
+            telemetry,
+            stats: Arc::new(Stats::default()),
+            buffers: Buffers::new(runtime.tcp_data_buf_size, runtime.udp_data_buf_size),
+            rate: RateLimiter::new(
+                rate_limit_bytes_per_second(rate) as i64,
+                rate_limit_bytes_per_second(etar) as i64,
+            )
+            .map(Arc::new),
+            flows: Arc::new(Semaphore::new(1024)),
+            shutdown: CancellationToken::new(),
+        });
         Ok(Self {
             inner: Arc::new(PortalInner {
                 credentials,
                 morph_keys,
-                tls_mode,
-                network_mode,
-                endpoint_addr,
-                tcp_bind_addrs,
-                udp_bind_addrs,
-                allow_tcp_family_degrade: service_endpoint.host == "*"
-                    && service_endpoint.tcp.is_some_and(|endpoint| {
-                        endpoint.family == crate::common::AddressFamily::Any
-                    }),
-                allow_udp_family_degrade: service_endpoint.host == "*"
-                    && service_endpoint.udp.is_some_and(|endpoint| {
-                        endpoint.family == crate::common::AddressFamily::Any
-                    }),
-                udp_listen_port: service_endpoint.udp.map(|endpoint| endpoint.port),
-                outbound,
-                rate_limit,
-                etar_limit,
-                logger,
-                telemetry,
-                drain: CancellationToken::new(),
-                runtime,
-                stats: Arc::new(Stats::default()),
-                buffers: Buffers::new(runtime.tcp_data_buf_size, runtime.udp_data_buf_size),
-                rate_limiter,
-                udp_flow_limits,
+                tcp_bind_addrs: endpoint
+                    .tcp
+                    .map(|e| resolve_bind_addrs(bind_host, e))
+                    .transpose()?
+                    .unwrap_or_default(),
+                udp_bind_addrs: endpoint
+                    .udp
+                    .map(|e| resolve_bind_addrs(bind_host, e))
+                    .transpose()?
+                    .unwrap_or_default(),
+                allow_tcp_family_degrade: endpoint.host == "*"
+                    && endpoint
+                        .tcp
+                        .is_some_and(|e| e.family == crate::common::AddressFamily::Any),
+                allow_udp_family_degrade: endpoint.host == "*"
+                    && endpoint
+                        .udp
+                        .is_some_and(|e| e.family == crate::common::AddressFamily::Any),
                 tls_server_config,
                 quic_server_config,
                 unauthenticated_admission: Arc::new(admission::UnauthenticatedAdmission::new()),
-                pairing: Arc::new(super::pairing::PairingRegistry::new(
-                    runtime.flow_pair_timeout,
-                )),
-                ready_gate: super::tasks::ReadyGate::default(),
-                connection_tasks: Arc::new(super::tasks::FlowTaskTracker::default()),
-                relay_tasks: Arc::new(super::tasks::FlowTaskTracker::default()),
+                connection_admission: Arc::new(Semaphore::new(1024)),
+                forward,
+                egress_slot: slot,
+                effective,
+                runtime,
             }),
         })
     }
 }
-
 fn validate_query(query: &std::collections::HashMap<String, String>) -> Result<()> {
-    for name in ["log", "tls", "crt", "key", "rate", "etar", "dial", "socks"] {
+    for name in ["log", "tls", "crt", "key", "rate", "etar", "dial", "out"] {
         if query.get(name).is_some_and(String::is_empty) {
             anyhow::bail!("empty {name} parameter");
         }
@@ -265,3 +197,7 @@ fn parse_rate(query: &std::collections::HashMap<String, String>, name: &str) -> 
             .ok_or_else(|| anyhow::anyhow!("{name} must be a non-negative integer"))
     })
 }
+
+#[cfg(test)]
+#[path = "../tests/portal/setup.rs"]
+mod tests;

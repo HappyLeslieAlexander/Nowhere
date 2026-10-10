@@ -22,7 +22,6 @@ pub(crate) const REPLY_GENERAL_FAILURE: u8 = 1;
 pub(crate) const REPLY_CONNECTION_NOT_ALLOWED: u8 = 2;
 pub(crate) const REPLY_NETWORK_UNREACHABLE: u8 = 3;
 pub(crate) const REPLY_HOST_UNREACHABLE: u8 = 4;
-pub(crate) const REPLY_TTL_EXPIRED: u8 = 6;
 pub(crate) const REPLY_COMMAND_NOT_SUPPORTED: u8 = 7;
 pub(crate) const REPLY_ADDRESS_NOT_SUPPORTED: u8 = 8;
 

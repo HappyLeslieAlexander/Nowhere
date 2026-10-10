@@ -108,10 +108,6 @@ pub fn flow_setup_timeout() -> Duration {
     env_duration("NOW_FLOW_SETUP_TIMEOUT", Duration::from_secs(20))
 }
 
-pub fn mix_fallback_timeout() -> Duration {
-    env_duration("NOW_MIX_FALLBACK_TIMEOUT", Duration::from_secs(1))
-}
-
 pub fn telemetry_interval() -> Result<Duration> {
     let raw = match std::env::var("NOW_TELEMETRY_INTERVAL") {
         Ok(raw) => Some(raw),
@@ -137,10 +133,6 @@ fn parse_telemetry_interval(raw: Option<&str>) -> Result<Duration> {
         );
     }
     Ok(value)
-}
-
-pub fn service_cooldown() -> Duration {
-    env_duration("NOW_SERVICE_COOLDOWN", Duration::from_secs(3))
 }
 
 pub fn shutdown_timeout() -> Duration {

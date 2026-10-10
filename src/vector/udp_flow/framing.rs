@@ -55,3 +55,7 @@ impl UotReadState {
         Ok(Some(payload_len))
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/vector/udp_flow/framing.rs"]
+mod tests;

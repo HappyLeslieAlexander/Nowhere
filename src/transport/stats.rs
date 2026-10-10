@@ -1,28 +1,49 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Atomic portal traffic and session counters.
+//! Atomic logical flow, carrier payload, and active ownership counters.
 
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
+use crate::protocol::Carrier;
+
+#[derive(Clone, Copy)]
+pub(crate) enum TrafficDirection {
+    Upload,
+    Download,
+}
+
 #[derive(Debug, Default)]
 pub struct Stats {
-    pub tcp_rx: AtomicU64,
-    pub tcp_tx: AtomicU64,
-    pub udp_rx: AtomicU64,
-    pub udp_tx: AtomicU64,
+    pub tcp_upload_bytes: AtomicU64,
+    pub tcp_download_bytes: AtomicU64,
+    pub udp_upload_bytes: AtomicU64,
+    pub udp_download_bytes: AtomicU64,
     pub tcp_active: AtomicI32,
     pub udp_active: AtomicI32,
-    pub link_tcp: AtomicU64,
-    pub link_udp: AtomicU64,
-    pub up_tcp: std::sync::Arc<AtomicU64>,
-    pub up_udp: std::sync::Arc<AtomicU64>,
-    pub down_tcp: std::sync::Arc<AtomicU64>,
-    pub down_udp: std::sync::Arc<AtomicU64>,
+    pub tls_carriers_active: AtomicU64,
+    pub quic_carriers_active: AtomicU64,
+    pub tls_upload_bytes: AtomicU64,
+    pub quic_upload_bytes: AtomicU64,
+    pub tls_download_bytes: AtomicU64,
+    pub quic_download_bytes: AtomicU64,
 }
 
 impl Stats {
-    pub fn add_session(&self, is_udp: bool) {
+    pub(crate) fn payload_counter(
+        &self,
+        carrier: Carrier,
+        direction: TrafficDirection,
+    ) -> &AtomicU64 {
+        match (carrier, direction) {
+            (Carrier::TlsTcp, TrafficDirection::Upload) => &self.tls_upload_bytes,
+            (Carrier::TlsTcp, TrafficDirection::Download) => &self.tls_download_bytes,
+            (Carrier::Quic, TrafficDirection::Upload) => &self.quic_upload_bytes,
+            (Carrier::Quic, TrafficDirection::Download) => &self.quic_download_bytes,
+        }
+    }
+
+    pub fn add_flow(&self, is_udp: bool) {
         if is_udp {
             self.udp_active.fetch_add(1, Ordering::Relaxed);
         } else {
@@ -30,7 +51,7 @@ impl Stats {
         }
     }
 
-    pub fn done_session(&self, is_udp: bool) {
+    pub fn done_flow(&self, is_udp: bool) {
         if is_udp {
             self.udp_active.fetch_sub(1, Ordering::Relaxed);
         } else {

@@ -24,8 +24,7 @@ pub(crate) struct ToolboxClient {
 pub(crate) struct ProbeReport {
     pub(crate) endpoint: String,
     pub(crate) target: String,
-    pub(crate) uplink: &'static str,
-    pub(crate) downlink: &'static str,
+    pub(crate) carrier: &'static str,
     pub(crate) elapsed: Duration,
     pub(crate) result: Result<SetupResult>,
     pub(crate) cleanup: Result<()>,
@@ -58,31 +57,27 @@ impl ToolboxClient {
         let started = Instant::now();
         let opened = tokio::time::timeout(
             handshake_timeout() * 2 + flow_setup_timeout(),
-            client.open_tcp(&target, 0),
+            client.open_tcp(&target),
         )
         .await;
         let elapsed = started.elapsed();
         let mut cleanup = Ok(());
-        let (uplink, downlink, result) = match opened {
+        let (carrier, result) = match opened {
             Ok(Ok(tunnel)) => {
-                let (uplink, downlink) = tunnel.carriers();
+                let carrier = tunnel.carrier();
                 cleanup = tokio::time::timeout(shutdown_timeout(), tunnel.close())
                     .await
                     .context("Flow close timeout")
                     .and_then(|result| result.map_err(Into::into));
-                (
-                    carrier_name(uplink),
-                    carrier_name(downlink),
-                    Ok(SetupResult::Ready),
-                )
+                (carrier_name(carrier), Ok(SetupResult::Ready))
             }
             Ok(Err(error)) => {
                 let result = error
                     .setup_result()
                     .map_or_else(|| Err(anyhow::anyhow!("{error:#}")), Ok);
-                ("—", "—", result)
+                ("—", result)
             }
-            Err(_) => ("—", "—", Err(anyhow::anyhow!("Flow setup timeout"))),
+            Err(_) => ("—", Err(anyhow::anyhow!("Flow setup timeout"))),
         };
         if tokio::time::timeout(
             shutdown_timeout(),
@@ -96,8 +91,7 @@ impl ToolboxClient {
         Ok(ProbeReport {
             endpoint: self.config.endpoint(),
             target: target.to_string(),
-            uplink,
-            downlink,
+            carrier,
             elapsed,
             result,
             cleanup,
@@ -135,9 +129,9 @@ pub async fn probe(url: Url, raw_target: &str) -> Result<bool> {
         ("Portal", report.endpoint),
         ("Target", report.target),
         (
-            "Route",
+            "Carrier",
             if ready {
-                format!("↑ {} · ↓ {}", report.uplink, report.downlink)
+                report.carrier.to_owned()
             } else {
                 "—".to_owned()
             },

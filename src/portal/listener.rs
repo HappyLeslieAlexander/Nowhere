@@ -10,124 +10,18 @@ use anyhow::{Context, Result};
 use quinn::{Endpoint, IdleTimeout, ServerConfig, VarInt, default_runtime};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::net::TcpListener;
-use tokio::time::{Duration, sleep};
-use tokio_util::sync::CancellationToken;
+use tokio::time::Duration;
 
-use crate::telemetry::{RuntimeEvent, RuntimeKind, RuntimeLevel};
 use crate::transport::{
     MorphKeys, configure_morph_mtu, morph_endpoint_config, transport_flow_control,
     wrap_morph_udp_socket,
 };
-
-use super::{PortalInner, conn};
 
 const QUIC_PRE_AUTH_RECEIVE_WINDOW: u32 = 64 * 1024;
 const QUIC_DATAGRAM_RECEIVE_BUFFER_SIZE: usize = 256 * 1024;
 const QUIC_DATAGRAM_SEND_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 const QUIC_SOCKET_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 const TCP_LISTEN_BACKLOG: i32 = 1024;
-
-pub(super) async fn accept_endpoint_loop(
-    portal: Arc<PortalInner>,
-    endpoint: Endpoint,
-    stop_accepting: CancellationToken,
-    force_shutdown: CancellationToken,
-) {
-    loop {
-        tokio::select! {
-            _ = stop_accepting.cancelled() => break,
-            incoming = endpoint.accept() => {
-                let Some(incoming) = incoming else {
-                    break;
-                };
-                if !incoming.remote_address_validated() {
-                    if let Err(err) = incoming.retry() {
-                        portal.telemetry.emit_runtime(RuntimeEvent::new(
-                            RuntimeLevel::Warn,
-                            RuntimeKind::Listener,
-                            format!("failed to send QUIC Retry: {err:#}"),
-                        ));
-                        portal.logger.error(format_args!(
-                            "portal::accept_endpoint_loop: failed to send QUIC Retry: {err}"
-                        ));
-                    }
-                    continue;
-                }
-                let peer = incoming.remote_address();
-                let Some(admission) = portal.unauthenticated_admission.try_acquire(peer.ip()) else {
-                    portal.telemetry.emit_runtime(
-                        RuntimeEvent::new(
-                            RuntimeLevel::Warn,
-                            RuntimeKind::Authentication,
-                            "QUIC unauthenticated connection limit exceeded",
-                        )
-                        .with_client(peer.to_string()),
-                    );
-                    portal.logger.error(format_args!(
-                        "portal::accept_endpoint_loop: unauthenticated connection limit exceeded: {peer}"
-                    ));
-                    incoming.ignore();
-                    continue;
-                };
-                let portal = portal.clone();
-                let child_shutdown = force_shutdown.clone();
-                let tasks = portal.connection_tasks.clone();
-                tasks.spawn(async move {
-                    conn::handle_incoming(portal, incoming, admission, child_shutdown).await;
-                });
-            }
-        }
-    }
-}
-
-pub(super) async fn accept_tcp_loop(
-    portal: Arc<PortalInner>,
-    listener: TcpListener,
-    stop_accepting: CancellationToken,
-    force_shutdown: CancellationToken,
-) {
-    loop {
-        tokio::select! {
-            _ = stop_accepting.cancelled() => break,
-            result = listener.accept() => match result {
-                Ok((stream, peer)) => {
-                    let Some(admission) = portal.unauthenticated_admission.try_acquire(peer.ip()) else {
-                        portal.telemetry.emit_runtime(
-                            RuntimeEvent::new(
-                                RuntimeLevel::Warn,
-                                RuntimeKind::Authentication,
-                                "TCP unauthenticated connection limit exceeded",
-                            )
-                            .with_client(peer.to_string()),
-                        );
-                        portal.logger.error(format_args!(
-                            "portal::accept_tcp_loop: unauthenticated connection limit exceeded: {peer}"
-                        ));
-                        drop(stream);
-                        continue;
-                    };
-                    let portal = portal.clone();
-                    let child_shutdown = force_shutdown.clone();
-                    let tasks = portal.connection_tasks.clone();
-                    tasks.spawn(async move {
-                        conn::handle_tcp_incoming(portal, stream, peer, admission, child_shutdown).await;
-                    });
-                }
-                Err(err) => {
-                    portal.telemetry.emit_runtime(RuntimeEvent::new(
-                        RuntimeLevel::Error,
-                        RuntimeKind::Listener,
-                        format!("TCP accept failed: {err:#}"),
-                    ));
-                    portal.logger.error(format_args!(
-                        "portal::accept_tcp_loop: failed to accept TCP connection: {err}"
-                    ));
-                    sleep(Duration::from_millis(100)).await;
-                }
-            },
-        }
-    }
-}
 
 pub(super) fn listen_endpoint(
     server_config: ServerConfig,

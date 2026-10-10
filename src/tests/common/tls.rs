@@ -39,12 +39,12 @@ fn server_tls_config_explicitly_disables_early_data() {
 }
 
 #[test]
-fn server_offers_only_nw2() {
+fn server_offers_only_nw3() {
     let (_, tls, _) = new_server_configs(
         &Url::parse("portal://secret@127.0.0.1:2000?tls=1&alpn=private/2&pool=8").unwrap(),
         Logger::new(LogLevel::None, false),
     )
     .unwrap();
 
-    assert_eq!(tls.alpn_protocols, [b"nw2".to_vec()]);
+    assert_eq!(tls.alpn_protocols, [b"nw3".to_vec()]);
 }

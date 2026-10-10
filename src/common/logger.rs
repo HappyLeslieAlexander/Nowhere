@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Minimal terminal logger used by the portal runtime and tests.
+//! Service log levels and terminal output.
 
 use std::fmt;
 use std::sync::{

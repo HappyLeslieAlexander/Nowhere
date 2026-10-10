@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, watch};
 
-use crate::protocol::Carrier;
 use crate::transport::Stats;
 
 use super::process::{ProcessSampler, now_unix_ms, process_uptime_ms};
@@ -33,6 +32,7 @@ pub(crate) struct TelemetryHub {
     started: Instant,
     process_sampler: Mutex<ProcessSampler>,
     unavailable_reason: Option<String>,
+    egress_online: Mutex<Option<bool>>,
 }
 
 impl TelemetryHub {
@@ -88,6 +88,7 @@ impl TelemetryHub {
             started: Instant::now(),
             process_sampler: Mutex::new(ProcessSampler::default()),
             unavailable_reason,
+            egress_online: Mutex::new(None),
         })
     }
 
@@ -147,27 +148,54 @@ impl TelemetryHub {
         self.lifecycle.subscribe()
     }
 
+    pub(crate) fn set_egress_online(&self, online: Option<bool>) {
+        let mut current = self.egress_online.lock().unwrap();
+        if *current == online {
+            return;
+        }
+        *current = online;
+        self.snapshots.send_modify(|snapshot| {
+            snapshot.egress_online = online;
+            if online != Some(true) {
+                snapshot.ping_ms = None;
+            }
+            snapshot.sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed);
+            snapshot.timestamp_ms = now_unix_ms();
+        });
+        self.emit_runtime(RuntimeEvent::new(
+            RuntimeLevel::Info,
+            RuntimeKind::Carrier,
+            if online == Some(true) {
+                "Egress online"
+            } else {
+                "Egress offline"
+            },
+        ));
+    }
+
     pub(crate) fn capture_and_publish(&self, stats: &Stats, ping_ms: u64) {
         let process = self
             .process_sampler
             .lock()
             .unwrap_or_else(|lock| lock.into_inner())
             .sample();
-        let tls_carriers_active = stats.link_tcp.load(Ordering::Relaxed);
-        let quic_carriers_active = stats.link_udp.load(Ordering::Relaxed);
+        let tls_carriers_active = stats.tls_carriers_active.load(Ordering::Relaxed);
+        let quic_carriers_active = stats.quic_carriers_active.load(Ordering::Relaxed);
+        let online = self.egress_online.lock().unwrap();
         let snapshot = TelemetrySnapshot {
+            egress_online: *online,
             sequence: self.next_sequence.fetch_add(1, Ordering::Relaxed),
             timestamp_ms: now_unix_ms(),
             uptime_ms: process_uptime_ms(self.descriptor.incarnation)
                 .unwrap_or_else(|| self.started.elapsed().as_millis().min(u64::MAX as u128) as u64),
-            tcp_logical_up: stats.tcp_rx.load(Ordering::Relaxed),
-            tcp_logical_down: stats.tcp_tx.load(Ordering::Relaxed),
-            udp_logical_up: stats.udp_rx.load(Ordering::Relaxed),
-            udp_logical_down: stats.udp_tx.load(Ordering::Relaxed),
-            tls_payload_up: stats.up_tcp.load(Ordering::Relaxed),
-            tls_payload_down: stats.down_tcp.load(Ordering::Relaxed),
-            quic_payload_up: stats.up_udp.load(Ordering::Relaxed),
-            quic_payload_down: stats.down_udp.load(Ordering::Relaxed),
+            tcp_upload_bytes: stats.tcp_upload_bytes.load(Ordering::Relaxed),
+            tcp_download_bytes: stats.tcp_download_bytes.load(Ordering::Relaxed),
+            udp_upload_bytes: stats.udp_upload_bytes.load(Ordering::Relaxed),
+            udp_download_bytes: stats.udp_download_bytes.load(Ordering::Relaxed),
+            tls_upload_bytes: stats.tls_upload_bytes.load(Ordering::Relaxed),
+            tls_download_bytes: stats.tls_download_bytes.load(Ordering::Relaxed),
+            quic_upload_bytes: stats.quic_upload_bytes.load(Ordering::Relaxed),
+            quic_download_bytes: stats.quic_download_bytes.load(Ordering::Relaxed),
             tcp_active: i64::from(stats.tcp_active.load(Ordering::Relaxed)),
             udp_active: i64::from(stats.udp_active.load(Ordering::Relaxed)),
             tls_carriers_active,
@@ -175,7 +203,7 @@ impl TelemetryHub {
             ..TelemetrySnapshot::default()
         };
         let snapshot = TelemetrySnapshot {
-            ping_ms,
+            ping_ms: (ping_ms > 0 && *online != Some(false)).then_some(ping_ms),
             cpu_percent: process.cpu_percent,
             rss_bytes: process.rss_bytes,
             open_fds: process.open_fds,
@@ -205,33 +233,18 @@ impl TelemetryHub {
         if self.detail_clients.load(Ordering::Relaxed) == 0 || self.privacy.is_none() {
             return AccessSpan::disabled(Arc::clone(self));
         }
-        let mut start = build();
-        start.id = self.next_access_id.fetch_add(1, Ordering::Relaxed);
-        if start.timestamp_ms == 0 {
-            start.timestamp_ms = now_unix_ms();
-        }
-        let _ = (&start.flow_id, &start.session_tag, &start.path);
+        let start = build();
         let started_at = Instant::now();
         let privacy = self.privacy.as_ref().expect("available privacy");
         let started = AccessStarted {
             sequence: 0,
-            truncated: start.path_peers.len() > 16,
-            id: start.id,
-            timestamp_ms: start.timestamp_ms,
+            id: self.next_access_id.fetch_add(1, Ordering::Relaxed),
+            timestamp_ms: now_unix_ms(),
             protocol: start.protocol,
-            flow_id: None,
-            session_tag: None,
             client: start.client.map(|v| privacy.alias("client", &v)),
-            path_peers: start
-                .path_peers
-                .iter()
-                .take(16)
-                .map(|v| privacy.alias("peer", v))
-                .collect(),
+            peer: start.peer.map(|v| privacy.alias("peer", &v)),
             target: super::privacy::target(&start.target),
-            initial_uplink: start.initial_uplink.map(carrier_name).map(str::to_owned),
-            initial_downlink: start.initial_downlink.map(carrier_name).map(str::to_owned),
-            path: None,
+            carrier: start.carrier,
         };
         self.publish_event(ServerMessage::AccessStart(started.clone()));
         AccessSpan::new(Arc::clone(self), started, started_at)
@@ -256,19 +269,14 @@ impl TelemetryHub {
         let (outcome, error) = completion;
         self.publish_event(ServerMessage::AccessFinish(AccessFinished {
             sequence: 0,
-            truncated: started.truncated,
             id: started.id,
             timestamp_ms: now_unix_ms(),
             duration_ms: started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
             protocol: started.protocol,
-            flow_id: started.flow_id,
-            session_tag: started.session_tag.clone(),
             client: started.client.clone(),
-            path_peers: started.path_peers.clone(),
+            peer: started.peer.clone(),
             target: started.target.clone(),
-            initial_uplink: started.initial_uplink.clone(),
-            initial_downlink: started.initial_downlink.clone(),
-            path: started.path.clone(),
+            carrier: started.carrier,
             upload_bytes,
             download_bytes,
             outcome,
@@ -347,13 +355,6 @@ impl AccessSpan {
 impl Drop for AccessSpan {
     fn drop(&mut self) {
         self.finish_once(AccessOutcome::Cancelled, None);
-    }
-}
-
-fn carrier_name(carrier: Carrier) -> &'static str {
-    match carrier {
-        Carrier::TlsTcp => "tcp",
-        Carrier::Quic => "udp",
     }
 }
 

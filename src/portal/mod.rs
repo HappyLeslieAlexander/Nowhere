@@ -1,76 +1,49 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Portal server state and module wiring.
+//! Portal service configuration and shared listener, forwarding, and Egress state.
 
 mod admission;
-mod config;
+pub(crate) mod config;
 mod conn;
-mod event;
+mod egress;
+pub(crate) mod forward;
 mod listener;
-mod mode;
-mod outbound;
-mod pairing;
 mod runtime;
 mod setup;
-mod tasks;
-
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
-
-use crate::common::{Logger, TLSMode};
-use crate::protocol::Credentials;
-use crate::telemetry::TelemetryHub;
-use crate::transport::{Buffers, MorphKeys, RateLimiter, Stats};
-
 use self::config::PortalRuntimeConfig;
-pub(crate) use self::mode::NetworkMode;
-use self::outbound::PortalOutbound;
-
-const DEFAULT_QUIC_UDP_QUEUE_BYTES: usize = 4 * 1024 * 1024;
-
-#[derive(Clone, Copy, Debug)]
-struct UdpFlowLimits {
-    queue_bytes: usize,
-}
-
-#[derive(Clone)]
+use crate::common::Logger;
+use crate::protocol::Credentials;
+use crate::transport::MorphKeys;
+use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use url::Url;
 pub struct Portal {
     inner: Arc<PortalInner>,
 }
-
 struct PortalInner {
     credentials: Credentials,
     morph_keys: Option<MorphKeys>,
-    tls_mode: TLSMode,
-    network_mode: NetworkMode,
-    endpoint_addr: String,
-    tcp_bind_addrs: Vec<SocketAddr>,
-    udp_bind_addrs: Vec<SocketAddr>,
+    tcp_bind_addrs: Vec<std::net::SocketAddr>,
+    udp_bind_addrs: Vec<std::net::SocketAddr>,
     allow_tcp_family_degrade: bool,
     allow_udp_family_degrade: bool,
-    udp_listen_port: Option<u16>,
-    outbound: PortalOutbound,
-    rate_limit: i32,
-    etar_limit: i32,
-    logger: Logger,
-    telemetry: Arc<TelemetryHub>,
-    drain: CancellationToken,
-    runtime: PortalRuntimeConfig,
-    stats: Arc<Stats>,
-    buffers: Buffers,
-    rate_limiter: Option<Arc<RateLimiter>>,
-    udp_flow_limits: UdpFlowLimits,
     tls_server_config: Arc<rustls::ServerConfig>,
     quic_server_config: quinn::ServerConfig,
     unauthenticated_admission: Arc<admission::UnauthenticatedAdmission>,
-    pairing: Arc<pairing::PairingRegistry>,
-    ready_gate: tasks::ReadyGate,
-    connection_tasks: Arc<tasks::FlowTaskTracker>,
-    relay_tasks: Arc<tasks::FlowTaskTracker>,
+    connection_admission: Arc<Semaphore>,
+    forward: Arc<forward::Forwarder>,
+    egress_slot: Option<Arc<egress::EgressSlot>>,
+    effective: String,
+    runtime: PortalRuntimeConfig,
+}
+impl Portal {
+    pub fn new(url: Url, logger: Logger) -> Result<Self> {
+        Self::new_with_listen_host(url, None, logger)
+    }
 }
 
 #[cfg(test)]
-#[path = "../tests/portal.rs"]
+#[path = "../tests/portal/mod.rs"]
 mod tests;

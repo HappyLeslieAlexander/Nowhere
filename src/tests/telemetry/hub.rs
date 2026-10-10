@@ -15,14 +15,14 @@ use crate::transport::Stats;
 fn descriptor() -> InstanceDescriptor {
     InstanceDescriptor {
         telemetry_protocol: TELEMETRY_PROTOCOL.to_owned(),
-        id: "1:2:3".to_owned(),
+        id: "0123456789abcdef0123456789abcdef".to_owned(),
         role: InstanceRole::Portal,
         pid: 2,
         uid: 1,
         incarnation: 3,
         version: "test".to_owned(),
         endpoint: ":2000".to_owned(),
-        config_summary: "portal net=mix".to_owned(),
+        config_summary: "listen=:2000 out=direct".to_owned(),
         telemetry_interval_ms: 1_000,
     }
 }
@@ -43,17 +43,11 @@ fn access_span_finishes_only_once() {
     let mut events = hub.event_receiver();
     let _detail = hub.detail_guard();
     let span = hub.start_access(|| AccessStart {
-        id: 0,
-        timestamp_ms: 1,
         protocol: TrafficProtocol::Tcp,
-        flow_id: Some(7),
-        session_tag: Some("abc123".to_owned()),
         client: Some("127.0.0.1:1".to_owned()),
-        path_peers: vec!["127.0.0.1:1".to_owned()],
+        peer: Some("127.0.0.1:1".to_owned()),
         target: "example:443".to_owned(),
-        initial_uplink: Some(Carrier::TlsTcp),
-        initial_downlink: Some(Carrier::Quic),
-        path: None,
+        carrier: Carrier::TlsTcp,
     });
     span.add_upload(10);
     span.add_download(20);
@@ -68,6 +62,8 @@ fn access_span_finishes_only_once() {
     };
     assert_eq!(finish.upload_bytes, 10);
     assert_eq!(finish.download_bytes, 20);
+    assert_eq!(finish.carrier, Carrier::TlsTcp);
+    assert_eq!(finish.peer.as_deref(), Some("P001"));
     assert_eq!(finish.outcome, AccessOutcome::Success);
     assert!(events.try_recv().is_err());
 }
@@ -83,16 +79,30 @@ fn access_fields_are_not_built_without_a_receiver() {
 }
 
 #[test]
-fn snapshot_contains_existing_transport_counters() {
+fn snapshot_keeps_logical_and_carrier_directions_distinct() {
     let hub = TelemetryHub::new(descriptor());
     let stats = Stats::default();
-    stats.tcp_rx.store(42, Ordering::Relaxed);
-    stats.link_tcp.store(2, Ordering::Relaxed);
+    stats.tcp_upload_bytes.store(42, Ordering::Relaxed);
+    stats.tcp_download_bytes.store(43, Ordering::Relaxed);
+    stats.udp_upload_bytes.store(44, Ordering::Relaxed);
+    stats.udp_download_bytes.store(45, Ordering::Relaxed);
+    stats.tls_upload_bytes.store(46, Ordering::Relaxed);
+    stats.tls_download_bytes.store(47, Ordering::Relaxed);
+    stats.quic_upload_bytes.store(48, Ordering::Relaxed);
+    stats.quic_download_bytes.store(49, Ordering::Relaxed);
+    stats.tls_carriers_active.store(2, Ordering::Relaxed);
     hub.capture_and_publish(&stats, 17);
     let snapshot = hub.snapshots.borrow().clone();
-    assert_eq!(snapshot.tcp_logical_up, 42);
+    assert_eq!(snapshot.tcp_upload_bytes, 42);
+    assert_eq!(snapshot.tcp_download_bytes, 43);
+    assert_eq!(snapshot.udp_upload_bytes, 44);
+    assert_eq!(snapshot.udp_download_bytes, 45);
+    assert_eq!(snapshot.tls_upload_bytes, 46);
+    assert_eq!(snapshot.tls_download_bytes, 47);
+    assert_eq!(snapshot.quic_upload_bytes, 48);
+    assert_eq!(snapshot.quic_download_bytes, 49);
     assert_eq!(snapshot.tls_carriers_active, 2);
-    assert_eq!(snapshot.ping_ms, 17);
+    assert_eq!(snapshot.ping_ms, Some(17));
 }
 
 #[test]
@@ -132,4 +142,57 @@ fn publisher_rechecks_runtime_diagnostics_before_delivery() {
     assert!(encoded.contains("\"message\""));
     assert!(!encoded.contains("secret-key"));
     assert!(!encoded.contains("203.0.113.5"));
+}
+#[test]
+fn unavailable_rtt_remains_null_and_registration_updates_sequence() {
+    let hub = TelemetryHub::new(descriptor());
+    let stats = Stats::default();
+    hub.capture_and_publish(&stats, 0);
+    assert_eq!(hub.snapshot_receiver().borrow().ping_ms, None);
+    let previous = hub.snapshot_receiver().borrow().sequence;
+    hub.set_egress_online(Some(true));
+    hub.capture_and_publish(&stats, 17);
+    assert_eq!(hub.snapshot_receiver().borrow().ping_ms, Some(17));
+    hub.set_egress_online(Some(false));
+    assert_eq!(hub.snapshot_receiver().borrow().egress_online, Some(false));
+    assert_eq!(hub.snapshot_receiver().borrow().ping_ms, None);
+    assert!(hub.snapshot_receiver().borrow().sequence > previous);
+    hub.capture_and_publish(&stats, 17);
+    assert_eq!(hub.snapshot_receiver().borrow().ping_ms, None);
+    hub.set_egress_online(Some(true));
+    assert_eq!(hub.snapshot_receiver().borrow().egress_online, Some(true));
+}
+
+#[test]
+fn concurrent_sampling_and_registration_keep_snapshots_ordered() {
+    let hub = TelemetryHub::new(descriptor());
+    let completed = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..2 {
+            let hub = &hub;
+            let completed = &completed;
+            scope.spawn(move || {
+                for _ in 0..300 {
+                    hub.capture_and_publish(&Stats::default(), 0);
+                }
+                completed.fetch_add(1, Ordering::Release);
+            });
+        }
+        let hub_ref = &hub;
+        let completed_ref = &completed;
+        scope.spawn(move || {
+            for index in 0..600 {
+                hub_ref.set_egress_online(Some(index % 2 == 0));
+            }
+            completed_ref.fetch_add(1, Ordering::Release);
+        });
+        let mut previous = 0;
+        while completed.load(Ordering::Acquire) != 3 {
+            let snapshot = hub.snapshot_receiver().borrow().clone();
+            assert!(snapshot.sequence >= previous, "snapshot sequence regressed");
+            previous = snapshot.sequence;
+            std::thread::yield_now();
+        }
+    });
+    assert_eq!(hub.snapshot_receiver().borrow().egress_online, Some(false));
 }

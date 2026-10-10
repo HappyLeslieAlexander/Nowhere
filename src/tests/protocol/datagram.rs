@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! UDP frame codecs and bounded fragment reassembly tests.
+//! QUIC UDP frame codecs and bounded fragment reassembly tests.
 
 use std::time::{Duration, Instant};
 

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Command-line entry point for running a Nowhere Portal or Vector.
+//! Command-line entry point for Vector and Portal.
 
 use std::env;
 use std::{error, fmt};
@@ -30,7 +30,7 @@ const HELP_TEXT: &str = "\
 Usage:
   nowhere                              Show help and exit
   nowhere <portal-url>                 Run a Portal relay
-  nowhere <vector-url>                 Run a Vector SOCKS5 client
+  nowhere <vector-url>                 Run a SOCKS ingress Vector
   nowhere generate-key                 Generate a random 128-bit key as hex
   nowhere fingerprint <nowhere-url>    Read the TLS certificate SHA-256 fingerprint
   nowhere probe <vector-url> <target>  Test one real TCP Flow
@@ -38,73 +38,40 @@ Usage:
   nowhere -h | --help                  Show this help
   nowhere -v | --version               Show version information
 
-Commands:
-  generate-key  Print 16 random bytes as 32 lowercase hex characters.
-  fingerprint   Print the leaf certificate SHA-256 over TCP; supports Morph.
-  probe         End-to-end TCP Flow setup; sends no application payload.
-  status        Read-only local instance telemetry; exits after one snapshot.
-
 URL forms:
-  portal://<key>@<listen-host>:<port>[?<options>]
-  portal://<key>@<listen-host>/<carrier>:<port>[/<carrier>:<port>][?<options>]
-  vector://<key>@<portal-host>:<port>?socks=<listener>[&<options>]
-  vector://<key>@<portal-host>/<carrier>:<port>[/<carrier>:<port>]?socks=...
-  nowhere://<key>@<portal-host>:<port>[?<options>][#<name>]  For fingerprint
-  nowhere://<key>@<portal-host>/tcp:<port>[/udp:<port>][?<options>][#<name>]
+  portal://<key>@<host>:<port>[?<options>]
+  portal://<key>@<host>/tcp:<port>/udp:<port>[?<options>]
+  vector://<key>@<host>:<port>?in=[user:pass@]host:port[&net=tcp|udp]
+  nowhere://<key>@<host>:<port>[?<options>][#<name>]  For fingerprint
+
+Options:
+  in=<listener>       Vector SOCKS5 listener; optional for probe.
+  net=tcp|udp         Vector TLS or QUIC carrier; default tcp.
+  out=<exit>          Portal direct (default), egress, or SOCKS5 address.
+  tls=1|2             Portal generated certificate or supplied PEM files.
+  crt=<path>          Portal certificate chain when tls=2.
+  key=<path>          Portal private key when tls=2.
+  dial=<ip|auto>      Portal/Egress target source binding.
+  dial4=<ipv4|auto>   IPv4 source; mutually exclusive with dial.
+  dial6=<ipv6|auto>   IPv6 source; mutually exclusive with dial.
+  sni=<name|none>     Client verified server name; default endpoint host.
+  pin=<sha256|none>   Exact certificate pin; otherwise system CA verification.
+  morph=0|1           Keyed wire masking; default 0, both peers must agree.
+  rate=<mbps>         Vector-to-target limit; default 0 disables it.
+  etar=<mbps>         Target-to-Vector limit; default 0 disables it.
+  log=<level>         none, debug, info, warn, error; default info.
 
 Endpoint syntax:
-  host:port                   Use TCP and UDP on the same port.
-  tcp, udp                    Use any address family.
+  host:port                   Portal TCP and UDP on the same port.
+  tcp, udp                    Any address family.
   tcp4, udp4 / tcp6, udp6     Restrict a carrier to IPv4 or IPv6.
   *                           Portal wildcard; clients require a concrete host.
 
-Examples:
-  nowhere \"portal://<generated-key>@*:2000\"
-  nowhere \"portal://<generated-key>@*/tcp:2006/udp:2017?morph=1\"
-  nowhere \"vector://<generated-key>@relay.example:2000?socks=127.0.0.1:1080\"
-  nowhere \"vector://<generated-key>@relay.example/tcp:2006/udp:2017?up=udp&down=tcp&morph=1&socks=:1080\"
-  nowhere probe \"vector://<generated-key>@relay.example:2000\" \"example.com:443\"
-  nowhere generate-key
-  nowhere fingerprint \"nowhere://<generated-key>@relay.example:2000#My%20Portal\"
-  nowhere status
-
-Common options:
-  morph=0|1           Enable keyed wire masking. Default: 0.
-  rate=<mbps>         Client-to-target limit. 0 disables it.
-  etar=<mbps>         Target-to-client limit. 0 disables it.
-  log=<level>         none, debug, info, warn, or error. Default: info.
-
-Portal options:
-  Listener and next shared keys must be 32–64 lowercase hex characters.
-  tls=1|2             Generated certificate or supplied PEM files. Default: 1.
-  crt=<path>          PEM certificate chain for tls=2.
-  key=<path>          PEM private key for tls=2.
-  dial=<ip|auto>      Outbound source IP and single-family restriction, or auto.
-  dial4=<ipv4|auto>   IPv4 source in dual-stack mode. Default: auto.
-  dial6=<ipv6|auto>   IPv6 source in dual-stack mode. Default: auto.
-                      dial is mutually exclusive with dial4/dial6. Default: auto.
-  socks=<proxy>       Outbound SOCKS5 proxy; mutually exclusive with next.
-  next=<portal>       Native upstream Portal: key@host or key@host/<carriers>.
-
-Vector options:
-  socks=<listener>    Local SOCKS5 listener: [user:pass@]host:port. Optional for probe.
-
-Client route options (Vector and Portal next):
-  up=tcp|udp|mix      Upload carrier. Default: the only carrier, otherwise TCP.
-  down=tcp|udp|mix    Download carrier. Default: the only carrier, otherwise TCP.
-  mux=0|1             Enable TLS multiplexing when TCP is available. Default: 0.
-  sni=<name|none>     Override the verified server name. Default: endpoint host.
-  pin=<sha256|none>   Pin the Portal certificate SHA-256 fingerprint.
-                      Without pin, system CA and server-name verification are required.
-
-Morph:
-  Both peers on each hop must use morph=1 and the same shared key. Morph masks
-  the TLS/QUIC wire image; it does not replace transport security. On Portal,
-  it applies to both the listener and the native next hop.
-
-Environment:
-  NOW_MORPH_TCP_PRELUDE          Client TCP Morph prelude: full8 (default) or low7.
-  NOW_TRANSPORT_MEMORY_PROFILE   memory, balanced, or throughput. Default: throughput.
+Constraints:
+  out=egress requires a QUIC listener and rejects dial*.
+  Shared keys require exactly 32 lowercase hex text characters.
+  Unknown parameters are ignored; first recognized duplicate wins.
+  probe sends no target payload. fingerprint queries TCP/TLS only.
 
 Documentation:
   https://github.com/NodePassProject/Nowhere/tree/main/docs

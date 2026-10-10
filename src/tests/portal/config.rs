@@ -32,7 +32,6 @@ fn absent_values_use_the_existing_defaults() {
     );
     assert_eq!(config.shutdown_timeout, DEFAULT_SHUTDOWN_TIMEOUT);
     assert_eq!(config.reload_interval, DEFAULT_RELOAD_INTERVAL);
-    assert_eq!(config.flow_pair_timeout, DEFAULT_FLOW_PAIR_TIMEOUT);
 }
 
 #[test]
@@ -66,7 +65,6 @@ fn all_durations_reject_zero_and_invalid_syntax() {
         "NOW_TELEMETRY_INTERVAL",
         "NOW_SHUTDOWN_TIMEOUT",
         "NOW_RELOAD_INTERVAL",
-        "NOW_FLOW_PAIR_TIMEOUT",
     ] {
         for value in ["0s", "invalid"] {
             let error = parse(&[(name, value)]).unwrap_err().to_string();
@@ -89,7 +87,6 @@ fn values_are_parsed_once_into_typed_fields() {
         ("NOW_TELEMETRY_INTERVAL", "1700ms"),
         ("NOW_SHUTDOWN_TIMEOUT", "1800ms"),
         ("NOW_RELOAD_INTERVAL", "1900ms"),
-        ("NOW_FLOW_PAIR_TIMEOUT", "2s"),
     ])
     .unwrap();
 
@@ -104,7 +101,6 @@ fn values_are_parsed_once_into_typed_fields() {
     assert_eq!(config.telemetry_interval, Duration::from_millis(1700));
     assert_eq!(config.shutdown_timeout, Duration::from_millis(1800));
     assert_eq!(config.reload_interval, Duration::from_millis(1900));
-    assert_eq!(config.flow_pair_timeout, Duration::from_secs(2));
 }
 
 #[test]

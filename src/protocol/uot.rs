@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, bail};
 use bytes::Buf;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub const UOT_HEADER_LEN: usize = 2;
 pub const UOT_PACKET_MAX: usize = u16::MAX as usize;
@@ -24,34 +24,6 @@ pub async fn write_udp_packet<W: AsyncWrite + Unpin>(writer: &mut W, payload: &[
         .write_all_buf(&mut frame)
         .await
         .context("protocol::uot::write_udp_packet: failed to write packet")
-}
-
-pub async fn read_udp_packet_into<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    payload: &mut Vec<u8>,
-) -> Result<Option<usize>> {
-    let mut first = [0; 1];
-    let count = reader
-        .read(&mut first)
-        .await
-        .context("protocol::uot::read_udp_packet: failed to read packet length")?;
-    if count == 0 {
-        payload.clear();
-        return Ok(None);
-    }
-
-    let mut second = [0; 1];
-    reader
-        .read_exact(&mut second)
-        .await
-        .context("protocol::uot::read_udp_packet: truncated packet length")?;
-    let payload_len = u16::from_be_bytes([first[0], second[0]]) as usize;
-    payload.resize(payload_len, 0);
-    reader
-        .read_exact(payload)
-        .await
-        .context("protocol::uot::read_udp_packet: truncated packet payload")?;
-    Ok(Some(payload_len))
 }
 
 #[cfg(test)]

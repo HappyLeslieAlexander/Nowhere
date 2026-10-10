@@ -1,220 +1,211 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Authenticated QUIC connection handling and dispatch.
+//! TLS and QUIC ingress authentication, role enforcement, and flow dispatch.
 
-mod auth;
-mod relay;
-mod session;
-mod tcp;
-
-pub(in crate::portal) use self::session::DatagramReadyRequest;
-pub(in crate::portal) use self::session::QueuedDatagram;
-
+use super::{PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming};
+use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, ConnectionRole, read_auth_frame};
+use crate::transport::{MorphTcpStream, QuicConnection};
+use crate::vector::TcpTunnelGuard;
+use anyhow::{Context, Result, bail};
 use std::sync::Arc;
-
-use quinn::crypto::rustls::HandshakeData;
-use quinn::{Connection, Incoming, VarInt};
-use tokio::time::timeout;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use self::auth::{
-    AuthenticationOutcome, authenticate_connection, authentication_deadline,
-    authentication_failure_close,
-};
-pub(super) use self::tcp::handle_tcp_incoming;
-use super::PortalInner;
-use super::admission::UnauthenticatedGuard;
-use crate::common::rate_limit_bytes_per_second;
-use crate::protocol::ALPN;
-use crate::telemetry::{RuntimeEvent, RuntimeKind, RuntimeLevel};
-
-pub(super) async fn handle_incoming(
+pub(super) async fn tcp(
     portal: Arc<PortalInner>,
-    incoming: Incoming,
+    stream: tokio::net::TcpStream,
+    peer: std::net::SocketAddr,
     admission: UnauthenticatedGuard,
-    shutdown: CancellationToken,
-) {
-    let conn = match tokio::select! {
-        biased;
-        _ = shutdown.cancelled() => return,
-        _ = portal.drain.cancelled() => return,
-        result = timeout(portal.runtime.handshake_timeout, incoming) => result,
-    } {
-        Ok(Ok(conn)) => conn,
-        Ok(Err(err)) => {
-            portal.telemetry.emit_runtime(RuntimeEvent::new(
-                RuntimeLevel::Warn,
-                RuntimeKind::Carrier,
-                format!("QUIC TLS handshake failed: {err:#}"),
-            ));
-            portal.logger.debug(format_args!(
-                "portal::conn::handle_incoming: QUIC TLS handshake failed: {err}"
-            ));
-            return;
+) -> Result<()> {
+    let stream = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+        stream.set_nodelay(true)?;
+        let stream = MorphTcpStream::accept(stream, portal.morph_keys.clone()).await?;
+        let mut tls = tokio_rustls::TlsAcceptor::from(portal.tls_server_config.clone())
+            .accept(stream)
+            .await?;
+        if tls.get_ref().1.alpn_protocol() != Some(crate::protocol::ALPN) {
+            bail!("invalid ALPN");
         }
-        Err(_) => return,
-    };
-    let valid_alpn = conn
-        .handshake_data()
-        .and_then(|data| data.downcast::<HandshakeData>().ok())
-        .is_some_and(|data| data.protocol.as_deref() == Some(ALPN));
-    if !valid_alpn {
-        conn.close(VarInt::from_u32(1), b"unsupported protocol");
-        portal.logger.debug(format_args!(
-            "portal::conn::handle_incoming: invalid negotiated QUIC protocol"
-        ));
-        return;
-    }
-    handle_connection(portal, conn, admission, shutdown).await;
-}
-
-async fn handle_connection(
-    portal: Arc<PortalInner>,
-    conn: Connection,
-    admission: UnauthenticatedGuard,
-    shutdown: CancellationToken,
-) {
-    let auth_deadline = authentication_deadline(portal.runtime.handshake_timeout);
-    let authenticated =
-        match authenticate_connection(portal.clone(), conn.clone(), auth_deadline, &shutdown).await
-        {
-            AuthenticationOutcome::Success(authenticated) => authenticated,
-            AuthenticationOutcome::Failure(err) => {
-                let (code, reason) = authentication_failure_close();
-                conn.close(code, reason);
-                drop(admission);
-                portal.telemetry.emit_runtime(
-                    RuntimeEvent::new(
-                        RuntimeLevel::Warn,
-                        RuntimeKind::Authentication,
-                        format!("QUIC authentication failed: {err:#}"),
-                    )
-                    .with_client(conn.remote_address().to_string()),
-                );
-                portal.logger.error(format_args!(
-                    "portal::conn::handle_connection: authentication failed: {err}"
-                ));
-                return;
-            }
-            AuthenticationOutcome::Shutdown => return,
-        };
-    if portal.drain.is_cancelled() {
-        conn.close(VarInt::from_u32(0), b"");
-        drop(admission);
-        return;
-    }
-    let flow_control = match crate::transport::transport_flow_control() {
-        Ok(value) => value,
-        Err(err) => {
-            portal.logger.error(format_args!(
-                "portal::conn::handle_connection: invalid QUIC memory profile: {err}"
-            ));
-            conn.close(VarInt::from_u32(0), b"");
-            drop(admission);
-            return;
+        let mut exporter = [0; 32];
+        tls.get_ref()
+            .1
+            .export_keying_material(&mut exporter, AUTH_EXPORTER_LABEL, Some(&[]))?;
+        let role = read_auth_frame(
+            &mut tls,
+            &portal.credentials,
+            AuthTransport::TlsTcp,
+            &exporter,
+        )
+        .await?;
+        if role != ConnectionRole::Vector {
+            bail!("invalid TLS role");
         }
-    };
-    conn.set_receive_window(VarInt::from_u32(flow_control.connection_receive_window));
-    conn.set_max_concurrent_bi_streams(
-        portal
-            .pairing
-            .quic_stream_credit(authenticated.session.session_key),
-    );
+        Ok::<_, anyhow::Error>(tls)
+    })
+    .await
+    .context("TLS authentication timeout")??;
     drop(admission);
-    let session = authenticated.session;
-    let link_replaced = CancellationToken::new();
-    let link_guard = portal
-        .pairing
-        .register_quic_link(
-            session.session_key,
-            portal.stats.clone(),
-            link_replaced.clone(),
+    let guard = crate::vector::client::TlsCarrierGuard::new(
+        portal.forward.stats.clone(),
+        portal.forward.telemetry.clone(),
+    );
+    let (read, write) = tokio::io::split(stream);
+    portal
+        .forward
+        .clone()
+        .serve(
+            Incoming::Tls {
+                reader: Box::pin(read),
+                writer: Box::pin(write),
+                guard: TcpTunnelGuard {
+                    _carrier: Some(guard),
+                    _flow: None,
+                },
+            },
+            peer.to_string(),
+            CancellationToken::new(),
         )
         .await;
-    session.set_quic_generation(link_guard.quic_generation());
-    let _link_guard = link_guard;
-    portal.telemetry.emit_runtime(
-        RuntimeEvent::new(
-            RuntimeLevel::Info,
-            RuntimeKind::Carrier,
-            "QUIC carrier connected",
-        )
-        .with_client(conn.remote_address().to_string()),
-    );
-
-    let etar_bps = rate_limit_bytes_per_second(portal.etar_limit);
-    if etar_bps > 0 {
-        portal.logger.debug(format_args!(
-            "portal::conn::handle_connection: enabled TX rate limiter at {etar_bps} Bps"
-        ));
+    Ok(())
+}
+struct SlotOwner {
+    slot: Arc<EgressSlot>,
+    connection: Arc<QuicConnection>,
+    telemetry: Arc<crate::telemetry::TelemetryHub>,
+}
+impl Drop for SlotOwner {
+    fn drop(&mut self) {
+        self.slot.release(&self.connection, &self.telemetry);
     }
-
-    let datagram_task = tokio::spawn(session.clone().datagram_loop(shutdown.clone()));
-    let first_session = session.clone();
-    let first_tasks = portal.connection_tasks.clone();
-    first_tasks.spawn(async move {
-        first_session
-            .handle_first_stream(authenticated.first_send, authenticated.first_recv)
-            .await;
-    });
-
-    loop {
-        tokio::select! {
-            _ = shutdown.cancelled() => break,
-            _ = link_replaced.cancelled() => {
-                portal.telemetry.emit_runtime(
-                    RuntimeEvent::new(
-                        RuntimeLevel::Warn,
-                        RuntimeKind::Carrier,
-                        "QUIC carrier replaced",
-                    )
-                    .with_client(conn.remote_address().to_string()),
-                );
-                portal.logger.debug(format_args!(
-                    "portal::conn::handle_connection: authenticated QUIC carrier replaced"
-                ));
-                break;
-            },
-            stream = conn.accept_bi() => {
-                match stream {
-                    Ok((send, recv)) => {
-                        let session = session.clone();
-                        let tasks = portal.connection_tasks.clone();
-                        tasks.spawn(async move {
-                            session.handle_stream(send, recv).await;
-                        });
-                    }
-                    Err(err) => {
-                        if !shutdown.is_cancelled() {
-                            portal.telemetry.emit_runtime(RuntimeEvent::new(
-                                RuntimeLevel::Warn,
-                                RuntimeKind::Carrier,
-                                format!("QUIC carrier stream loop closed: {err:#}"),
-                            ));
-                            portal.logger.debug(format_args!("portal::conn::handle_connection: bidirectional stream accept loop closed: {err}"));
-                        }
-                        break;
-                    }
+}
+pub(super) async fn quic(
+    portal: Arc<PortalInner>,
+    incoming: quinn::Incoming,
+    admission: UnauthenticatedGuard,
+) -> Result<()> {
+    let connection = tokio::time::timeout(portal.runtime.handshake_timeout, incoming)
+        .await
+        .context("QUIC handshake timeout")??;
+    let result = quic_authenticated(portal, connection.clone(), admission).await;
+    connection.close(0u32.into(), b"connection ended");
+    result
+}
+async fn quic_authenticated(
+    portal: Arc<PortalInner>,
+    connection: quinn::Connection,
+    admission: UnauthenticatedGuard,
+) -> Result<()> {
+    crate::vector::tls::require_quic_nw3(&connection)?;
+    let (mut send, mut recv, role) =
+        tokio::time::timeout(portal.runtime.handshake_timeout, async {
+            let authentication=async {
+            let (send, mut recv) = connection.accept_bi().await?;
+            if u64::from(recv.id()) != 0 {
+                bail!("authentication must use first client Stream");
+            }
+            let mut exporter = [0; 32];
+            connection
+                .export_keying_material(&mut exporter, AUTH_EXPORTER_LABEL, b"")
+                .map_err(|e| anyhow::anyhow!("exporter failed: {e:?}"))?;
+            let role = read_auth_frame(
+                &mut recv,
+                &portal.credentials,
+                AuthTransport::Quic,
+                &exporter,
+            )
+            .await?;
+            Ok::<_, anyhow::Error>((send, recv, role))
+            };
+            tokio::pin!(authentication);
+            let mut discarded=0;
+            loop {
+                tokio::select! {
+                    biased;
+                    datagram=connection.read_datagram()=>{datagram?;discarded+=1;if discarded%64==0 {tokio::task::yield_now().await;}},
+                    result=&mut authentication=>break result,
                 }
             }
+        })
+        .await
+        .context("QUIC authentication timeout")??;
+    drop(admission);
+    let limits = crate::transport::transport_flow_control()?;
+    connection.set_receive_window(limits.connection_receive_window.into());
+    connection.set_max_concurrent_bi_streams(1024u32.into());
+    let q = QuicConnection::new(
+        connection.clone(),
+        role == ConnectionRole::Egress,
+        portal.forward.stats.clone(),
+        portal.forward.telemetry.clone(),
+    );
+    let mut tasks = JoinSet::new();
+    let _owner = if role == ConnectionRole::Egress {
+        let Some(slot) = &portal.egress_slot else {
+            bail!("Egress registration unavailable");
+        };
+        tokio::time::timeout(portal.runtime.handshake_timeout, recv.read_to_end(0))
+            .await
+            .context("Egress authentication Stream timeout")??;
+        if !slot.claim(q.clone(), &portal.forward.telemetry) {
+            send.write_all(&[1]).await?;
+            send.finish()?;
+            let _ = tokio::time::timeout(portal.runtime.handshake_timeout, send.stopped()).await;
+            q.close();
+            return Ok(());
+        }
+        let owner = SlotOwner {
+            slot: slot.clone(),
+            connection: q.clone(),
+            telemetry: portal.forward.telemetry.clone(),
+        };
+        send.write_all(&[0]).await?;
+        send.finish()?;
+        Some(owner)
+    } else {
+        let forward = portal.forward.clone();
+        let q = q.clone();
+        tasks.spawn(async move {
+            forward
+                .serve(
+                    Incoming::Quic {
+                        recv,
+                        send,
+                        connection: q.clone(),
+                    },
+                    q.connection.remote_address().to_string(),
+                    q.cancel.clone(),
+                )
+                .await;
+        });
+        None
+    };
+    loop {
+        tokio::select! {
+            _=portal.forward.shutdown.cancelled()=>break,
+            _=q.cancel.cancelled()=>break,
+            _=q.draining.cancelled()=>break,
+            accepted=connection.accept_bi()=>match accepted {
+                Ok((send,recv))=>{
+                    if role==ConnectionRole::Egress {bail!("Egress opened a business Stream");}
+                    let raw=u64::from(recv.id());
+                    if raw&3!=0 {bail!("invalid Vector Stream direction");}
+                    if q.flow_id(raw).is_err() {break;}
+                    let forward=portal.forward.clone();let q=q.clone();
+                    tasks.spawn(async move {forward.serve(Incoming::Quic {recv,send,connection:q.clone()},q.connection.remote_address().to_string(),q.cancel.clone()).await;});
+                },Err(_)=>break,
+            },
+            _=tasks.join_next(),if !tasks.is_empty()=>{},
         }
     }
-
-    session.close();
-    datagram_task.abort();
-    let _ = datagram_task.await;
-    portal.telemetry.emit_runtime(
-        RuntimeEvent::new(
-            RuntimeLevel::Info,
-            RuntimeKind::Carrier,
-            "QUIC carrier disconnected",
-        )
-        .with_client(conn.remote_address().to_string()),
-    );
-    conn.close(VarInt::from_u32(0), b"");
+    if connection.close_reason().is_none() {
+        let _ = tokio::time::timeout(crate::common::shutdown_timeout(), async {
+            while tasks.join_next().await.is_some() {}
+        })
+        .await;
+    }
+    q.close();
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+    Ok(())
 }
-
-#[cfg(test)]
-#[path = "../tests/portal/conn.rs"]
-mod tests;

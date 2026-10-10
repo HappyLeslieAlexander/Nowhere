@@ -97,6 +97,7 @@ fn status_item(hello: Hello, snapshot: TelemetrySnapshot) -> StatusItem {
     let role = match hello.instance.role {
         InstanceRole::Portal => "PORTAL",
         InstanceRole::Vector => "VECTOR",
+        InstanceRole::Egress => "EGRESS",
     };
     StatusItem {
         role,
@@ -119,12 +120,12 @@ fn status_item(hello: Hello, snapshot: TelemetrySnapshot) -> StatusItem {
 fn status_panel(item: &StatusItem) -> String {
     let upload = item
         .snapshot
-        .tcp_logical_up
-        .saturating_add(item.snapshot.udp_logical_up);
+        .tcp_upload_bytes
+        .saturating_add(item.snapshot.udp_upload_bytes);
     let download = item
         .snapshot
-        .tcp_logical_down
-        .saturating_add(item.snapshot.udp_logical_down);
+        .tcp_download_bytes
+        .saturating_add(item.snapshot.udp_download_bytes);
     panel(
         &format!("{} · PID {}", item.role, item.pid),
         &[

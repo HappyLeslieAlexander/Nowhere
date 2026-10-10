@@ -6,17 +6,17 @@
 use super::*;
 
 #[test]
-fn tracks_tcp_and_udp_sessions_independently() {
+fn tracks_tcp_and_udp_flows_independently() {
     let stats = Stats::default();
 
-    stats.add_session(false);
-    stats.add_session(false);
-    stats.add_session(true);
-    stats.done_session(false);
+    stats.add_flow(false);
+    stats.add_flow(false);
+    stats.add_flow(true);
+    stats.done_flow(false);
 
     assert_eq!(stats.tcp_active.load(Ordering::Relaxed), 1);
     assert_eq!(stats.udp_active.load(Ordering::Relaxed), 1);
 
-    stats.done_session(true);
+    stats.done_flow(true);
     assert_eq!(stats.udp_active.load(Ordering::Relaxed), 0);
 }

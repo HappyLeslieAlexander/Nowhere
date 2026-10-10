@@ -9,28 +9,31 @@ use super::*;
 fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
     for (raw, expected) in [
         (
-            "vector://secret@localhost:2000?up=secret",
-            "up must be tcp, udp, or mix",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?net=secret",
+            "net must be tcp or udp",
         ),
         (
-            "vector://secret@localhost/tcp:secret",
+            "vector://0123456789abcdef0123456789abcdef@localhost/tcp:secret",
             "carrier port must contain decimal digits only",
         ),
-        ("vector://secret@localhost/secret:2000", "unknown carrier"),
         (
-            "vector://secret@localhost:2000?morph=secret",
+            "vector://0123456789abcdef0123456789abcdef@localhost/secret:2000",
+            "unknown carrier",
+        ),
+        (
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?up=tcp&down=tcp&morph=secret",
             "morph must be 0 or 1",
         ),
         (
-            "vector://secret@localhost:2000?sni=secret:443",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?up=tcp&down=tcp&sni=secret:443",
             "sni must be an ASCII DNS name",
         ),
         (
-            "vector://secret@localhost:2000?socks=user:secret@localhost:secret",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?up=tcp&down=tcp&in=user:secret@localhost:secret",
             "port must be in 1..=65535",
         ),
         (
-            "vector://secret@localhost:2000?up=%FFsecret",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?net=%FFsecret",
             "invalid UTF-8 in query value",
         ),
     ] {
@@ -44,7 +47,9 @@ fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
 
 #[test]
 fn toolbox_probe_url_allows_missing_socks() {
-    let url = Url::parse("vector://secret@127.0.0.1:2000?up=tcp&down=tcp").unwrap();
+    let url =
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?up=tcp&down=tcp")
+            .unwrap();
     assert!(ToolboxClient::parse(&url).is_ok());
 }
 

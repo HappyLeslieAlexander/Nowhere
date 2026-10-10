@@ -44,7 +44,7 @@ fn connection_diagnostics_keep_stages_and_causes_without_echoing_values() {
         ),
         (
             "vector::tls::connect_tcp: invalid negotiated protocol: secret",
-            "Portal did not negotiate nw2 ALPN",
+            "Portal did not negotiate nw3 ALPN",
         ),
         (
             "vector::tls::ClientTls::new: system root loading failed: secret",

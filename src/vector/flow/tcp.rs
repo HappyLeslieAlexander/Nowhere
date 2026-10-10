@@ -9,52 +9,40 @@ use crate::transport::{read_owned, read_owned_from, read_with_flush, write_owned
 pub(crate) struct TcpTunnel {
     reader: BoxReader,
     writer: BoxWriter,
-    _lanes: Vec<PhysicalLane>,
-    _lease: Option<FlowLease>,
-    uplink: Carrier,
-    downlink: Carrier,
+    _guard: TcpTunnelGuard,
+    carrier: Carrier,
 }
-
 pub(crate) struct TcpTunnelGuard {
-    _lanes: Vec<PhysicalLane>,
-    _lease: Option<FlowLease>,
+    pub(crate) _carrier: Option<crate::vector::client::TlsCarrierGuard>,
+    pub(crate) _flow: Option<FlowGuard>,
 }
-
 impl TcpTunnel {
+    pub(crate) fn new(
+        reader: BoxReader,
+        writer: BoxWriter,
+        carrier: Carrier,
+        guard: TcpTunnelGuard,
+    ) -> Self {
+        Self {
+            reader,
+            writer,
+            _guard: guard,
+            carrier,
+        }
+    }
     pub(in crate::vector) fn socks_reply(&self) -> u8 {
         REPLY_SUCCEEDED
     }
-
-    pub(crate) fn carriers(&self) -> (Carrier, Carrier) {
-        (self.uplink, self.downlink)
+    pub(crate) fn carrier(&self) -> Carrier {
+        self.carrier
     }
-
     pub(crate) fn into_parts(self) -> (BoxReader, BoxWriter, TcpTunnelGuard) {
-        let Self {
-            reader,
-            writer,
-            _lanes,
-            _lease,
-            uplink: _,
-            downlink: _,
-        } = self;
-        (reader, writer, TcpTunnelGuard { _lanes, _lease })
+        (self.reader, self.writer, self._guard)
     }
-
     pub(crate) async fn close(mut self) -> std::io::Result<()> {
-        let mut result = self.writer.shutdown().await;
-        for lane in &mut self._lanes {
-            if let Some(writer) = &mut lane.writer
-                && let Err(error) = writer.shutdown().await
-                && result.is_ok()
-            {
-                result = Err(error);
-            }
-        }
-        result
+        self.writer.shutdown().await
     }
 }
-
 impl AsyncRead for TcpTunnel {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -64,7 +52,6 @@ impl AsyncRead for TcpTunnel {
         self.reader.as_mut().poll_read(cx, buffer)
     }
 }
-
 impl AsyncWrite for TcpTunnel {
     fn poll_write(
         mut self: Pin<&mut Self>,
@@ -73,11 +60,9 @@ impl AsyncWrite for TcpTunnel {
     ) -> Poll<std::io::Result<usize>> {
         self.writer.as_mut().poll_write(cx, buffer)
     }
-
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
         self.writer.as_mut().poll_flush(cx)
     }
-
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut TaskContext<'_>,
@@ -85,114 +70,11 @@ impl AsyncWrite for TcpTunnel {
         self.writer.as_mut().poll_shutdown(cx)
     }
 }
-
 pub(crate) async fn open_tcp(
     client: Arc<PortalClient>,
     target: &Target,
-    hops: u8,
 ) -> std::result::Result<TcpTunnel, OpenFlowError> {
-    let lease = client
-        .flow_ids
-        .allocate()
-        .map_err(OpenFlowError::Protocol)?;
-    let plan = crate::vector::route::plan_route(
-        client.config.up,
-        client.config.down,
-        client.route_seed,
-        lease.id(),
-    );
-    let prepare_client = client.clone();
-    let (mut lanes, lease, route) =
-        prepare_with_fallback(&client, lease, plan, move |flow_id, route| {
-            prepare_lanes(prepare_client.clone(), route, flow_id)
-        })
-        .await?;
-    let flow_id = lease.id();
-    let uplink = route.uplink;
-    let downlink = route.downlink;
-
-    if !route.split() {
-        let mut lane = lanes.pop().expect("duplex lane");
-        let header = FlowHeader {
-            role: FlowRole::Duplex,
-            flow_id,
-            kind: FlowKind::Tcp,
-            uplink,
-            downlink,
-            hops,
-        };
-        let pending_auth = lane.take_pending_auth();
-        write_open_request(
-            lane.writer.as_mut().expect("lane writer"),
-            pending_auth,
-            header,
-            target,
-        )
-        .await
-        .map_err(OpenFlowError::Transport)?;
-        lane.mark_auth_sent();
-        read_ready(lane.reader.as_mut().expect("lane reader"))
-            .await
-            .map_err(OpenFlowError::Setup)?;
-        let reader = lane.take_reader();
-        let writer = lane.take_writer();
-        return Ok(TcpTunnel {
-            reader,
-            writer,
-            _lanes: vec![lane],
-            _lease: Some(lease),
-            uplink,
-            downlink,
-        });
-    }
-
-    let mut downlink_lane = lanes.pop().expect("downlink lane");
-    let mut uplink_lane = lanes.pop().expect("uplink lane");
-    let open_header = FlowHeader {
-        role: FlowRole::Open,
-        flow_id,
-        kind: FlowKind::Tcp,
-        uplink,
-        downlink,
-        hops,
-    };
-    let attach_header = FlowHeader {
-        role: FlowRole::Attach,
-        ..open_header
-    };
-    let pending_auth = uplink_lane.take_pending_auth();
-    write_open_request(
-        uplink_lane.writer.as_mut().expect("uplink writer"),
-        pending_auth,
-        open_header,
-        target,
-    )
-    .await
-    .map_err(OpenFlowError::Transport)?;
-    uplink_lane.mark_auth_sent();
-    let pending_auth = downlink_lane.take_pending_auth();
-    write_header(
-        downlink_lane.writer.as_mut().expect("downlink writer"),
-        pending_auth,
-        attach_header,
-    )
-    .await
-    .map_err(OpenFlowError::Transport)?;
-    downlink_lane.mark_auth_sent();
-    read_ready(downlink_lane.reader.as_mut().expect("downlink reader"))
-        .await
-        .map_err(OpenFlowError::Setup)?;
-
-    let writer = uplink_lane.take_writer();
-    let reader = downlink_lane.take_reader();
-    Ok(TcpTunnel {
-        reader,
-        writer,
-        _lanes: vec![uplink_lane, downlink_lane],
-        _lease: Some(lease),
-        uplink,
-        downlink,
-    })
+    client.open_tcp(target).await
 }
 
 pub(in crate::vector) async fn relay_tcp(
@@ -203,22 +85,16 @@ pub(in crate::vector) async fn relay_tcp(
     target: &SocksAddress,
     access: AccessSpan,
 ) -> Result<()> {
-    vector.stats.add_session(false);
-    let _session = SessionGuard::new(vector.stats.clone(), false);
     vector.logger.debug(format_args!(
-        "vector::flow::relay_tcp: exchange starting: UP[{}] {client_peer} -> {} -> {} -> {target} | DOWN[{}] {target} -> {} -> {} -> {client_peer}",
-        carrier_name(tunnel.uplink),
+        "vector::flow::relay_tcp: exchange starting: carrier={} {client_peer} <-> {} <-> {} <-> {target}",
+        carrier_name(tunnel.carrier),
         vector.config.socks.endpoint(),
         vector.config.portal_endpoint(),
-        carrier_name(tunnel.downlink),
-        vector.config.portal_endpoint(),
-        vector.config.socks.endpoint(),
     ));
 
     let result = {
         let (mut client_read, mut client_write) = client.into_split();
-        let uplink = tunnel.uplink;
-        let downlink = tunnel.downlink;
+        let carrier = tunnel.carrier;
         let client_to_portal = async {
             loop {
                 let Some(chunk) = read_with_flush(
@@ -235,15 +111,15 @@ pub(in crate::vector) async fn relay_tcp(
                     rate.wait_read(read as i64).await;
                 }
                 write_owned(&mut tunnel.writer, chunk).await?;
-                if uplink == Carrier::Quic && downlink == Carrier::TlsTcp {
-                    tokio::task::yield_now().await;
-                }
                 access.add_upload(read as u64);
                 vector
                     .stats
-                    .tcp_rx
+                    .tcp_upload_bytes
                     .fetch_add(read as u64, Ordering::Relaxed);
-                carrier_counter(&vector, uplink, true).fetch_add(read as u64, Ordering::Relaxed);
+                vector
+                    .stats
+                    .payload_counter(carrier, TrafficDirection::Upload)
+                    .fetch_add(read as u64, Ordering::Relaxed);
             }
         };
         let portal_to_client = async {
@@ -265,20 +141,23 @@ pub(in crate::vector) async fn relay_tcp(
                 access.add_download(read as u64);
                 vector
                     .stats
-                    .tcp_tx
+                    .tcp_download_bytes
                     .fetch_add(read as u64, Ordering::Relaxed);
-                carrier_counter(&vector, downlink, false).fetch_add(read as u64, Ordering::Relaxed);
+                vector
+                    .stats
+                    .payload_counter(carrier, TrafficDirection::Download)
+                    .fetch_add(read as u64, Ordering::Relaxed);
             }
         };
         tokio::pin!(client_to_portal);
         tokio::pin!(portal_to_client);
         tokio::select! {
             result = &mut client_to_portal => match result {
-                Ok(()) => timeout(tcp_read_timeout(), &mut portal_to_client).await.unwrap_or(Ok(())),
+                Ok(()) => timeout(tcp_read_timeout(), &mut portal_to_client).await.unwrap_or_else(|_| Err(anyhow::anyhow!("TCP half-close timeout"))),
                 Err(error) => Err(error),
             },
             result = &mut portal_to_client => match result {
-                Ok(()) => timeout(tcp_read_timeout(), &mut client_to_portal).await.unwrap_or(Ok(())),
+                Ok(()) => timeout(tcp_read_timeout(), &mut client_to_portal).await.unwrap_or_else(|_| Err(anyhow::anyhow!("TCP half-close timeout"))),
                 Err(error) => Err(error),
             },
         }
@@ -287,14 +166,14 @@ pub(in crate::vector) async fn relay_tcp(
         "vector::flow::relay_tcp: exchange complete: {}",
         match &result {
             Ok(()) => "EOF".to_owned(),
-            Err(error) => error.to_string(),
+            Err(error) => crate::telemetry::diagnostic_reason(&error.to_string()).to_owned(),
         }
     ));
     match &result {
         Ok(()) => access.finish(AccessOutcome::Success, None),
         Err(error) => {
             let error = format!("{error:#}");
-            access.finish(access_error_outcome(&error), Some(error));
+            access.finish(AccessOutcome::from_error(&error), Some(error));
         }
     }
     result

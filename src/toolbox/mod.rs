@@ -10,8 +10,6 @@ mod probe;
 mod status;
 
 pub use fingerprint::fingerprint;
-#[cfg(test)]
-pub(crate) use probe::ToolboxClient;
 pub use probe::probe;
 pub use status::status;
 

@@ -4,39 +4,13 @@
 //! Portal startup URLs and network-family-aware listener binding.
 
 use super::*;
+use crate::portal::listener::{listen_endpoint, listen_tcp};
+use quinn::Endpoint;
+use tokio::net::TcpListener;
 
 impl Portal {
-    pub(in crate::portal) fn effective_url(&self) -> String {
-        let base = format!(
-            "portal://{}?tls={}&rate={}&etar={}&{}&morph={}&socks={}&next={}",
-            self.inner.endpoint_addr,
-            self.inner.tls_mode,
-            self.inner.rate_limit,
-            self.inner.etar_limit,
-            self.inner
-                .outbound
-                .dial_policy()
-                .to_string()
-                .replace(' ', "&"),
-            u8::from(self.inner.morph_keys.is_some()),
-            self.inner.outbound.socks_endpoint(),
-            self.inner.outbound.next_endpoint(),
-        );
-        self.inner
-            .outbound
-            .next_transport()
-            .map_or(base.clone(), |transport| {
-                let upstream = transport
-                    .split_whitespace()
-                    .filter(|option| !option.starts_with("morph="))
-                    .collect::<Vec<_>>()
-                    .join("&");
-                format!("{base}&{upstream}")
-            })
-    }
-
     pub(in crate::portal) fn listen_endpoints(&self) -> Result<Vec<Endpoint>> {
-        if !self.inner.network_mode.listens_udp() {
+        if self.inner.udp_bind_addrs.is_empty() {
             return Ok(Vec::new());
         }
         bind_carrier(
@@ -47,21 +21,21 @@ impl Portal {
                 addr,
                 self.inner.morph_keys.clone(),
             ),
-            |addr, error| self.inner.logger.warn(format_args!(
+            |addr, error| self.inner.forward.logger.warn(format_args!(
                 "portal::listen_endpoints: UDP address family unavailable for {addr}; continuing: {error:#}"
             )),
         ).context("portal::listen_endpoints: failed to open UDP listeners")
     }
 
     pub(in crate::portal) fn listen_tcp_listeners(&self) -> Result<Vec<TcpListener>> {
-        if !self.inner.network_mode.listens_tcp() {
+        if self.inner.tcp_bind_addrs.is_empty() {
             return Ok(Vec::new());
         }
         bind_carrier(
             &self.inner.tcp_bind_addrs,
             self.inner.allow_tcp_family_degrade,
             listen_tcp,
-            |addr, error| self.inner.logger.warn(format_args!(
+            |addr, error| self.inner.forward.logger.warn(format_args!(
                 "portal::listen_tcp_listeners: TCP address family unavailable for {addr}; continuing: {error:#}"
             )),
         ).context("portal::listen_tcp_listeners: failed to open TCP listeners")

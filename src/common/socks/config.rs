@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Validated parsing and redacted display for the `socks` URL parameter.
+//! Validated parsing and redacted display for SOCKS5 `out` configuration.
 
 use std::fmt;
 
@@ -45,11 +45,11 @@ impl fmt::Debug for SocksConfig {
 
 impl SocksConfig {
     pub(crate) fn from_url(parsed_url: &Url) -> Result<Option<Self>> {
-        let Some(raw_value) = first_raw_socks_value(parsed_url) else {
+        let Some(raw_value) = crate::common::first_raw_query_value(parsed_url, "out") else {
             return Ok(None);
         };
         let (endpoint, credentials) = parse_socks_value(raw_value)?;
-        if credentials.is_none() && (endpoint.is_empty() || endpoint == "none") {
+        if credentials.is_none() && (endpoint == "direct" || endpoint == "egress") {
             return Ok(None);
         }
         let (host, port) = parse_host_port(&endpoint, "socks endpoint", false)?;
@@ -69,17 +69,6 @@ impl SocksConfig {
             .as_ref()
             .map(|value| (value.username.as_str(), value.password.as_str()))
     }
-}
-
-pub(crate) fn first_raw_socks_value(parsed_url: &Url) -> Option<&str> {
-    let query = parsed_url.query()?;
-    for pair in query.split('&') {
-        let (raw_key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        if decode_component(raw_key, "query key").is_ok_and(|key| key == "socks") {
-            return Some(value);
-        }
-    }
-    None
 }
 
 pub(crate) fn parse_socks_value(raw_value: &str) -> Result<(String, Option<SocksCredentials>)> {

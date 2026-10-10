@@ -148,17 +148,13 @@ async fn open_and_relay_udp_target(
         .lock()
         .unwrap_or_else(|lock| lock.into_inner())
         .map(|endpoint| endpoint.to_string());
-    let access = start_access(&vector, TrafficProtocol::Udp, source, &target);
-    let protocol_target = match to_target(&target) {
-        Ok(target) => target,
-        Err(error) => {
-            access.finish(AccessOutcome::Error, Some(format!("{error:#}")));
-            return;
-        }
+    let Ok(protocol_target) = to_target(&target) else {
+        return;
     };
+    let access = start_access(&vector, TrafficProtocol::Udp, source, &target);
     let tunnel = tokio::select! {
         _ = shutdown.cancelled() => return,
-        result = open_udp(vector.client.clone(), &protocol_target, 0) => match result {
+        result = open_udp(vector.client.clone(), &protocol_target) => match result {
             Ok(tunnel) => tunnel,
             Err(error) => {
                 access.finish(error.access_outcome(), Some(format!("{error:#}")));
@@ -174,6 +170,7 @@ async fn open_and_relay_udp_target(
         UdpClientSide {
             socket,
             endpoint: client_endpoint,
+            idle_timeout: udp_idle_timeout(),
         },
         target,
         tunnel,
@@ -226,6 +223,7 @@ pub(super) fn accept_udp_source(
 struct UdpClientSide {
     socket: Arc<UdpSocket>,
     endpoint: Arc<StdMutex<Option<SocketAddr>>>,
+    idle_timeout: std::time::Duration,
 }
 
 async fn relay_udp_target(
@@ -246,40 +244,39 @@ async fn relay_udp_target(
         .unwrap_or_else(|lock| lock.into_inner())
         .map_or_else(|| "<unknown>".to_owned(), |endpoint| endpoint.to_string());
     vector.logger.debug(format_args!(
-        "vector::socks::relay_udp_target: transfer starting: UP[{}] {source} -> {} -> {} -> {target} | DOWN[{}] {target} -> {} -> {} -> {source}",
-        carrier_name(tunnel.uplink),
+        "vector::socks::relay_udp_target: transfer starting: carrier={} {source} <-> {} <-> {} <-> {target}",
+        carrier_name(tunnel.carrier),
         vector.config.socks.endpoint(),
         vector.config.portal_endpoint(),
-        carrier_name(tunnel.downlink),
-        vector.config.portal_endpoint(),
-        vector.config.socks.endpoint(),
     ));
-    let idle = tokio::time::sleep_until(Instant::now() + udp_idle_timeout());
+    let idle = tokio::time::sleep_until(Instant::now() + client.idle_timeout);
     tokio::pin!(idle);
-    let completion = loop {
+    let tunnel_cancel = tunnel.cancellation();
+    let completion = 'relay: loop {
         tokio::select! {
             _ = shutdown.cancelled() => break UdpCompletion::Cancelled,
+            _ = tunnel_cancel.cancelled() => break UdpCompletion::Cancelled,
             _ = &mut idle => break UdpCompletion::Timeout,
             payload = outbound.recv() => {
                 let Some(payload) = payload else { break UdpCompletion::Success; };
                 let payload_len = payload.payload.len();
                 let sent = tokio::select! {
-                    _ = shutdown.cancelled() => None,
-                    _ = &mut idle => None,
+                    _ = shutdown.cancelled() => break 'relay UdpCompletion::Cancelled,
+                    _ = tunnel_cancel.cancelled() => break 'relay UdpCompletion::Cancelled,
+                    _ = &mut idle => break 'relay UdpCompletion::Timeout,
                     result = async {
                         if let Some(rate) = &vector.rate_limiter {
                             rate.wait_read(payload.payload.len() as i64).await;
                         }
                         tunnel.send(&payload.payload).await
-                    } => Some(result),
+                    } => result,
                 };
                 match sent {
-                    Some(Ok(true)) => access.add_upload(payload_len as u64),
-                    Some(Ok(false)) => {}
-                    Some(Err(error)) => break UdpCompletion::Error(format!("{error:#}")),
-                    None => break UdpCompletion::Cancelled,
+                    Ok(true) => access.add_upload(payload_len as u64),
+                    Ok(false) => {}
+                    Err(error) => break UdpCompletion::Error(format!("{error:#}")),
                 }
-                idle.as_mut().reset(Instant::now() + udp_idle_timeout());
+                idle.as_mut().reset(Instant::now() + client.idle_timeout);
             }
             received = tunnel.recv_into(&mut inbound) => {
                 let packet = match received {
@@ -297,23 +294,29 @@ async fn relay_udp_target(
                     continue;
                 }
                 let sent = tokio::select! {
-                    _ = shutdown.cancelled() => None,
-                    _ = &mut idle => None,
+                    _ = shutdown.cancelled() => break 'relay UdpCompletion::Cancelled,
+                    _ = tunnel_cancel.cancelled() => break 'relay UdpCompletion::Cancelled,
+                    _ = &mut idle => break 'relay UdpCompletion::Timeout,
                     result = async {
                         if let Some(rate) = &vector.rate_limiter {
                             rate.wait_write(size as i64).await;
                         }
                         client.socket.send_to(&local_packet, endpoint).await
-                    } => Some(result),
+                    } => result,
                 };
                 match sent {
-                    Some(Ok(_)) => access.add_download(size as u64),
-                    Some(Err(error)) => break UdpCompletion::Error(format!("{error:#}")),
-                    None => break UdpCompletion::Cancelled,
+                    Ok(_) => access.add_download(size as u64),
+                    Err(error) => break UdpCompletion::Error(format!("{error:#}")),
                 }
-                idle.as_mut().reset(Instant::now() + udp_idle_timeout());
+                idle.as_mut().reset(Instant::now() + client.idle_timeout);
             }
         }
+    };
+    let completion = match completion {
+        UdpCompletion::Success if shutdown.is_cancelled() || tunnel_cancel.is_cancelled() => {
+            UdpCompletion::Cancelled
+        }
+        completion => completion,
     };
     tunnel.close().await;
     vector.logger.debug(format_args!(
@@ -326,11 +329,7 @@ async fn relay_udp_target(
             access.finish(AccessOutcome::Timeout, Some("idle timeout".to_owned()));
         }
         UdpCompletion::Error(error) => {
-            let outcome = if error.to_ascii_lowercase().contains("timeout") {
-                AccessOutcome::Timeout
-            } else {
-                AccessOutcome::Error
-            };
+            let outcome = AccessOutcome::from_error(&error);
             access.finish(outcome, Some(error));
         }
     }
@@ -342,33 +341,15 @@ pub(super) fn start_access(
     client: Option<String>,
     target: &SocksAddress,
 ) -> AccessSpan {
-    let uplink = configured_carrier(vector.config.up);
-    let downlink = configured_carrier(vector.config.down);
+    let carrier = configured_carrier(vector.config.net);
     vector.telemetry.start_access(|| {
-        let client_path = client.as_deref().unwrap_or("<unknown>");
         let target = target.to_string();
-        let path = format!(
-            "UP[{}] {client_path} -> {} -> {} -> {target} | DOWN[{}] {target} -> {} -> {} -> {client_path}",
-            configured_carrier_name(vector.config.up),
-            vector.config.socks.endpoint(),
-            vector.config.portal_endpoint(),
-            configured_carrier_name(vector.config.down),
-            vector.config.portal_endpoint(),
-            vector.config.socks.endpoint(),
-        );
-        let path_peers = client.iter().cloned().collect();
         AccessStart {
-            id: 0,
-            timestamp_ms: now_unix_ms(),
             protocol,
-            flow_id: None,
-            session_tag: None,
             client,
-            path_peers,
-            target: target.clone(),
-            initial_uplink: uplink,
-            initial_downlink: downlink,
-            path: Some(path),
+            peer: Some(vector.config.portal_endpoint().to_owned()),
+            target,
+            carrier,
         }
     })
 }
@@ -384,3 +365,7 @@ struct QueuedLocalPacket {
     payload: Vec<u8>,
     _permit: OwnedSemaphorePermit,
 }
+
+#[cfg(test)]
+#[path = "../../tests/vector/socks/udp.rs"]
+mod tests;

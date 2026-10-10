@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Messages exchanged between a Nowhere service and local TUI clients.
+//! Messages exchanged between a Nowhere service and local IPC subscribers.
 
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use crate::protocol::Carrier;
 
 use super::process::{now_unix_ms, process_incarnation, process_uid};
 
-pub(crate) const TELEMETRY_PROTOCOL: &str = "nowhere.telemetry";
+pub(crate) const TELEMETRY_PROTOCOL: &str = "nowhere.telemetry.3";
 pub(crate) const MAX_FRAME_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -20,6 +20,7 @@ pub(crate) const MAX_FRAME_SIZE: usize = 64 * 1024;
 pub(crate) enum InstanceRole {
     Portal,
     Vector,
+    Egress,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -96,19 +97,20 @@ pub(crate) struct TelemetrySnapshot {
     pub(crate) sequence: u64,
     pub(crate) timestamp_ms: u64,
     pub(crate) uptime_ms: u64,
-    pub(crate) tcp_logical_up: u64,
-    pub(crate) tcp_logical_down: u64,
-    pub(crate) udp_logical_up: u64,
-    pub(crate) udp_logical_down: u64,
-    pub(crate) tls_payload_up: u64,
-    pub(crate) tls_payload_down: u64,
-    pub(crate) quic_payload_up: u64,
-    pub(crate) quic_payload_down: u64,
+    pub(crate) egress_online: Option<bool>,
+    pub(crate) tcp_upload_bytes: u64,
+    pub(crate) tcp_download_bytes: u64,
+    pub(crate) udp_upload_bytes: u64,
+    pub(crate) udp_download_bytes: u64,
+    pub(crate) tls_upload_bytes: u64,
+    pub(crate) tls_download_bytes: u64,
+    pub(crate) quic_upload_bytes: u64,
+    pub(crate) quic_download_bytes: u64,
     pub(crate) tcp_active: i64,
     pub(crate) udp_active: i64,
     pub(crate) tls_carriers_active: u64,
     pub(crate) quic_carriers_active: u64,
-    pub(crate) ping_ms: u64,
+    pub(crate) ping_ms: Option<u64>,
     pub(crate) cpu_percent: Option<f64>,
     pub(crate) rss_bytes: Option<u64>,
     pub(crate) open_fds: Option<u64>,
@@ -131,62 +133,49 @@ pub(crate) enum AccessOutcome {
     Rejected,
 }
 
+impl AccessOutcome {
+    pub(crate) fn from_error(value: &str) -> Self {
+        match super::privacy::error_reason(value) {
+            "resource limit reached" | "invalid request" => Self::Rejected,
+            "connection timed out" | "idle timeout" => Self::Timeout,
+            "operation cancelled" | "service draining" => Self::Cancelled,
+            _ => Self::Error,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct AccessStart {
-    pub(crate) id: u64,
-    pub(crate) timestamp_ms: u64,
     pub(crate) protocol: TrafficProtocol,
-    pub(crate) flow_id: Option<u64>,
-    pub(crate) session_tag: Option<String>,
     pub(crate) client: Option<String>,
-    pub(crate) path_peers: Vec<String>,
+    pub(crate) peer: Option<String>,
     pub(crate) target: String,
-    pub(crate) initial_uplink: Option<Carrier>,
-    pub(crate) initial_downlink: Option<Carrier>,
-    pub(crate) path: Option<String>,
+    pub(crate) carrier: Carrier,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct AccessStarted {
     pub(crate) sequence: u64,
-    pub(crate) truncated: bool,
     pub(crate) id: u64,
     pub(crate) timestamp_ms: u64,
     pub(crate) protocol: TrafficProtocol,
-    #[serde(skip)]
-    pub(crate) flow_id: Option<u64>,
-    #[serde(skip)]
-    pub(crate) session_tag: Option<String>,
     pub(crate) client: Option<String>,
-    #[serde(default)]
-    pub(crate) path_peers: Vec<String>,
+    pub(crate) peer: Option<String>,
     pub(crate) target: String,
-    pub(crate) initial_uplink: Option<String>,
-    pub(crate) initial_downlink: Option<String>,
-    #[serde(skip)]
-    pub(crate) path: Option<String>,
+    pub(crate) carrier: Carrier,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct AccessFinished {
     pub(crate) sequence: u64,
-    pub(crate) truncated: bool,
     pub(crate) id: u64,
     pub(crate) timestamp_ms: u64,
     pub(crate) duration_ms: u64,
     pub(crate) protocol: TrafficProtocol,
-    #[serde(skip)]
-    pub(crate) flow_id: Option<u64>,
-    #[serde(skip)]
-    pub(crate) session_tag: Option<String>,
     pub(crate) client: Option<String>,
-    #[serde(default)]
-    pub(crate) path_peers: Vec<String>,
+    pub(crate) peer: Option<String>,
     pub(crate) target: String,
-    pub(crate) initial_uplink: Option<String>,
-    pub(crate) initial_downlink: Option<String>,
-    #[serde(skip)]
-    pub(crate) path: Option<String>,
+    pub(crate) carrier: Carrier,
     pub(crate) upload_bytes: u64,
     pub(crate) download_bytes: u64,
     pub(crate) outcome: AccessOutcome,
@@ -207,11 +196,7 @@ pub(crate) enum RuntimeKind {
     Lifecycle,
     Listener,
     Authentication,
-    Session,
     Carrier,
-    Mux,
-    Backpressure,
-    Datagram,
     Reconnect,
 }
 
@@ -311,5 +296,5 @@ impl Default for LifecycleSnapshot {
 }
 
 #[cfg(test)]
-#[path = "../tests/telemetry/contract.rs"]
-mod contract_tests;
+#[path = "../tests/telemetry/wire.rs"]
+mod tests;

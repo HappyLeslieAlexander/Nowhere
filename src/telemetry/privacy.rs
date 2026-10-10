@@ -43,18 +43,23 @@ pub(crate) fn config_summary(value: &str) -> String {
         .take(64)
         .filter_map(|token| {
             let (key, value) = token.split_once('=')?;
-            let option = key.strip_prefix("next.").unwrap_or(key);
+            let option = key;
             let safe = match option {
-                "listen" | "portal" | "socks" | "next" => {
+                "listen" | "portal" | "in" => {
                     if value == "none" {
                         value.to_owned()
                     } else {
                         endpoint(value)
                     }
                 }
-                "up" | "down" | "net" if matches!(value, "tcp" | "udp" | "mix") => value.to_owned(),
-                "tls" if matches!(value, "0" | "1" | "2") => value.to_owned(),
-                "mux" | "morph" if matches!(value, "0" | "1") => value.to_owned(),
+                "out" if matches!(value, "direct" | "egress") => value.to_owned(),
+                "out" => endpoint(value),
+                "net" if matches!(value, "tcp" | "udp") => value.to_owned(),
+                "tls" if matches!(value, "1" | "2") => value.to_owned(),
+                "morph" if matches!(value, "0" | "1") => value.to_owned(),
+                "log" if matches!(value, "none" | "debug" | "info" | "warn" | "error") => {
+                    value.to_owned()
+                }
                 "rate" | "etar" => value.parse::<i32>().ok()?.to_string(),
                 "dial" if value == "auto" || value.parse::<std::net::IpAddr>().is_ok() => {
                     value.to_owned()
@@ -191,7 +196,7 @@ pub(super) fn target(value: &str) -> String {
         .unwrap_or_else(|_| "<redacted>".to_owned())
 }
 
-pub(super) fn error_reason(value: &str) -> &'static str {
+pub(crate) fn error_reason(value: &str) -> &'static str {
     let lower = value
         .chars()
         .take(4096)
@@ -206,16 +211,11 @@ pub(super) fn error_reason(value: &str) -> &'static str {
     {
         "application closed" => return "application closed",
         "idle timeout" => return "idle timeout",
-        "pair timeout" | "flow pairing timed out" => return "flow pairing timed out",
         "portal draining" | "service draining" => return "service draining",
         "dial failed" | "target connection failed" => return "target connection failed",
         "flow limit" => return "resource limit reached",
         "invalid request" => return "invalid request",
-        "metadata conflict" => return "metadata conflict",
-        "session replaced" => return "session replaced",
         "internal error" => return "internal error",
-        "mux reader failure" => return "mux reader failure",
-        "mux writer failure" => return "mux writer failure",
         "flow setup rejected" => return "flow setup rejected",
         "quic datagram route preparation failed" | "datagram route unavailable" => {
             return "datagram route unavailable";
@@ -313,13 +313,15 @@ pub(super) fn error_reason(value: &str) -> &'static str {
 
 pub(super) fn runtime_message(kind: RuntimeKind, level: RuntimeLevel, value: &str) -> String {
     const MESSAGES: &[&str] = &[
+        "Egress online",
+        "Egress offline",
+        "Egress registration accepted",
+        "Egress registration busy",
+        "Egress connecting",
         "QUIC carrier connected",
         "QUIC carrier disconnected",
-        "QUIC carrier replaced",
         "TLS/TCP carrier connected",
         "TLS/TCP carrier disconnected",
-        "TLS mux carrier connected",
-        "TLS mux carrier disconnected",
         "QUIC unauthenticated connection limit exceeded",
         "TCP unauthenticated connection limit exceeded",
         "SOCKS client resource limit reached",
@@ -335,7 +337,6 @@ pub(super) fn runtime_message(kind: RuntimeKind, level: RuntimeLevel, value: &st
         "QUIC carrier connection failed",
         "QUIC carrier stream open failed",
         "SOCKS5 handshake failed",
-        "route failed before commit; retrying alternate carrier",
     ];
     let (template, detail) = value.split_once(": ").unwrap_or((value, ""));
     if MESSAGES.contains(&template) {
@@ -344,12 +345,6 @@ pub(super) fn runtime_message(kind: RuntimeKind, level: RuntimeLevel, value: &st
         } else {
             format!("{template}: {}", error_reason(detail))
         };
-    }
-    if value.starts_with("route ") {
-        return format!(
-            "route failed before commit; retrying alternate carrier: {}",
-            error_reason(detail)
-        );
     }
     if kind == RuntimeKind::Lifecycle
         && matches!(template, "STARTING" | "READY" | "DRAINING" | "STOPPED")

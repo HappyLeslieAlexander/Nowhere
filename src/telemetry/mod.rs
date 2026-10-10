@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Structured, process-local telemetry for the read-only TUI.
+//! Structured, process-local telemetry for protected IPC subscribers.
 
 mod hub;
 mod ipc;
@@ -13,7 +13,7 @@ mod wire;
 pub(crate) use hub::{AccessSpan, TelemetryHub};
 pub(crate) use ipc::{DiscoveredInstance, TelemetryClient, TelemetryServer, discover_instances};
 pub(crate) use privacy::endpoint as display_endpoint;
-pub(crate) use process::now_unix_ms;
+pub(crate) use privacy::error_reason as diagnostic_reason;
 pub(crate) use wire::{
     AccessOutcome, AccessStart, ClientMessage, Hello, InstanceRole, MAX_FRAME_SIZE, RuntimeEvent,
     RuntimeKind, RuntimeLevel, ServerMessage, Subscription, TELEMETRY_PROTOCOL, TelemetrySnapshot,

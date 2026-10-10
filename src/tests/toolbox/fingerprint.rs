@@ -31,7 +31,7 @@ async fn fingerprint_rejects_udp_only_and_invalid_share_links_without_leaking_se
             "requires a TCP carrier",
         ),
         (
-            "vector://secret@localhost:2000",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000",
             "invalid Nowhere share link",
         ),
         (

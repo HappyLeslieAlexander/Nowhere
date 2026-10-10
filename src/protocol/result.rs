@@ -13,12 +13,9 @@ pub const SETUP_RESULT_LEN: usize = 1;
 pub enum SetupResult {
     Ready = 0,
     InvalidRequest = 1,
-    MetadataConflict = 2,
-    PairTimeout = 3,
-    FlowLimit = 4,
-    DialFailed = 5,
-    SessionReplaced = 6,
-    InternalError = 7,
+    FlowLimit = 2,
+    DialFailed = 3,
+    InternalError = 4,
 }
 
 impl SetupResult {
@@ -26,11 +23,8 @@ impl SetupResult {
         match self {
             Self::Ready => "ready",
             Self::InvalidRequest => "invalid request",
-            Self::MetadataConflict => "metadata conflict",
-            Self::PairTimeout => "pair timeout",
             Self::FlowLimit => "flow limit",
             Self::DialFailed => "dial failed",
-            Self::SessionReplaced => "session replaced",
             Self::InternalError => "internal error",
         }
     }
@@ -43,12 +37,9 @@ impl TryFrom<u8> for SetupResult {
         match value {
             0 => Ok(Self::Ready),
             1 => Ok(Self::InvalidRequest),
-            2 => Ok(Self::MetadataConflict),
-            3 => Ok(Self::PairTimeout),
-            4 => Ok(Self::FlowLimit),
-            5 => Ok(Self::DialFailed),
-            6 => Ok(Self::SessionReplaced),
-            7 => Ok(Self::InternalError),
+            2 => Ok(Self::FlowLimit),
+            3 => Ok(Self::DialFailed),
+            4 => Ok(Self::InternalError),
             value => bail!("protocol::result: invalid setup result: {value}"),
         }
     }
@@ -58,12 +49,9 @@ impl TryFrom<u8> for SetupResult {
 #[repr(u8)]
 pub enum FlowErrorCode {
     InvalidRequest = 1,
-    MetadataConflict = 2,
-    PairTimeout = 3,
-    FlowLimit = 4,
-    DialFailed = 5,
-    SessionReplaced = 6,
-    InternalError = 7,
+    FlowLimit = 2,
+    DialFailed = 3,
+    InternalError = 4,
 }
 
 impl TryFrom<u8> for FlowErrorCode {
@@ -82,11 +70,8 @@ impl TryFrom<SetupResult> for FlowErrorCode {
         match value {
             SetupResult::Ready => bail!("protocol::result: READY is not an error"),
             SetupResult::InvalidRequest => Ok(Self::InvalidRequest),
-            SetupResult::MetadataConflict => Ok(Self::MetadataConflict),
-            SetupResult::PairTimeout => Ok(Self::PairTimeout),
             SetupResult::FlowLimit => Ok(Self::FlowLimit),
             SetupResult::DialFailed => Ok(Self::DialFailed),
-            SetupResult::SessionReplaced => Ok(Self::SessionReplaced),
             SetupResult::InternalError => Ok(Self::InternalError),
         }
     }
@@ -96,11 +81,8 @@ impl From<FlowErrorCode> for SetupResult {
     fn from(value: FlowErrorCode) -> Self {
         match value {
             FlowErrorCode::InvalidRequest => Self::InvalidRequest,
-            FlowErrorCode::MetadataConflict => Self::MetadataConflict,
-            FlowErrorCode::PairTimeout => Self::PairTimeout,
             FlowErrorCode::FlowLimit => Self::FlowLimit,
             FlowErrorCode::DialFailed => Self::DialFailed,
-            FlowErrorCode::SessionReplaced => Self::SessionReplaced,
             FlowErrorCode::InternalError => Self::InternalError,
         }
     }

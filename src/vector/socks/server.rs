@@ -26,13 +26,11 @@ use crate::common::{
 };
 use crate::telemetry::{
     AccessOutcome, AccessSpan, AccessStart, RuntimeEvent, RuntimeKind, RuntimeLevel,
-    TrafficProtocol, now_unix_ms,
+    TrafficProtocol,
 };
 
 use super::super::VectorInner;
-use super::super::flow::{
-    carrier_name, configured_carrier, configured_carrier_name, open_tcp, relay_tcp, to_target,
-};
+use super::super::flow::{carrier_name, configured_carrier, open_tcp, relay_tcp, to_target};
 use super::super::udp_flow::{UdpTunnel, open_udp};
 
 #[path = "udp.rs"]
@@ -181,20 +179,20 @@ async fn handle_client(
                 .await?;
                 return Ok(());
             }
+            let target = to_target(&request.address)?;
             let access = start_access(
                 &vector,
                 TrafficProtocol::Tcp,
                 Some(peer.to_string()),
                 &request.address,
             );
-            let target = to_target(&request.address)?;
             let opened = tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => {
                     access.finish(AccessOutcome::Cancelled, None);
                     return Ok(());
                 }
-                opened = open_tcp(vector.client.clone(), &target, 0) => opened,
+                opened = open_tcp(vector.client.clone(), &target) => opened,
             };
             match opened {
                 Ok(tunnel) => {
@@ -252,5 +250,5 @@ async fn handle_client(
 }
 
 #[cfg(test)]
-#[path = "../../tests/vector/socks_server.rs"]
+#[path = "../../tests/vector/socks/server.rs"]
 mod tests;

@@ -39,17 +39,6 @@ impl OutboundDialer {
         }
     }
 
-    pub(crate) fn dial_policy(&self) -> &DialPolicy {
-        &self.dial_policy
-    }
-
-    pub(crate) fn socks_endpoint(&self) -> String {
-        self.socks
-            .as_ref()
-            .map(SocksConfig::endpoint)
-            .unwrap_or_else(|| "none".to_string())
-    }
-
     pub(crate) fn ping_ms(&self) -> u64 {
         if self.socks.is_some() {
             self.latency.current_ms()
@@ -221,10 +210,6 @@ impl OutboundTcpStream {
         }
     }
 
-    pub(crate) fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.stream.local_addr()
-    }
-
     pub(crate) fn into_split(
         self,
     ) -> (
@@ -307,6 +292,10 @@ async fn resolve_relay(relay: &SocksAddress, policy: &DialPolicy) -> Result<Sock
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/common/socks/outbound_support.rs"]
+mod test_support;
 
 #[cfg(test)]
 #[path = "../../tests/common/socks/outbound.rs"]
