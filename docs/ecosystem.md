@@ -1,160 +1,119 @@
-# Ecosystem and share links
+# Ecosystem
 
-Nowhere has a small set of focused tools around the Portal and Vector runtime.
-Use only the layer you need: connect from an Apple device, deploy one Linux
-server, supervise local processes through an API, or operate a Portal fleet
-from a web dashboard.
+Connect, deploy and operate with tools built around Nowhere's public interfaces.
 
-| Project | Role | Get started |
-| --- | --- | --- |
-| [Anywhere](https://github.com/NodePassProject/Anywhere) | Native Nowhere client for iOS, iPadOS, and tvOS | [App Store](https://apps.apple.com/us/app/id6758235178) · [Import guide](https://github.com/NodePassProject/Anywhere#deep-links) |
-| **Vector** | Built-in SOCKS5 edge for desktop and server workflows | [Quick start](quick-start.md) · [Configuration](configuration.md#vector-url) |
-| [nowhere-sh](https://github.com/NodePassProject/nowhere-sh) | Interactive Linux VPS deployment and management script | [Quick start](https://github.com/NodePassProject/nowhere-sh#quick-start)  · [Commands](https://github.com/NodePassProject/nowhere-sh#commands) |
-| [OpenCtrl](https://github.com/NodePassProject/OpenCtrl) | Advanced control plane for Portal and Vector processes | [Run](https://github.com/NodePassProject/OpenCtrl#run) · [API reference](https://github.com/NodePassProject/OpenCtrl/blob/main/docs/master.md) |
-| [NowhereDash](https://github.com/NodePassProject/NowhereDash) | Web dashboard for Portal fleets managed through OpenCtrl | [Quick start](https://github.com/NodePassProject/NowhereDash#quick-start) · [Product tour](https://github.com/NodePassProject/NowhereDash#product-tour) |
+## Contents
 
-## How the pieces fit
+- [Projects](#projects)
+- [Connections and management](#connections-and-management)
+- [Share links](#share-links)
+- [Service configuration](#service-configuration)
+
+## Projects
+
+Use the layer that fits your workflow. Each project's documentation describes
+the protocol and interfaces it supports.
+
+| Project | Purpose | Get started |
+|---|---|---|
+| [Anywhere](https://github.com/NodePassProject/Anywhere) | Native connections on iOS, iPadOS and tvOS | [App Store](https://apps.apple.com/us/app/id6758235178) · [Import guide](https://github.com/NodePassProject/Anywhere#deep-links) |
+| **Vector** | Built-in SOCKS5 ingress for desktop and server applications | [Quick start](quick-start.md) · [Configuration](configuration.md#vector-url) |
+| [nowhere-sh](https://github.com/NodePassProject/nowhere-sh) | Linux VPS deployment and service management | [Quick start](https://github.com/NodePassProject/nowhere-sh#quick-start) · [Commands](https://github.com/NodePassProject/nowhere-sh#commands) |
+| [OpenCtrl](https://github.com/NodePassProject/OpenCtrl) | Local process supervision through REST and SSE | [Run](https://github.com/NodePassProject/OpenCtrl#run) · [API reference](https://github.com/NodePassProject/OpenCtrl/blob/main/docs/master.md) |
+| [NowhereDash](https://github.com/NodePassProject/NowhereDash) | Portal fleet operations through OpenCtrl | [Quick start](https://github.com/NodePassProject/NowhereDash#quick-start) · [Product tour](https://github.com/NodePassProject/NowhereDash#product-tour) |
+
+## Connections and management
+
+Client traffic, deployment and process management use separate interfaces:
 
 ```text
 Connect
 
-  +----------+                          +--------+
-  | Anywhere |--- Nowhere protocol ---->| Portal |
-  +----------+                          +--------+
-  +----------+                              ^
-  |  Vector  |--- Nowhere protocol ---------+
-  +----------+
++----------+                 +----------+                 +----------+
+| Anywhere |-- wire protocol>|  Portal  |<-- wire protocol|  Vector  |
++----------+                 +----------+                 +----------+
 
 Deploy
 
-  +------------+                        +--------+
-  | nowhere-sh |--- installs/operates ->| Portal |
-  +------------+                        +--------+
++------------+     installs and operates      +----------+
+| nowhere-sh |------------------------------->|  Portal  |
++------------+                                +----------+
 
 Manage
 
-  +-------------+    REST + SSE    +----------+    supervises     +-------------------------+
-  | NowhereDash |----------------->| OpenCtrl |------------------>| Portal / Vector process |
-  +-------------+                  +----------+                   +-------------------------+
++-------------+       REST + SSE       +----------+
+| NowhereDash |----------------------->| OpenCtrl |
++-------------+                        +-----+----+
+                                            |
+                                            | supervises
+                                            v
+                              +---------------------------+
+                              |  Portal / Vector / Egress |
+                              +---------------------------+
 ```
 
-**Anywhere** connects directly to Portal and imports `nowhere://` links.
-**Vector** ships in the `nowhere` binary and exposes a local SOCKS5 endpoint.
+### Connect
 
-**nowhere-sh** installs and manages one systemd Portal on a Linux VPS. Its
-interactive workflow covers release selection and upgrades, carrier and Portal
-configuration, service lifecycle, logs, the built-in TUI, and generated
-Anywhere or Vector links. It operates the Portal directly without adding a
-control-plane service.
+Anywhere connects directly to Portal and imports `nowhere://` links. Vector
+ships in the `nowhere` binary and exposes a local SOCKS5 endpoint. Client peers
+implement the [wire protocol](protocol.md).
 
-**OpenCtrl** runs beside the Nowhere processes it supervises. It stores Portal
-or Vector definitions and exposes lifecycle, logs, and telemetry over a
-versioned REST API and Server-Sent Events. The controller and its child
-processes must share a host or container, operating-system user, and telemetry
-namespace.
+### Deploy
 
-**NowhereDash** sits above OpenCtrl. It provides a web interface for multiple
-OpenCtrl endpoints, operates Portal instances, displays live telemetry, and
-publishes protected subscriptions with QR codes and mobile import links. Its
-management model is intentionally Portal-only.
+nowhere-sh installs and manages one systemd Portal on a Linux VPS. Its
+interactive workflow covers release selection, upgrades, transport and Portal
+configuration, service lifecycle, logs and generated Anywhere or Vector links.
+It operates Portal directly.
+
+### Manage
+
+OpenCtrl runs beside the Portal or Vector processes it supervises. It stores
+process definitions and exposes lifecycle, logs and telemetry through a
+versioned REST API and Server-Sent Events. The controller and its children
+share a host or container, operating-system user and telemetry namespace.
+
+NowhereDash connects to multiple OpenCtrl endpoints. It operates Portal
+instances, displays live telemetry and publishes protected subscriptions with
+QR codes and mobile import links. Its management model is Portal-only.
 
 ## Share links
 
-### Link format
+Client sharing and service configuration have distinct URL schemes:
 
-Nowhere uses separate URL schemes for client sharing and service configuration:
+| Scheme | Purpose | Consumer |
+|---|---|---|
+| `nowhere://` | Share a Portal connection and display name | Anywhere; CLI `fingerprint` |
+| `vector://` | Configure SOCKS5 ingress | `nowhere` CLI |
+| `portal://` | Configure listeners and the fixed exit | `nowhere` CLI |
+| `egress://` | Register a QUIC exit connection | `nowhere` CLI |
 
-| Scheme | Purpose | Used by |
-| --- | --- | --- |
-| `nowhere://` | Share a Portal connection and display name | Anywhere, CLI `fingerprint` |
-| `vector://` | Connect to Portal and expose a local SOCKS5 listener | `nowhere` CLI |
-| `portal://` | Configure a server listener and optional forwarding | `nowhere` CLI |
+A `nowhere://` link may include a display-name fragment. Service URLs do not
+accept display-name fragments. The external client's import guide defines its
+supported share-link fields.
 
-### Anywhere share links
+## Service configuration
 
-The following format describes Anywhere's current import/export support:
-
-```text
-nowhere://KEY@HOST:PORT[?QUERY][#NAME]
-nowhere://KEY@HOST/tcp:TCP_PORT[/udp:UDP_PORT][?QUERY][#NAME]
-nowhere://KEY@HOST/udp:UDP_PORT[?QUERY][#NAME]
-```
-
-`KEY` is the shared Portal key, percent-encoded as URL userinfo; it is not
-Base64. Encode reserved characters such as `@`, `:`, `/`, `?`, `#`, and `%`.
-The client parser accepts 1–255 decoded UTF-8 bytes. Portal requires 32–64 lowercase hex characters; replace `<generated-key>`
-in the examples with `nowhere generate-key` output. These text bytes are used
-verbatim for key derivation, without hex decoding. Use a concrete hostname or IP
-address and ports from `1` to `65535`; bracket IPv6 literals, as in
-`[2001:db8::1]:2000`. The optional `NAME` is a percent-encoded display name.
-
-The compact `HOST:PORT` form enables both carriers on one port. The explicit
-form enables only the listed carriers, each at most once, and has no port
-on `HOST`. Both carriers share the same host.
-
-| Query | Values | Default / behavior |
-| --- | --- | --- |
-| `up` | `tcp`, `udp` | Upload carrier; TCP if available, otherwise UDP |
-| `down` | `tcp`, `udp` | Download carrier; TCP if available, otherwise UDP |
-| `mux` | `0`, `1` | `0`; `1` enables TLS multiplexing when either direction uses TCP |
-| `morph` | `0`, `1` | `0`; must match the Portal's Morph setting |
-| `sni` | Server name | Endpoint host when omitted, empty, or `none` |
-
-Each direction must select a carrier declared by the endpoint. Percent-encode
-reserved characters in query values. Morph Prelude selection is a local client
-setting and is not included in share links.
-
-#### Anywhere compatibility
-
-- **No `mix` policy:** `up` and `down` accept only `tcp` or `udp`.
-- **No address-family suffixes:** carrier paths accept only `tcp` and `udp`,
-  not `tcp4`, `tcp6`, `udp4`, or `udp6`. IPv6 literals such as
-  `[2001:db8::1]:2000` are supported; the restriction concerns explicit
-  address-family selection through carrier suffixes.
-- **No certificate `pin` parameter:** Anywhere's share-link parser does not
-  import the CLI's certificate pin setting.
-
-#### Examples
-
-**TLS over TCP with multiplexing**
+The CLI runs `portal://`, `vector://` and `egress://` URLs:
 
 ```text
-nowhere://<generated-key>@relay.example:2000?up=tcp&down=tcp&mux=1#My%20Portal
+portal://KEY@HOST/tcp:2000/udp:2001?out=direct
+vector://KEY@HOST/tcp:2000/udp:2001?net=tcp&in=127.0.0.1:1080
+egress://KEY@HOST/udp:2001
 ```
 
-**QUIC over UDP with Morph** — the Portal must also set `morph=1`.
+Use a key from `nowhere generate-key`. Vector requires `in` for its local
+listener and selects one carrier with `net=tcp|udp`. Egress uses QUIC and
+registers only with a Portal configured for `out=egress`.
 
-```text
-nowhere://<generated-key>@relay.example:2000?up=udp&down=udp&morph=1#QUIC%20Portal
-```
+Vector and Egress verify system CA trust and the server name, or an exact trusted
+certificate pin. The endpoint host is the default verified name; `sni` can
+override it. See [Security](security.md#certificate-trust).
 
-**Separate ports and split directions** — upload over TLS, download over QUIC.
+The `fingerprint` command accepts `nowhere://` links, including display-name
+fragments, and reads the certificate over TCP. It uses the endpoint, Shared Key,
+`morph` and `sni`; other query parameters are ignored. See
+[Operations](operations.md#diagnose-target-setup) for inspection and trust.
 
-```text
-nowhere://<generated-key>@relay.example/tcp:2006/udp:2017?up=tcp&down=udp&sni=relay.example#Split%20Portal
-```
-
-Paste a link into Anywhere, or use its deep link to open the import screen:
-
-```text
-anywhere://add-proxy?link=nowhere://<generated-key>@relay.example:2000?up=tcp&down=tcp&mux=1#My%20Portal
-```
-
-The `add-proxy` wrapper takes everything after `?link=` verbatim; do not
-percent-encode the entire inner URL again.
-
-### CLI configuration URLs
-
-Service configuration uses `portal://` and `vector://` in the CLI. Vector
-additionally requires `socks=` for its local listener; these service URLs do
-not accept display-name fragments.
-The `fingerprint` subcommand instead accepts `nowhere://` share links, including
-their display-name fragments, and reads the certificate over TCP. It uses only
-the endpoint, shared key, `morph`, and `sni`; Flow route options are ignored.
-Vector uses the endpoint host as its verified server name by default and
-requires system CA trust unless an exact certificate pin is configured. `sni`
-can override the server name. See [Security](security.md) for Vector's
-verification policy.
-
-Use [Configuration](configuration.md) for the full CLI grammar, listener
-options, chaining, and environment variables.
+[Configuration](configuration.md) defines the complete CLI grammar, defaults,
+listener options and environment variables. [Integrations](integrations.md)
+describes service supervision and third-party Telemetry subscribers.

@@ -1,117 +1,83 @@
 # Integrations
 
-Nowhere exposes integration contracts through command URLs, the local SOCKS5
-listener, and the documented wire protocol. Its Rust modules are internal and
-do not provide a separately versioned SDK surface.
+Launch Nowhere services and observe them through public process and IPC interfaces.
+
+## Contents
+
+- [Service processes](#service-processes)
+- [Local observation](#local-observation)
+- [Subscriber workflow](#subscriber-workflow)
+- [Deployment boundaries](#deployment-boundaries)
+
+## Service processes
+
+Each Vector, Portal or Egress runs as a service process with its own Telemetry
+subsystem. Configure it with a [role URL](configuration.md), supervise its
+lifetime and allow the bounded shutdown to complete.
+
+| Role | Integration point |
+|---|---|
+| Vector | SOCKS5 ingress through `in`; one transport selected by `net` |
+| Portal | Declared listeners and one fixed `out` |
+| Egress | Outbound QUIC registration; target dialing when selected by Portal |
+
+`nowhere probe` performs a one-shot setup check without an ingress listener.
+`nowhere status` reads a local snapshot and exits. See [Operations](operations.md)
+for diagnostics and [Platforms](platforms.md#process-control) for process signals.
+
+## Local observation
+
+Telemetry stays inside each service process. Each instance publishes its own
+protected local IPC endpoint; status and subscribers connect to those endpoints.
 
 ```text
-                         local interface                 wire interface
-
-+-------------+  SOCKS5  +--------+  Nowhere protocol   +--------+  TCP/UDP  +--------+
-| Application |<-------->| Vector |<===================>| Portal |<--------->| Target |
-+-------------+          +--------+                     +--------+           +--------+
-                                                            ^
-                                                            |
-                     +------------------+===================+
-                     | Alternate client |
-                     +------------------+
-                                                            ^
-                                                            |
-                     +------------------+===================+
-                     | Portal `next`    |
-                     +------------------+
++---------------+     +---------------+     +---------------+
+|     Vector    |     |     Portal    |     |     Egress    |
+|   Telemetry   |     |   Telemetry   |     |   Telemetry   |
++-------+-------+     +-------+-------+     +-------+-------+
+        |                     |                     |
+        +---------------------+---------------------+
+                              |
+           +------------------v------------------+
+           |     Protected local IPC endpoints   |
+           +------------------+------------------+
+                              |
+           +------------------+------------------+
+           |                                     |
++----------v----------+               +----------v----------+
+|    nowhere status   |               |   IPC subscribers   |
++---------------------+               +---------------------+
 ```
 
-An integration chooses one boundary. Applications normally use SOCKS5;
-alternate clients implement the wire protocol; Portal chains use the native
-client engine.
+A service maintains statistics and lifecycle even without subscribers or stdout
+logging. Consumers use length-prefixed JSON directly. The
+[Telemetry contract](telemetry.md), [schema](telemetry/schema.json) and
+[examples](telemetry/examples.json) define discovery and messages independently
+of Rust private modules and status text.
 
-## Command URL endpoints
+## Subscriber workflow
 
-Launchers and configuration generators produce one of two standard URL shapes:
+1. Discover an instance in the local per-user registry.
+2. Validate permissions, endpoint namespace, peer and process identity.
+3. Connect, validate Hello against discovery and send `subscribe`.
+4. Consume Summary or Detail messages; switch modes with another `subscribe`.
+5. On disconnect, rediscover and subscribe again.
 
-```text
-SCHEME://KEY@HOST:PORT
-SCHEME://KEY@HOST/CARRIER:PORT[/CARRIER:PORT]
-```
+Summary delivers Snapshot and Lifecycle. Detail additionally delivers Runtime,
+Access and Gap messages. Delivery has no historical replay guarantee. Collectors
+must preserve counter precision, tolerate unavailable values and avoid treating
+per-process totals as unique end-to-end traffic.
 
-The compact form declares TCP and UDP on one unrestricted port. The explicit
-form declares only the listed carrier entries. `tcp`, `tcp4`, and `tcp6` map to
-TLS/TCP; `udp`, `udp4`, and `udp6` map to QUIC/UDP. The numeric suffix limits
-DNS and literal addresses to IPv4 or IPv6.
+The [independent client](../src/tests/telemetry/headless.py) demonstrates Unix
+framing, identity checks, subscriptions and snapshots using Python's standard
+library. See [Testing](testing.md#headless-ipc-check) for running it.
 
-Configuration integrations should preserve these invariants:
+## Deployment boundaries
 
-- encode the shared key as URL username data and never as password userinfo;
-- use `nowhere generate-key` output for Portal listener and `next` keys;
-  pass its 32 lowercase hex characters unchanged to authentication and Morph;
-- keep one shared host for both carriers;
-- use either an authority port or carrier path, never both;
-- emit each transport at most once and order canonical output as TCP then UDP;
-- emit the compact form when unrestricted TCP and UDP share a port;
-- reserve `*` and compact empty hosts for Portal listeners;
-- keep `next` policy in the outer Portal query rather than adding an inner
-  query to the nested endpoint.
-- emit `morph=1` only when both peers on that hop implement the Morph wire
-  transform; omission and `morph=0` are equivalent.
+The service and collector share an operating-system user and the platform's
+system temporary directory. In containers, they also share the same container
+and namespaces. Telemetry uses Unix sockets or local Windows named pipes;
+it does not publish an HTTP or network service.
 
-Portal accepts `portal://<generated-key>@:2000` as the compact wildcard alias. Explicit
-Portal listeners use `portal://<generated-key>@*/tcp:2006/udp:2017`. Vector and native
-`next` endpoints require an IP literal or hostname. Implementations that show
-or log effective configuration omit credentials and retain the normalized
-carrier path.
-
-An invalid URL is a startup error. Integrations should display the process
-error without retrying a different carrier or rewriting an explicit address
-family, because doing so would change the user's declared service edge.
-
-## Alternate clients
-
-Implementers should follow [Protocol](protocol.md). QUIC uses native reliable
-streams and DATAGRAM frames, never TLS Mux framing. Clients must offer `nw2`,
-and the negotiated ALPN must be exactly `nw2`. A Mux TLS connection places
-the `0xff` marker after
-authentication; a dedicated lane places its FlowHeader there instead. Portal
-accepts both forms on the same TLS listener and selects the decoder from that
-first byte.
-
-An alternate client provides:
-
-- one random 16-byte session ID shared by its physical carriers;
-- an AuthFrame bound to each carrier's TLS exporter and transport type;
-- nonzero Flow IDs unique among active flows in that session;
-- matching OPEN and ATTACH metadata for split-carrier flows;
-- bounded retry and reconnection behavior after carrier failure.
-- the exact Morph HKDF and ChaCha20 socket wrapper when `morph=1` is selected.
-
-The command URL is not transmitted. It selects the remote socket used for each
-physical carrier; the negotiated ALPN, AuthFrame transport byte, and FlowHeader
-then identify wire behavior. TCP and UDP may arrive at different Portal ports
-and still belong to one session because the authenticated `session_id`, rather
-than the socket address, defines the pairing scope.
-
-The `mix` URL policy is client-side only and resolves once to TT, TQ, QT, or QQ.
-The primary pair has a one-second preparation budget by default. Failure or
-timeout selects the other allowed pair once with a new flow ID. A client never
-replays a request after any FlowHeader or Target bytes may have been accepted.
-
-## Chained Portal
-
-`next=<generated-key>@host:port` or an explicit endpoint such as
-`next=<generated-key>@host/tcp:2006/udp:2017` creates the same client engine used
-by Vector, including `up/down=mix` and pre-commit fallback. `mux=0|1` selects
-dedicated or Mux TLS when TCP can be selected and defaults to `0`; it has no
-effect without `next` and canonicalizes to `0` for `udp/udp`. Authentication,
-flow setup, bounds, and failure semantics are identical at every hop.
-
-The outer `morph=0|1` applies to both the inbound listener and the native next
-client. The two sides derive from their respective endpoint keys, so a relay
-does not reuse its inbound Morph keys on the next hop.
-
-The nested value contains no scheme, query, or fragment. Percent-encoded key
-bytes are decoded exactly once. `up`, `down`, `mux`, `sni`, `pin`, and `morph` stay on
-the outer Portal URL, while the outer `dial` address also constrains the local
-family used for upstream TCP and UDP sockets. Alternatively, `dial4` and `dial6`
-can be used together instead of `dial` to bind each family independently, with
-an omitted family using automatic source selection. The selected upstream
-carrier still controls which address families may be used.
+Use the [ecosystem guide](ecosystem.md) for client, deployment and controller
+projects. Their own documentation defines the interfaces they support.
