@@ -105,7 +105,7 @@ fn user_key() -> Result<String> {
 }
 pub(in crate::telemetry) fn directory() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "nowhere-telemetry-{}",
+        "nowhere-telemetry-nw3-{}",
         user_key().unwrap_or_else(|_| "unavailable".to_owned())
     ))
 }
@@ -268,14 +268,14 @@ pub(in crate::telemetry) fn publish(path: &Path, payload: &[u8]) -> Result<()> {
 }
 pub(in crate::telemetry) fn endpoint(id: &str) -> String {
     format!(
-        r"\\.\pipe\nowhere-telemetry-{}-{id}",
+        r"\\.\pipe\nowhere-telemetry-nw3-{}-{id}",
         user_key().unwrap_or_default()
     )
 }
 fn valid_endpoint(value: &str) -> bool {
     value
         .strip_prefix(&format!(
-            r"\\.\pipe\nowhere-telemetry-{}-",
+            r"\\.\pipe\nowhere-telemetry-nw3-{}-",
             user_key().unwrap_or_default()
         ))
         .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
