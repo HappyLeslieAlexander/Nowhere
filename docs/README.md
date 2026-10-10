@@ -1,108 +1,36 @@
-# Documentation
+# Nowhere documentation
 
-Each document owns one part of the Nowhere interface.
+Guides and references for connecting, operating and integrating Nowhere.
 
-| Need | Document |
+## Get connected
+
+Start a trusted connection, choose a transport and place the exit.
+
+| Guide | Purpose |
 |---|---|
-| Start a local Portal and Vector | [Quick start](quick-start.md) |
-| Explore clients and management tools or share a Portal link | [Ecosystem](ecosystem.md) |
-| Configure URLs and runtime behavior | [Configuration](configuration.md) |
-| Deploy and observe processes | [Operations](operations.md) |
-| Choose a supported system | [Platforms](platforms.md) |
-| Review authentication and resource bounds | [Security](security.md) |
-| Understand peer and carrier contracts | [Interoperability](interoperability.md) |
-| Implement the wire format | [Protocol](protocol.md) |
-| Connect another client or service | [Integrations](integrations.md) |
-| Local telemetry contract and schema | [Telemetry](telemetry.md) |
+| [Quick start](quick-start.md) | Build, connect applications and verify the first Flow |
+| [Configuration](configuration.md) | Role URLs, options, defaults and environment settings |
+| [Egress](egress.md) | Register a remote exit and understand its lifecycle |
 
-[Configuration](configuration.md) defines command URLs and runtime settings.
-[Protocol](protocol.md) defines bytes exchanged between peers. The other guides
-describe how those interfaces are used and operated.
+## Run and observe
 
-Portal and Vector have the same transport behavior on Linux, macOS, and
-Windows. Platform-specific packaging, process control, filesystem paths, and
-telemetry availability are documented separately instead of being mixed into
-the protocol.
+Deploy services, inspect their state and understand the trust boundaries.
 
-## System map
+| Guide | Purpose |
+|---|---|
+| [Platforms](platforms.md) | Native hosts, network exposure and containers |
+| [Operations](operations.md) | Status, diagnostics, capacity and shutdown |
+| [Security](security.md) | Certificate trust, authentication and resource protection |
+| [Telemetry](telemetry.md) | Local discovery, subscriptions, messages and statistics |
 
-```text
-+-------------+  SOCKS5  +--------+  TLS/TCP or QUIC/UDP  +--------------+
-| Application |<-------->| Vector |<=====================>| Entry Portal |
-+-------------+          +--------+                       +------+-------+
-                                                                 |
-                                                         +-------+-------+
-                                                         | outbound path |
-                                                         +-------+-------+
-                                                                 |
-                                      +--------------------------+---------------------------+
-                                      |                                                      |
-                                      v                                                      v
-                              +---------------+                                       +-------------+
-                              | direct/SOCKS5 |                                       | Native next |
-                              +-------+-------+                                       +------+------+
-                                      |                                                      |
-                                      v                                                      v
-                               +-------------+                                        +-------------+
-                               |   Target    |                                        | Next Portal |
-                               +-------------+                                        +------+------+
-                                                                                             |
-                                                                                             v
-                                                                                      +-------------+
-                                                                                      |   Target    |
-                                                                                      +-------------+
-```
+## Build and integrate
 
-Each Portal chooses exactly one outbound path for a flow: direct target
-access, an outbound SOCKS5 proxy, or a native `next` Portal. The carrier choice
-on one hop does not constrain the carrier choice on another hop.
+Implement a peer, connect an observer or work on the Rust runtime.
 
-## Endpoint summary
-
-Portal listeners, Vector remote endpoints, and Portal `next` endpoints use the
-same carrier grammar:
-
-```text
-HOST:PORT
-HOST/CARRIER:PORT[/CARRIER:PORT]
-```
-
-The compact form declares TLS/TCP and QUIC/UDP on one port. The explicit form
-declares only its listed carriers. `tcp` and `udp` accept IPv4 and IPv6;
-`tcp4`, `udp4`, `tcp6`, and `udp6` restrict the address family. Both carriers
-share `HOST`, while their ports and address families remain independent.
-
-| Role | Host rule | Endpoint result |
-|---|---|---|
-| Portal | `*`, IP literal, hostname, or compact empty host | Opens every declared listener |
-| Vector | IP literal or hostname | Dials only the declared remote carriers |
-| Portal `next` | IP literal or hostname | Uses the same client engine as Vector |
-
-`portal://<generated-key>@:2000` is the compact alias for
-`portal://<generated-key>@*:2000`. Vector and `next` reject `*`. A Portal resolves listener
-hostnames once at startup and binds every matching address; clients resolve and
-filter each carrier by its declared family. Configuration errors stop startup
-before service traffic is accepted. The full syntax and error rules are in
-[Configuration](configuration.md).
-
-## Protocol summary
-
-| Client Mux setting | TLS/TCP | QUIC/UDP | Failure scope |
-|---|---|---|---|
-| `mux=0` | Dedicated lane per flow | Native streams/datagrams | One flow per carrier |
-| `mux=1` | Shared bounded Mux | Native streams/datagrams | Assigned flows close with the carrier |
-
-Nowhere 2 peers negotiate the fixed `nw2` ALPN. Peers without `nw2` cannot
-complete a Nowhere 2 carrier handshake. The client-side route-policy matrix is:
-
-| `up` ↓ / `down` → | `tcp` | `udp` | `mix` |
-|---|---|---|---|
-| `tcp` | TT | TQ | TT ↔ TQ |
-| `udp` | QT | QQ | QT ↔ QQ |
-| `mix` | TT ↔ QT | TQ ↔ QQ | TT ↔ QQ |
-
-T means TLS/TCP and Q means QUIC/UDP, with uplink first. All four concrete
-routes use the same FlowHeader, Target, pairing, and relay semantics. `mix` is
-a local Vector or Portal-`next` policy; FlowHeader contains only the resolved
-concrete route. Portal accepts dedicated and `0xff`-marked Mux connections on
-the same TLS listener.
+| Reference | Purpose |
+|---|---|
+| [Wire protocol](protocol.md) | Authentication, framing, UDP and Morph |
+| [Interoperability](interoperability.md) | Requirements for compatible peers |
+| [Integrations](integrations.md) | Process supervision and independent subscribers |
+| [Ecosystem](ecosystem.md) | Clients, deployment tools, controllers and share links |
+| [Testing](testing.md) | Regression coverage, native checks and measurements |
