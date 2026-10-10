@@ -98,7 +98,6 @@ impl LatencyGuard {
         #[cfg(not(target_os = "linux"))]
         {
             let _ = stream;
-            self.update(Duration::from_millis(1));
         }
     }
 }
