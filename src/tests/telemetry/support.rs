@@ -3,4 +3,4 @@
 
 //! Telemetry wire types shared by internal tests.
 
-pub(crate) use super::wire::{InstanceDescriptor, LifecycleSnapshot};
+pub(crate) use super::wire::InstanceDescriptor;

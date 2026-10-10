@@ -19,7 +19,6 @@ async fn commands_reject_extra_arguments() {
         "--help",
         "version",
         "--version",
-        "tui",
         "status",
         "generate-key",
     ] {
@@ -132,7 +131,6 @@ fn help_text_documents_usage_and_configuration_surface() {
     assert!(!HELP_TEXT.contains('\''));
     for expected in [
         "Usage:",
-        "nowhere tui",
         "nowhere probe <vector-url> <target>",
         "nowhere status",
         "nowhere generate-key",
@@ -250,7 +248,7 @@ fn parse_command_url_keeps_normal_hosts() {
 async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors() {
     const SECRET: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     for (raw, expected) in [
-        ("not-a-url".to_owned(), "invalid configuration URL"),
+        ("not-a-url".to_owned(), "unknown command"),
         (
             format!("ftp://{SECRET}@example.com:2000"),
             "scheme must be portal or vector",
@@ -395,4 +393,15 @@ async fn portal_key_rejections_identify_the_endpoint_without_starting_a_service(
             assert!(!message.contains(&raw));
         }
     }
+}
+
+#[tokio::test]
+async fn no_arguments_succeeds_without_a_terminal_and_tui_is_unknown() {
+    start(vec!["nowhere".to_owned()]).await.unwrap();
+    let error = start(vec!["nowhere".to_owned(), "tui".to_owned()])
+        .await
+        .unwrap_err();
+    assert!(error.to_string().starts_with("unknown command"));
+    assert!(!HELP_TEXT.contains("TUI"));
+    assert!(!HELP_TEXT.contains("nowhere tui"));
 }

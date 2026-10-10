@@ -4,7 +4,6 @@
 //! Command-line entry point for running a Nowhere Portal or Vector.
 
 use std::env;
-use std::io::IsTerminal;
 use std::{error, fmt};
 
 use anyhow::{Context, Result, bail};
@@ -29,8 +28,7 @@ impl error::Error for ProbeFailed {}
 
 const HELP_TEXT: &str = "\
 Usage:
-  nowhere                              Open the local telemetry TUI
-  nowhere tui                          Open the local telemetry TUI
+  nowhere                              Show help and exit
   nowhere <portal-url>                 Run a Portal relay
   nowhere <vector-url>                 Run a Vector SOCKS5 client
   nowhere generate-key                 Generate a random 128-bit key as hex
@@ -41,7 +39,6 @@ Usage:
   nowhere -v | --version               Show version information
 
 Commands:
-  tui           Interactive read-only multi-instance telemetry.
   generate-key  Print 16 random bytes as 32 lowercase hex characters.
   fingerprint   Print the leaf certificate SHA-256 over TCP; supports Morph.
   probe         End-to-end TCP Flow setup; sends no application payload.
@@ -133,7 +130,8 @@ fn format_start_error(error: &anyhow::Error) -> String {
 
 async fn start(args: Vec<String>) -> Result<()> {
     if args.len() == 1 {
-        return run_tui().await;
+        print_help();
+        return Ok(());
     }
 
     match args[1].as_str() {
@@ -150,10 +148,6 @@ async fn start(args: Vec<String>) -> Result<()> {
                 env::consts::ARCH
             );
             return Ok(());
-        }
-        "tui" => {
-            require_args(&args, 2, "nowhere tui")?;
-            return run_tui().await;
         }
         "generate-key" => {
             require_args(&args, 2, "nowhere generate-key")?;
@@ -178,6 +172,9 @@ async fn start(args: Vec<String>) -> Result<()> {
             return run_status().await;
         }
         _ => {}
+    }
+    if !args[1].contains("://") {
+        bail!("unknown command; run \"nowhere --help\" for usage");
     }
     if args.len() > 2 {
         bail!("expected exactly one configuration URL; run \"nowhere --help\" for usage");
@@ -214,13 +211,6 @@ fn require_args(args: &[String], expected: usize, usage: &str) -> Result<()> {
 
 fn parse_toolbox_url(raw: &str) -> Result<Url> {
     parse_command_url(raw).context("invalid configuration URL")
-}
-
-async fn run_tui() -> Result<()> {
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        bail!("main::run_tui: an interactive terminal is required")
-    }
-    nowhere::run_tui().await
 }
 
 fn print_help() {

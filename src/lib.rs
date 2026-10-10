@@ -10,7 +10,6 @@ mod protocol;
 mod telemetry;
 mod toolbox;
 mod transport;
-mod tui;
 mod vector;
 
 pub use common::{LogLevel, Logger, query_first, validate_endpoint_url_input};
@@ -18,7 +17,6 @@ pub use portal::Portal;
 pub use toolbox::{
     fingerprint as run_fingerprint, generate_key, probe as run_probe, status as run_status,
 };
-pub use tui::run_tui;
 pub use vector::Vector;
 
 #[cfg(test)]

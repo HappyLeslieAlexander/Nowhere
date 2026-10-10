@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::frame::{FrameReader, TelemetryReader, TelemetryWriter, write_frame};
+use super::frame::{FrameReader, TelemetryReader, TelemetryWriter};
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path, valid_instance};
 use crate::telemetry::local;
-use crate::telemetry::{ClientMessage, Hello, ServerMessage, Subscription, TELEMETRY_PROTOCOL};
+use crate::telemetry::{Hello, ServerMessage, Subscription, TELEMETRY_PROTOCOL};
 
 pub(crate) struct TelemetryClient {
     hello: Hello,
@@ -50,7 +50,7 @@ impl TelemetryClient {
             local::connect(&entry.endpoint, discovered.pid),
         )
         .await??;
-        let (reader, mut writer) = tokio::io::split(stream);
+        let (reader, writer) = tokio::io::split(stream);
         let mut reader = FrameReader::new(reader);
         let message = tokio::time::timeout(Duration::from_secs(5), reader.next::<ServerMessage>())
             .await
@@ -65,18 +65,12 @@ impl TelemetryClient {
         validate_hello(&hello, discovered)?;
         hello.instance.uid = discovered.uid;
         hello.instance.incarnation = discovered.incarnation;
-        write_frame(
-            &mut writer,
-            &ClientMessage::Subscribe {
-                request_id: 0,
-                subscription,
-            },
-        )
-        .await?;
+        let mut writer = TelemetryWriter { inner: writer };
+        writer.subscribe(subscription).await?;
         Ok(Self {
             hello,
             reader: TelemetryReader { inner: reader },
-            writer: TelemetryWriter { inner: writer },
+            writer,
         })
     }
 

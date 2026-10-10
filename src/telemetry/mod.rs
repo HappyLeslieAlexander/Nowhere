@@ -12,12 +12,12 @@ mod wire;
 
 pub(crate) use hub::{AccessSpan, TelemetryHub};
 pub(crate) use ipc::{DiscoveredInstance, TelemetryClient, TelemetryServer, discover_instances};
-pub(crate) use privacy::{config_summary as display_config, endpoint as display_endpoint};
+pub(crate) use privacy::endpoint as display_endpoint;
 pub(crate) use process::now_unix_ms;
 pub(crate) use wire::{
-    AccessFinished, AccessOutcome, AccessStart, AccessStarted, ClientMessage, Hello, InstanceRole,
-    MAX_FRAME_SIZE, RuntimeEvent, RuntimeKind, RuntimeLevel, ServerMessage, Subscription,
-    TELEMETRY_PROTOCOL, TelemetrySnapshot, TrafficProtocol,
+    AccessOutcome, AccessStart, ClientMessage, Hello, InstanceRole, MAX_FRAME_SIZE, RuntimeEvent,
+    RuntimeKind, RuntimeLevel, ServerMessage, Subscription, TELEMETRY_PROTOCOL, TelemetrySnapshot,
+    TrafficProtocol,
 };
 #[cfg(test)]
 #[path = "../tests/telemetry/support.rs"]
