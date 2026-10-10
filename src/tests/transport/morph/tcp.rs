@@ -14,10 +14,21 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use super::*;
 
-impl super::super::tcp::MorphWriteReady for tokio::io::DuplexStream {
+impl super::MorphWriteReady for tokio::io::DuplexStream {
     fn poll_morph_write_ready(&self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
+}
+
+fn apply_at(
+    key: &super::super::MorphKeyBytes,
+    nonce: &[u8; NONCE_LEN],
+    offset: u64,
+    bytes: &mut [u8],
+) -> io::Result<()> {
+    let mut cipher = ChaCha20::new(key.into(), nonce.into());
+    cipher.try_seek(offset).map_err(|_| exhausted())?;
+    cipher.try_apply_keystream(bytes).map_err(|_| exhausted())
 }
 
 fn hex<const N: usize>(value: &str) -> [u8; N] {
@@ -120,7 +131,7 @@ impl AsyncWrite for PendingWriteStream {
     }
 }
 
-impl super::super::tcp::MorphWriteReady for PendingWriteStream {
+impl super::MorphWriteReady for PendingWriteStream {
     fn poll_morph_write_ready(&self, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.ready.load(Ordering::Relaxed) {
             Poll::Ready(Ok(()))

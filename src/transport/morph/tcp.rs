@@ -268,3 +268,7 @@ impl<S: AsyncWrite + MorphWriteReady + Unpin> AsyncWrite for MorphTcpStream<S> {
 #[cfg(test)]
 #[path = "../../tests/transport/morph/tcp_support.rs"]
 mod test_support;
+
+#[cfg(test)]
+#[path = "../../tests/transport/morph/tcp.rs"]
+mod tests;

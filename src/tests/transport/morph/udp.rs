@@ -13,7 +13,6 @@ use std::task::{Context, Poll};
 use quinn::udp::{RecvMeta, Transmit};
 use quinn::{AsyncUdpSocket, UdpPoller};
 
-use super::super::udp::{UDP_NONCE_STREAM_LIMIT, UdpNonceGenerator};
 use super::*;
 
 #[test]

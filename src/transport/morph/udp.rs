@@ -333,3 +333,7 @@ impl AsyncUdpSocket for MorphUdpSocket {
         self.inner.may_fragment()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/transport/morph/udp.rs"]
+mod tests;
