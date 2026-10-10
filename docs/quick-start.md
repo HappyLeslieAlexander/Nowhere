@@ -1,174 +1,101 @@
-# Quick Start
+# Quick start
 
-Use a release archive for a supported target or build with
-`cargo build --release --locked`. The commands below work in Linux/macOS
-shells, PowerShell, and Windows Command Prompt. On Windows, invoke
-`nowhere.exe` instead of `nowhere`.
+Connect applications to a trusted Portal through a local SOCKS5 ingress.
 
-```text
-+-------------+  SOCKS5  +--------+  encrypted carrier  +--------+  TCP/UDP  +--------+
-| Application |<-------->| Vector |<===================>| Portal |<--------->| Target |
-+-------------+          +--------+                     +--------+           +--------+
-                              ^                              ^
-                              | read-only telemetry          | read-only telemetry
-                              +---------------+--------------+
-                                              |
-                                          +---+---+
-                                          |  TUI  |
-                                          +-------+
+## Contents
+
+- [Before you begin](#before-you-begin)
+- [Build and create a key](#build-and-create-a-key)
+- [Start Portal](#start-portal)
+- [Establish trust](#establish-trust)
+- [Connect applications](#connect-applications)
+- [Verify the connection](#verify-the-connection)
+- [Choose the exit](#choose-the-exit)
+
+## Before you begin
+
+Use a stable Rust toolchain and a reachable Portal host. The examples use TCP
+port `2000` and UDP port `2001`; permit both through the Portal host's firewall.
+Run each service in its own terminal or process supervisor.
+
+Replace `KEY` with the same generated value on each peer. Replace
+`relay.example` with the Portal host and `TRUSTED_SHA256` with its verified
+certificate fingerprint. See [Platforms](platforms.md) for Windows and
+container command lines.
+
+## Build and create a key
+
+Build from the repository root:
+
+```sh
+cargo build --release --locked
 ```
 
-Portal and Vector are long-running processes. The TUI is an optional local
-observer and does not start, stop, or reconfigure either process.
+Generate a Shared Key of 32 lowercase hexadecimal characters:
 
-## 1. Start Portal
-
-Generate a cryptographically random 128-bit shared key:
-
-```text
-nowhere generate-key
+```sh
+./target/release/nowhere generate-key
 ```
 
-Replace `<generated-key>` in all examples below with the same 32-character
-lowercase hex output. Keep it private. Portal requires 32–64 lowercase
-hex characters after URL percent decoding, rejecting short passwords and
-uppercase hex. See [Shared keys](configuration.md#shared-keys) for the complete
-key requirements.
+## Start Portal
 
-```text
-nowhere "portal://<generated-key>@:2000?log=info"
+Listen for TLS on TCP `2000` and QUIC on UDP `2001`:
+
+```sh
+./target/release/nowhere "portal://KEY@*/tcp:2000/udp:2001"
 ```
 
-The compact endpoint listens for TLS/TCP and QUIC on the same numeric port.
-Use `portal://<generated-key>@*/tcp4:2006` for a TCP-only IPv4 listener, or
-`portal://<generated-key>@*/tcp:2006/udp:2017` to use separate ports.
+Portal uses a generated certificate by default. Its startup log includes the
+fingerprint needed for the next step.
 
-On a host with IPv4 and IPv6 available, choose a listener form from the service
-edge you want to expose:
+## Establish trust
 
-| Portal endpoint | TCP listeners | UDP listeners |
-|---|---|---|
-| `@:2000` | `0.0.0.0:2000`, `[::]:2000` | `0.0.0.0:2000`, `[::]:2000` |
-| `@*:2000` | `0.0.0.0:2000`, `[::]:2000` | `0.0.0.0:2000`, `[::]:2000` |
-| `@*/tcp:2006/udp:2017` | `0.0.0.0:2006`, `[::]:2006` | `0.0.0.0:2017`, `[::]:2017` |
-| `@*/tcp4:2006` | `0.0.0.0:2006` | disabled |
-| `@*/udp6:2017` | disabled | `[::]:2017` |
+Read the presented certificate over TCP/TLS:
 
-The IPv6 listeners are `V6ONLY`; the IPv4 and IPv6 rows represent separate
-sockets. A hostname or IP literal replaces `*` when the Portal should bind
-only selected interfaces. Hostnames are resolved once during startup.
-
-For independent carrier ports, start Portal with:
-
-```text
-nowhere "portal://<generated-key>@*/tcp:2006/udp:2017?log=info"
+```sh
+./target/release/nowhere fingerprint "nowhere://KEY@relay.example/tcp:2000"
 ```
 
-Portal prints one listening line for each bound TCP or UDP address. The TUI
-shows the actual address lists after startup. A carrier must bind at least one
-address; explicit families, concrete addresses, permission errors, and occupied
-ports fail startup. Only an unrestricted `*` listener may continue when the
-operating system does not support one address family.
+Compare the result with Portal's fingerprint obtained through a trusted channel,
+such as its startup log on a host you control. Use the matching value for `pin`.
+A CA-issued certificate with a matching hostname can be used instead; see
+[certificate trust](security.md#certificate-trust).
 
-## 2. Start Vector
+## Connect applications
 
-Portal's default generated certificate is self-signed. Replace `<sha256>` in
-the examples below with the certificate fingerprint printed on the Portal
-host at startup. The pin changes whenever a generated certificate is replaced.
-A CA-issued Portal certificate can use the default system-root and endpoint-name
-verification without a pin. A remote `fingerprint` result alone does not prove
-the certificate's identity; compare it with the Portal host's fingerprint through
-a trusted channel. See [Security](security.md).
+Run Vector with a local SOCKS5 listener:
 
-Dedicated TLS lanes in both directions use the compact endpoint defaults:
-
-```text
-nowhere "vector://<generated-key>@127.0.0.1:2000?pin=<sha256>&socks=127.0.0.1:1080"
+```sh
+./target/release/nowhere "vector://KEY@relay.example/tcp:2000/udp:2001?in=127.0.0.1:1080&net=tcp&pin=TRUSTED_SHA256"
 ```
 
-QUIC in both directions:
+Point applications at SOCKS5 `127.0.0.1:1080`. The example selects dedicated
+TLS; use `net=udp` to select QUIC on the declared UDP port.
 
-```text
-nowhere "vector://<generated-key>@127.0.0.1:2000?up=udp&down=udp&pin=<sha256>&socks=127.0.0.1:1080"
+## Verify the connection
+
+Perform one TCP Flow setup through the QUIC path:
+
+```sh
+./target/release/nowhere probe "vector://KEY@relay.example/udp:2001?net=udp&pin=TRUSTED_SHA256" "example.com:443"
 ```
 
-When Portal uses independent ports, Vector declares the same endpoint:
+Probe sends no target payload and does not require `in`. Read local process
+state on either host:
 
-```text
-nowhere "vector://<generated-key>@127.0.0.1/tcp:2006/udp:2017?up=tcp&down=udp&pin=<sha256>&socks=127.0.0.1:1080"
+```sh
+./target/release/nowhere status
 ```
 
-The carrier path describes what can be dialed. `up` and `down` choose from
-those carriers for each logical direction. Compact and explicit dual-carrier
-endpoints default both directions to TCP with Mux disabled. A single-carrier
-endpoint needs no explicit direction policy:
+Both commands work without a terminal. Status reads one snapshot and exits.
 
-```text
-nowhere "vector://<generated-key>@127.0.0.1/tcp4:2006?pin=<sha256>&socks=127.0.0.1:1080"
-nowhere "vector://<generated-key>@[::1]/udp6:2017?pin=<sha256>&socks=127.0.0.1:1080"
-```
+## Choose the exit
 
-The first command defaults both directions to TCP; the second defaults both to
-UDP. Vector rejects `up`, `down`, or `mix` when the endpoint does not declare
-the required carrier. Vector resolves TCP and UDP independently and never
-ignores a `4` or `6` suffix. Check the Portal log, local firewall, container
-port publication, and the Vector endpoint together when one carrier is
-unreachable.
+Portal forwards directly by default. Use a SOCKS5 upstream through `out`, or
+register a remote Egress with `out=egress`.
 
-The full route-policy matrix is:
-
-| `up` ↓ / `down` → | `tcp` | `udp` | `mix` |
-|---|---|---|---|
-| `tcp` | TT | TQ | TT ↔ TQ |
-| `udp` | QT | QQ | QT ↔ QQ |
-| `mix` | TT ↔ QT | TQ ↔ QQ | TT ↔ QQ |
-
-T means TLS/TCP and Q means QUIC/UDP, with uplink first. A `↔` cell chooses one
-route per flow and can use the other once if primary preparation fails.
-
-Stateless per-flow selection across full-duplex TLS and QUIC uses:
-
-```text
-nowhere "vector://<generated-key>@127.0.0.1:2000?up=mix&down=mix&pin=<sha256>&socks=127.0.0.1:1080"
-```
-
-`mix/mix` chooses `tcp/tcp` or `udp/udp` once per flow. A single mixed
-direction can resolve to a split carrier pair. Declaring both carriers makes
-every matrix cell reachable. The primary choice has a
-`NOW_MIX_FALLBACK_TIMEOUT` budget (default `1s`).
-
-TLS Mux is enabled on Vector. Portal recognizes the marked carrier
-automatically:
-
-```text
-nowhere "vector://<generated-key>@127.0.0.1:2000?up=tcp&down=tcp&mux=1&pin=<sha256>&socks=127.0.0.1:1080"
-```
-
-Both peers use the fixed `nw2` ALPN. The ALPN is not configurable.
-`udp/udp&mux=1` is canonicalized to `mux=0` because no TLS lane can use it.
-
-## 3. Use SOCKS5
-
-```text
-curl --proxy socks5h://127.0.0.1:1080 https://example.com/
-```
-
-On Windows, use `curl.exe` to avoid PowerShell aliases:
-
-```text
-curl.exe --proxy socks5h://127.0.0.1:1080 https://example.com/
-```
-
-Vector supports SOCKS5 CONNECT and UDP ASSOCIATE. Configure credentials with
-the `socks` URL value when required; see
-[Configuration](configuration.md).
-
-## 4. Open the TUI
-
-Run `nowhere` without a URL. Local instances are discovered through a per-user
-registry and loopback control socket on Linux, macOS, and Windows. Use page `1`
-for Overview and page `2` for Logs.
-
-See [Platforms](platforms.md) for release targets, native paths, process
-control, and telemetry differences. Before exposing Portal publicly, configure
-certificate verification as described in [Security](security.md).
+| Next step | Guide |
+|---|---|
+| Choose listeners, transports or a SOCKS5 upstream | [Configuration](configuration.md) |
+| Place target access on another host | [Egress](egress.md) |
+| Diagnose setup or observe a service | [Operations](operations.md) |
