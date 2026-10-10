@@ -17,7 +17,7 @@ pub(crate) use udp::{UdpRole, configure_morph_mtu, morph_endpoint_config, wrap_m
 
 const NONCE_LEN: usize = 12;
 const TCP_PRELUDE_LEN: usize = 64;
-const MORPH_ROOT_SALT: &[u8] = b"nowhere/morph";
+const MORPH_ROOT_SALT: &[u8] = b"nowhere/nw3/morph";
 const TCP_C2S_INFO: &[u8] = b"tcp c2s";
 const TCP_S2C_INFO: &[u8] = b"tcp s2c";
 const UDP_C2S_INFO: &[u8] = b"udp c2s";

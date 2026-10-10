@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Morph key derivation and interoperability vectors tests.
+//! Morph root-domain key derivation and fixed interoperability vectors tests.
 
 use super::*;
 
@@ -19,18 +19,18 @@ fn derives_fixed_hkdf_sha256_keys() {
     let keys = MorphKeys::derive(b"test portal key");
     assert_eq!(
         keys.tcp_c2s,
-        hex("90df47db82553ab6b0489ea77a085593475a70c6a61e957ad3ffe0824bd2126a")
+        hex("f3d2fabc455a59c400d09d400b5a0b9b221e2b157589fc87674b902111ea1014")
     );
     assert_eq!(
         keys.tcp_s2c,
-        hex("20bc17a22d08469e60efd4c6bdda76f190c33946599a0797bab2d52007b97e27")
+        hex("190cfc4c689b24d4bfc8431f46d9f2d1bcbf6222eed612a3ea12d04ff4e4af8c")
     );
     assert_eq!(
         keys.udp_c2s,
-        hex("6837a1f0de5a70baf35de9ba7a77174a665d577bde4000386ddf0e5206b56773")
+        hex("20221bde5d70b44211a22c7e62967945d7d85bcde0d17a3b28d1fa686f8e5c1f")
     );
     assert_eq!(
         keys.udp_s2c,
-        hex("798c97f634139bb467919fbbcd705e0eeffe9294164981dc34a72e274d449b79")
+        hex("78938ee9245028e7de63ac27b0ab64c68df2961a2cf39da1394f0f242bf8b389")
     );
 }
