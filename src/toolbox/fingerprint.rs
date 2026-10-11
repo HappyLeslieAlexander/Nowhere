@@ -5,15 +5,12 @@
 
 use super::diagnostic::connection_failure_reason;
 use crate::vector::PortalClientConfig;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use url::Url;
 
 pub async fn fingerprint(url: Url) -> Result<()> {
     let config =
-        PortalClientConfig::from_fingerprint_url(&url).context("invalid Nowhere share link")?;
-    if config.tcp_endpoint().is_none() {
-        bail!("fingerprint requires a TCP carrier in the Nowhere share link");
-    }
+        PortalClientConfig::from_fingerprint_url(&url).context("invalid nowhere share link")?;
     let fingerprint = crate::vector::fetch_certificate_fingerprint(&config)
         .await
         .map_err(|error| {

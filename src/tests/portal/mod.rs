@@ -65,9 +65,12 @@ impl Harness {
             self.tcp.ip().to_string()
         };
         Url::parse(&format!(
-            "{scheme}://{KEY}@{host}/tcp:{}/udp:{}?net={net}&morph={}&pin={}",
-            self.tcp.port(),
-            self.udp.port(),
+            "{scheme}://{KEY}@{host}/{net}:{}?morph={}&pin={}",
+            if net == "tcp" {
+                self.tcp.port()
+            } else {
+                self.udp.port()
+            },
             u8::from(morph),
             self.pin
         ))

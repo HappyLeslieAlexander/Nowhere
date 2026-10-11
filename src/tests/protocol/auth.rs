@@ -80,7 +80,7 @@ fn percent_decoding_is_once_and_text_is_not_hex_decoded() {
 
 #[test]
 fn service_roles_share_key_validation_and_decode_only_once() {
-    for role in ["vector", "portal", "egress"] {
+    for role in ["portal", "vector", "egress"] {
         let key = "0123456789abcdef0123456789abcdef";
         let encoded: String = key.bytes().map(|byte| format!("%{byte:02X}")).collect();
         for text in [key, &encoded] {

@@ -46,10 +46,8 @@ fn source_endpoint_locks_first_port() {
 #[test]
 fn udp_target_resource_admission_is_held_for_the_target_lifetime() {
     let vector = Vector::new(
-        Url::parse(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
-        )
-        .unwrap(),
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080")
+            .unwrap(),
         Logger,
     )
     .unwrap();
@@ -77,7 +75,7 @@ async fn pending_target_setup_does_not_block_control_shutdown() {
     });
     let vector = Vector::new(
         Url::parse(&format!(
-            "vector://0123456789abcdef0123456789abcdef@{portal_addr}?net=tcp&in=127.0.0.1:1080"
+            "vector://0123456789abcdef0123456789abcdef@{portal_addr}?in=127.0.0.1:1080"
         ))
         .unwrap(),
         Logger,
@@ -129,10 +127,8 @@ async fn pending_target_setup_does_not_block_control_shutdown() {
 
 async fn relay_finish(blocked_send: bool, cancel_carrier: bool) {
     let vector = Vector::new(
-        Url::parse(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
-        )
-        .unwrap(),
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080")
+            .unwrap(),
         Logger,
     )
     .unwrap();
@@ -217,10 +213,8 @@ async fn normal_udp_stream_eof_is_reported_as_success() {
 #[tokio::test]
 async fn invalid_udp_target_does_not_publish_access() {
     let vector = Vector::new(
-        Url::parse(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
-        )
-        .unwrap(),
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080")
+            .unwrap(),
         Logger,
     )
     .unwrap();

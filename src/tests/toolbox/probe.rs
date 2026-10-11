@@ -9,8 +9,8 @@ use super::*;
 fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
     for (raw, expected) in [
         (
-            "vector://0123456789abcdef0123456789abcdef@localhost:2000?net=secret",
-            "net must be tcp or udp",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?rate=secret",
+            "rate must be a non-negative integer",
         ),
         (
             "vector://0123456789abcdef0123456789abcdef@localhost/tcp:secret",
@@ -33,7 +33,7 @@ fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
             "port must be in 1..=65535",
         ),
         (
-            "vector://0123456789abcdef0123456789abcdef@localhost:2000?net=%FFsecret",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?rate=%FFsecret",
             "invalid UTF-8 in query value",
         ),
     ] {
@@ -65,7 +65,7 @@ async fn failed_probe_keeps_the_underlying_io_error() {
     drop(unavailable);
     let client = ToolboxClient::parse(
         &Url::parse(&format!(
-            "vector://0123456789abcdef0123456789abcdef@{endpoint}?net=tcp"
+            "vector://0123456789abcdef0123456789abcdef@{endpoint}"
         ))
         .unwrap(),
     )

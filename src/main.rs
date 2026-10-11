@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Command-line entry point for Vector, Portal and Egress.
+//! Command-line entry point for Portal, Vector and Egress.
 
 use std::env;
 use std::{error, fmt};
@@ -11,7 +11,7 @@ use nowhere::{
     Egress, Logger, Portal, Vector, generate_key, run_fingerprint, run_probe, run_status,
     validate_endpoint_url_input,
 };
-use url::{ParseError, Url};
+use url::Url;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -40,19 +40,17 @@ Usage:
   nowhere -v | --version               Show version information
 
 URL forms:
-  portal://<key>@<host>:<port>[?<options>]
-  portal://<key>@<host>/tcp:<port>/udp:<port>[?<options>]
-  vector://<key>@<host>:<port>?in=[user:pass@]host:port[&net=tcp|udp]
-  egress://<key>@<host>:<port>[?<options>]
-  nowhere://<key>@<host>:<port>[?<options>][#<name>]  For fingerprint
+  portal://<key>@<endpoint>[?<options>]
+  vector://<key>@<endpoint>?in=[user:pass@]host:port[&<options>]
+  egress://<key>@<endpoint>[?<options>]
+  nowhere://<key>@<host>:<port>?net=tcp&morph=0#<name>
 
-Options:
-  in=<listener>       Vector SOCKS5 listener; optional for probe.
-  net=tcp|udp         Vector TLS or QUIC carrier; default tcp.
+Service options:
   out=<exit>          Portal direct (default), egress, or SOCKS5 address.
   tls=1|2             Portal generated certificate or supplied PEM files.
   crt=<path>          Portal certificate chain when tls=2.
   key=<path>          Portal private key when tls=2.
+  in=<listener>       Vector SOCKS5 listener; optional for probe.
   dial=<ip|auto>      Portal/Egress target source binding.
   dial4=<ipv4|auto>   IPv4 source; mutually exclusive with dial.
   dial6=<ipv6|auto>   IPv6 source; mutually exclusive with dial.
@@ -63,15 +61,20 @@ Options:
   etar=<mbps>         Target-to-Vector limit; default 0 disables it.
 
 Endpoint syntax:
-  host:port                   Portal TCP and UDP on the same port.
-  tcp, udp                    Any address family.
+  host:port                   Portal TLS+QUIC; Vector TLS; Egress QUIC.
+  host/tcp:port               One TLS carrier for Portal or Vector.
+  host/udp:port               One QUIC carrier for any role.
+  host/tcp:port/udp:port       Two carriers for Portal only.
   tcp4, udp4 / tcp6, udp6     Restrict a carrier to IPv4 or IPv6.
   *                           Portal wildcard; clients require a concrete host.
 
 Constraints:
-  Egress uses QUIC; out=egress requires a QUIC listener and rejects dial*.
+  Vector paths declare one carrier; Egress paths declare only a QUIC carrier.
+  out=egress requires a QUIC listener and rejects dial, dial4 and dial6.
   Shared keys require exactly 32 lowercase hex text characters.
   Unknown parameters are ignored; first recognized duplicate wins.
+  Share links require net=tcp|udp and morph=0|1; a display name is recommended.
+  fingerprint accepts links with or without a display name.
   probe sends no target payload. fingerprint queries TCP/TLS only.
 
 Documentation:
@@ -120,7 +123,7 @@ async fn start(args: Vec<String>) -> Result<()> {
         }
         "fingerprint" => {
             require_args(&args, 3, "nowhere fingerprint <nowhere-url>")?;
-            let url = parse_command_url(&args[2]).context("invalid Nowhere share link")?;
+            let url = parse_command_url(&args[2]).context("invalid nowhere share link")?;
             return run_fingerprint(url).await;
         }
         "probe" => {
@@ -144,11 +147,11 @@ async fn start(args: Vec<String>) -> Result<()> {
         bail!("expected exactly one configuration URL; run \"nowhere --help\" for usage");
     }
 
-    let command_url = parse_command_url(&args[1]).with_context(|| "invalid configuration URL")?;
+    let command_url = parse_command_url(&args[1]).context("invalid configuration url")?;
     let scheme = command_url.scheme().to_string();
     if !matches!(scheme.as_str(), "portal" | "vector" | "egress") {
         bail!(
-            "invalid configuration URL: scheme must be portal, vector or egress, found {scheme:?}"
+            "invalid configuration url: scheme must be portal, vector or egress, found {scheme:?}"
         );
     }
     let logger = Logger;
@@ -175,7 +178,7 @@ fn require_args(args: &[String], expected: usize, usage: &str) -> Result<()> {
 }
 
 fn parse_toolbox_url(raw: &str) -> Result<Url> {
-    parse_command_url(raw).context("invalid configuration URL")
+    parse_command_url(raw).context("invalid configuration url")
 }
 
 fn print_help() {
@@ -209,37 +212,7 @@ fn format_help() -> String {
 
 fn parse_command_url(raw: &str) -> Result<Url> {
     validate_endpoint_url_input(raw, "endpoint")?;
-    match Url::parse(raw) {
-        Ok(url) => Ok(url),
-        Err(ParseError::EmptyHost) => {
-            let normalized = normalize_legacy_empty_portal_host(raw)
-                .ok_or(ParseError::EmptyHost)
-                .and_then(|url| Url::parse(&url))?;
-            Ok(normalized)
-        }
-        Err(err) => Err(err.into()),
-    }
-}
-
-fn normalize_legacy_empty_portal_host(raw: &str) -> Option<String> {
-    let prefix = "portal://";
-    let rest = raw.strip_prefix(prefix)?;
-    let authority_len = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (authority, suffix) = rest.split_at(authority_len);
-    let host_port_start = authority.rfind('@').map_or(0, |idx| idx + 1);
-    let host_port = &authority[host_port_start..];
-
-    if !host_port.starts_with(':') || host_port.len() == 1 {
-        return None;
-    }
-
-    let mut normalized = String::with_capacity(raw.len() + 1);
-    normalized.push_str(prefix);
-    normalized.push_str(&authority[..host_port_start]);
-    normalized.push('*');
-    normalized.push_str(host_port);
-    normalized.push_str(suffix);
-    Some(normalized)
+    Ok(Url::parse(raw)?)
 }
 
 #[cfg(test)]

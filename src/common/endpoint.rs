@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Shared Portal service endpoint URL grammar.
+//! Shared service endpoint URL grammar.
 
 use std::fmt;
 use std::net::IpAddr;
@@ -130,6 +130,7 @@ pub fn validate_endpoint_url_input(raw: &str, context: &str) -> Result<()> {
     };
     if !scheme.eq_ignore_ascii_case("portal")
         && !scheme.eq_ignore_ascii_case("vector")
+        && !scheme.eq_ignore_ascii_case("egress")
         && !scheme.eq_ignore_ascii_case("nowhere")
     {
         return Ok(());

@@ -57,6 +57,9 @@ async fn fingerprint_requires_exactly_one_share_link() {
 #[tokio::test]
 async fn fingerprint_rejects_invalid_raw_share_links_before_network_access() {
     for raw in [
+        "nowhere://secret@localhost:2000#NAME",
+        "nowhere://secret@localhost:2000?net=tcp#NAME",
+        "nowhere://secret@localhost:2000?morph=0#NAME",
         "nowhere://secret@localhost/tcp:2006/../udp:2017",
         "nowhere://secret@localhost/tcp:2006/%2e%2e/udp:2017#Name",
         "nowhere://secret@localhost/tcp:secret",
@@ -75,7 +78,7 @@ async fn fingerprint_rejects_invalid_raw_share_links_before_network_access() {
         .expect("invalid share link attempted network access")
         .unwrap_err();
         let message = format!("{error:#}");
-        assert!(message.contains("invalid Nowhere share link"), "{message}");
+        assert!(message.contains("invalid nowhere share link"), "{message}");
         assert!(!message.contains("secret"), "{message}");
     }
 }
@@ -108,8 +111,8 @@ async fn probe_requires_exactly_a_url_and_target() {
 async fn toolbox_errors_do_not_expose_configuration_values() {
     for (url, expected) in [
         (
-            "vector://0123456789abcdef0123456789abcdef@localhost:2000?net=secret",
-            "net must be tcp or udp",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?rate=secret",
+            "rate must be a non-negative integer",
         ),
         (
             "vector://0123456789abcdef0123456789abcdef@localhost/tcp:secret",
@@ -142,8 +145,8 @@ fn parse_command_url_keeps_vector_remote_host() {
 }
 
 #[test]
-fn parse_command_url_normalizes_legacy_empty_listen_host() {
-    let parsed = parse_command_url("portal://secret@:2000?dial=::1").unwrap();
+fn parse_command_url_keeps_explicit_wildcard_listen_host() {
+    let parsed = parse_command_url("portal://secret@*:2000?dial=::1").unwrap();
 
     assert_eq!(parsed.scheme(), "portal");
     assert_eq!(parsed.username(), "secret");
@@ -160,13 +163,20 @@ fn parse_command_url_normalizes_legacy_empty_listen_host() {
 }
 
 #[test]
-fn parse_command_url_normalizes_legacy_empty_host_without_userinfo() {
-    let parsed = parse_command_url("portal://:2000").unwrap();
-
-    assert_eq!(parsed.scheme(), "portal");
-    assert_eq!(parsed.username(), "");
-    assert_eq!(parsed.host_str(), Some("*"));
-    assert_eq!(parsed.port(), Some(2000));
+fn parse_command_url_rejects_empty_hosts() {
+    for raw in [
+        "portal://secret@:2000",
+        "portal://secret@:2000?dial=::1",
+        "portal://:2000",
+        "portal://secret@/tcp:2000",
+        "vector://secret@:2000?in=127.0.0.1:1080",
+        "egress://secret@:2000",
+        "nowhere://secret@:2000?net=tcp&morph=0#NAME",
+    ] {
+        let error = parse_command_url(raw).unwrap_err();
+        assert!(error.to_string().contains("empty host"), "{error}");
+        assert!(!error.to_string().contains("secret"), "{error}");
+    }
 }
 
 #[test]
@@ -186,6 +196,12 @@ fn parse_command_url_keeps_normal_hosts() {
 async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors() {
     const KEY: &str = "0123456789abcdef0123456789abcdef";
     for (raw, expected) in [
+        (format!("portal://{KEY}@:2000"), "empty host"),
+        (
+            format!("vector://{KEY}@:2000?in=127.0.0.1:1080"),
+            "empty host",
+        ),
+        (format!("egress://{KEY}@:2000"), "empty host"),
         (
             format!("ftp://{KEY}@localhost:2000"),
             "scheme must be portal, vector or egress",
@@ -203,20 +219,20 @@ async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors
             "expected HOST:PORT",
         ),
         (
-            format!("vector://{KEY}@localhost:2000?net=bad"),
-            "net must be tcp or udp",
+            format!("vector://{KEY}@localhost:2000?rate=-1"),
+            "rate must be a non-negative integer",
         ),
         (
             format!("vector://{KEY}@localhost:2000"),
             "in parameter is required",
         ),
         (
-            format!("vector://{KEY}@localhost/udp:2000?net=tcp&in=:1080"),
-            "net selects an unavailable carrier",
+            format!("vector://{KEY}@localhost/tcp:2000/udp:2001?in=:1080"),
+            "vector endpoint: path must declare exactly one carrier",
         ),
         (
             format!("egress://{KEY}@localhost/tcp:2000"),
-            "net selects an unavailable carrier",
+            "egress endpoint: path must declare only a QUIC carrier",
         ),
         (
             format!("portal://{KEY}@*/tcp:2000/../udp:2001"),

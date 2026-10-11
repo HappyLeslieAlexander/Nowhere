@@ -11,9 +11,10 @@ async fn fingerprint_connection_refusal_reports_the_cause_without_echoing_the_en
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
-    let error = fingerprint(Url::parse(&format!("nowhere://secret@{address}")).unwrap())
-        .await
-        .unwrap_err();
+    let error =
+        fingerprint(Url::parse(&format!("nowhere://secret@{address}?net=tcp&morph=0")).unwrap())
+            .await
+            .unwrap_err();
     let message = format!("{error:#}");
     assert!(
         message.contains("TCP connection failed: connection refused"),
@@ -24,41 +25,57 @@ async fn fingerprint_connection_refusal_reports_the_cause_without_echoing_the_en
 }
 
 #[tokio::test]
-async fn fingerprint_rejects_udp_only_and_invalid_share_links_without_leaking_secrets() {
+async fn fingerprint_rejects_invalid_share_links_without_leaking_secrets() {
     for (raw, expected) in [
         (
             "nowhere://secret@localhost/udp:2000#My%20Portal",
-            "requires a TCP carrier",
+            "invalid nowhere share link",
+        ),
+        (
+            "nowhere://secret@localhost/tcp:2000",
+            "invalid nowhere share link",
+        ),
+        (
+            "nowhere://secret@localhost/tcp:2000/udp:2001",
+            "invalid nowhere share link",
+        ),
+        (
+            "nowhere://secret@localhost:2000?net=secret&net=tcp",
+            "invalid nowhere share link",
+        ),
+        (
+            "nowhere://secret@localhost:2000?net=%ZZ",
+            "invalid nowhere share link",
         ),
         (
             "vector://0123456789abcdef0123456789abcdef@localhost:2000",
-            "invalid Nowhere share link",
+            "invalid nowhere share link",
         ),
         (
             "portal://secret@localhost:2000",
-            "invalid Nowhere share link",
+            "invalid nowhere share link",
         ),
-        ("nowhere://secret@*:2000", "invalid Nowhere share link"),
-        ("nowhere://localhost:2000", "invalid Nowhere share link"),
+        ("nowhere://secret@*:2000", "invalid nowhere share link"),
+        ("nowhere://localhost:2000", "invalid nowhere share link"),
         (
             "nowhere://secret:password@localhost:2000",
-            "invalid Nowhere share link",
+            "invalid nowhere share link",
         ),
         (
             "nowhere://secret%ZZ@localhost:2000",
-            "invalid Nowhere share link",
+            "invalid nowhere share link",
         ),
         (
             "nowhere://secret@localhost/tcp4:2000",
-            "invalid Nowhere share link",
+            "invalid nowhere share link",
         ),
         (
-            "nowhere://secret@localhost:2000?morph=secret",
-            "invalid Nowhere share link",
+            "nowhere://secret@localhost:2000?net=tcp&morph=secret",
+            "invalid nowhere share link",
         ),
         (
-            "nowhere://secret@localhost:2000?sni=secret:443",
-            "invalid Nowhere share link",
+            "nowhere://secret@localhost:2000?net=tcp&morph=0&sni=secret:443",
+            "invalid nowhere share link",
         ),
     ] {
         let error = fingerprint(Url::parse(raw).unwrap()).await.unwrap_err();
@@ -71,22 +88,64 @@ async fn fingerprint_rejects_udp_only_and_invalid_share_links_without_leaking_se
 #[test]
 fn fingerprint_share_links_decode_keys_and_ignore_display_names_and_flow_options() {
     let url = Url::parse(
-        "nowhere://shared%40key%3A%2F%3F%23%25%2B@[::1]/tcp:2006/udp:2017?morph=1&morph=0&sni=relay.example&up=udp&down=udp&mux=1&pin=wrong&socks=missing#My%20Portal",
+        "nowhere://shared%40key%3A%2F%3F%23%25%2B@[::1]:2006?net=udp&net=invalid&morph=1&morph=0&sni=relay.example&up=udp&down=udp&mux=1&pin=wrong&socks=missing#My%20Portal",
     ).unwrap();
     let config = PortalClientConfig::from_fingerprint_url(&url).unwrap();
-    assert_eq!(config.endpoint(), "[::1]/tcp:2006/udp:2017");
+    assert_eq!(config.endpoint(), "[::1]:2006");
+    assert_eq!(config.net, crate::vector::config::CarrierMode::Udp);
     assert_eq!(config.sni.as_deref(), Some("relay.example"));
     assert!(config.pin.is_none());
     assert_eq!(
         config.morph_keys.unwrap().udp_keys(),
         crate::transport::MorphKeys::derive(b"shared@key:/?#%+").udp_keys(),
     );
-    assert!(
-        PortalClientConfig::from_fingerprint_url(
-            &Url::parse("nowhere://secret@localhost:2000").unwrap(),
-        )
-        .is_ok()
-    );
+    let plain = PortalClientConfig::from_fingerprint_url(
+        &Url::parse("nowhere://secret@localhost:2000?net=tcp&morph=0").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(plain.net, crate::vector::config::CarrierMode::Tcp);
+    assert!(!plain.morph);
+}
+
+#[test]
+fn fingerprint_requires_explicit_carrier_and_morph_values() {
+    for (query, expected) in [
+        ("", "net is required"),
+        ("morph=0", "net is required"),
+        ("net=tcp", "morph is required"),
+        ("net=udp", "morph is required"),
+        ("net=&morph=0", "net must be tcp or udp"),
+        ("net=invalid&net=tcp&morph=0", "net must be tcp or udp"),
+        ("net=tcp&morph=", "morph must be 0 or 1"),
+        ("net=tcp&morph=invalid&morph=0", "morph must be 0 or 1"),
+    ] {
+        let url = Url::parse(&format!("nowhere://secret@localhost:2000?{query}#NAME")).unwrap();
+        let error = PortalClientConfig::from_fingerprint_url(&url).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains(expected), "{message}");
+        assert!(!message.contains("secret"), "{message}");
+        assert!(!message.contains("localhost"), "{message}");
+    }
+    for net in ["tcp", "udp"] {
+        for morph in [0, 1] {
+            for name in ["", "#NAME", "#My%20Portal"] {
+                let url = Url::parse(&format!(
+                    "nowhere://secret@localhost:2000?net={net}&morph={morph}{name}"
+                ))
+                .unwrap();
+                let config = PortalClientConfig::from_fingerprint_url(&url).unwrap();
+                assert_eq!(
+                    config.net.carrier(),
+                    if net == "tcp" {
+                        crate::protocol::Carrier::TlsTcp
+                    } else {
+                        crate::protocol::Carrier::Quic
+                    }
+                );
+                assert_eq!(config.morph, morph == 1);
+            }
+        }
+    }
 }
 
 #[tokio::test]
@@ -100,7 +159,7 @@ async fn fingerprint_reads_the_leaf_certificate_with_and_without_morph_without_f
     use crate::common::certificate_sha256;
     use crate::transport::MorphTcpStream;
 
-    for morph in [0, 1] {
+    for (net, morph) in [("tcp", 0), ("tcp", 1), ("udp", 0), ("udp", 1)] {
         let generated = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
         let certificate: CertificateDer<'static> = generated.cert.into();
         let expected = certificate_sha256(&certificate);
@@ -116,7 +175,7 @@ async fn fingerprint_reads_the_leaf_certificate_with_and_without_morph_without_f
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let url = Url::parse(&format!(
-            "nowhere://secret@{address}?morph={morph}&sni=wrong.example&up=udp&down=udp&mux=1#My%20Portal"
+            "nowhere://secret@{address}?net={net}&morph={morph}&sni=wrong.example&up=udp&down=udp&mux=1#My%20Portal"
         )).unwrap();
         let config = PortalClientConfig::from_fingerprint_url(&url).unwrap();
         let morph_keys = config.morph_keys.clone();

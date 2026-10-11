@@ -43,7 +43,7 @@ async fn client_prefers_fixed_nw3_alpn() {
         TlsAcceptor::from(Arc::new(server)).accept(stream).await
     });
     let raw = format!(
-        "vector://0123456789abcdef0123456789abcdef@{endpoint}?net=tcp&alpn=private/2&pin={pin}&in=127.0.0.1:1080"
+        "vector://0123456789abcdef0123456789abcdef@{endpoint}?alpn=private/2&pin={pin}&in=127.0.0.1:1080"
     );
 
     let _ = ClientTls::new(&config(&raw))
@@ -61,14 +61,12 @@ async fn client_prefers_fixed_nw3_alpn() {
 #[test]
 fn missing_sni_uses_the_endpoint_as_the_verified_server_name() {
     let tls = ClientTls::new(&config(
-        "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
+        "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080",
     ))
     .unwrap();
     assert_eq!(
-        vector_config(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080"
-        )
-        .sni,
+        vector_config("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080")
+            .sni,
         None
     );
     assert_eq!(tls.quic_server_name(), "127.0.0.1");
@@ -78,7 +76,7 @@ fn missing_sni_uses_the_endpoint_as_the_verified_server_name() {
 #[test]
 fn ipv6_authority_builds_an_ip_server_name() {
     let tls = ClientTls::new(&config(
-        "vector://0123456789abcdef0123456789abcdef@[::1]:2000?net=tcp&in=127.0.0.1:1080",
+        "vector://0123456789abcdef0123456789abcdef@[::1]:2000?in=127.0.0.1:1080",
     ))
     .unwrap();
     assert_eq!(tls.quic_server_name(), "::1");
@@ -87,7 +85,7 @@ fn ipv6_authority_builds_an_ip_server_name() {
 #[test]
 fn explicit_sni_overrides_the_verified_server_name() {
     let config = config(
-        "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&sni=example.com&in=127.0.0.1:1080",
+        "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?sni=example.com&in=127.0.0.1:1080",
     );
     let tls = ClientTls::new(&config).unwrap();
     assert_eq!(config.sni.as_deref(), Some("example.com"));
@@ -134,7 +132,7 @@ async fn test_pinned_handshake(pin: TestPin, sni: Option<&str>) -> Result<()> {
         TestPin::Uppercase => Some(fingerprint.to_ascii_uppercase()),
         TestPin::Invalid => Some("not-a-fingerprint".to_owned()),
     };
-    let mut raw = format!("vector://0123456789abcdef0123456789abcdef@{endpoint}?net=tcp&");
+    let mut raw = format!("vector://0123456789abcdef0123456789abcdef@{endpoint}?");
     if let Some(sni) = sni {
         raw.push_str(&format!("sni={sni}&"));
     }
@@ -177,9 +175,8 @@ async fn tcp_server_without_nw3_is_rejected() {
         let (stream, _) = listener.accept().await.unwrap();
         let _ = TlsAcceptor::from(Arc::new(server)).accept(stream).await;
     });
-    let raw = format!(
-        "vector://0123456789abcdef0123456789abcdef@{endpoint}?net=tcp&pin={pin}&in=127.0.0.1:1080"
-    );
+    let raw =
+        format!("vector://0123456789abcdef0123456789abcdef@{endpoint}?pin={pin}&in=127.0.0.1:1080");
     assert!(
         ClientTls::new(&config(&raw))
             .unwrap()
@@ -228,9 +225,7 @@ async fn negotiate_quic(server_alpns: Vec<Vec<u8>>, pin: TestPin) -> Result<()> 
         TestPin::Uppercase => format!("&pin={}", fingerprint.to_ascii_uppercase()),
         TestPin::Invalid => "&pin=wrong".to_owned(),
     };
-    let raw = format!(
-        "vector://0123456789abcdef0123456789abcdef@{address}?net=tcp&in=127.0.0.1:1080{pin}"
-    );
+    let raw = format!("vector://0123456789abcdef0123456789abcdef@{address}?in=127.0.0.1:1080{pin}");
     let tls = ClientTls::new(&PortalClientConfig::from_probe_url(&url::Url::parse(&raw)?)?.0)?;
     let mut client = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap())?;
     client.set_default_client_config(tls.quic_client_config()?);

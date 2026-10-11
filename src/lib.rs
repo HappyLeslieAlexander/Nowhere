@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Library entry point for the Nowhere Vector, Portal and Egress runtimes.
+//! Library entry point for the Nowhere Portal, Vector and Egress runtimes.
 
 mod common;
 mod egress;

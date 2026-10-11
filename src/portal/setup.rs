@@ -34,7 +34,7 @@ impl Portal {
         }
         let query = query_first(&url, PORTAL_QUERY_PARAMETERS)?;
         validate_query(&query)?;
-        let endpoint = ServiceEndpoint::parse(&url, true, "Portal endpoint")?;
+        let endpoint = ServiceEndpoint::parse(&url, true, "portal endpoint")?;
         let bind_host = listen_host.unwrap_or(&endpoint.host);
         let credentials = Credentials::for_service(&url, "Portal listener")?;
         let runtime = super::config::PortalRuntimeConfig::from_env()?;

@@ -26,8 +26,7 @@ impl Egress {
                 "sni", "pin", "morph", "dial", "dial4", "dial6", "rate", "etar",
             ],
         )?;
-        let config =
-            PortalClientConfig::parse(&url, &query, crate::vector::config::CarrierMode::Udp)?;
+        let config = PortalClientConfig::parse(&url, &query)?;
         let credentials = Credentials::new(&url)?;
         let tls = ClientTls::new(&config)?;
         let dial = DialPolicy::from_query(&query)?;

@@ -10,10 +10,9 @@ use crate::common::{
 use crate::transport::MorphKeys;
 use anyhow::{Result, anyhow, bail};
 use std::collections::HashMap;
-use std::fmt;
 use url::Url;
 
-const VECTOR_QUERY_KEYS: &[&str] = &["in", "net", "sni", "pin", "rate", "etar", "morph"];
+const VECTOR_QUERY_KEYS: &[&str] = &["in", "sni", "pin", "rate", "etar", "morph"];
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CarrierMode {
     Tcp,
@@ -27,14 +26,6 @@ impl CarrierMode {
         }
     }
 }
-impl fmt::Display for CarrierMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Tcp => "tcp",
-            Self::Udp => "udp",
-        })
-    }
-}
 #[derive(Clone, Debug)]
 pub(crate) struct PortalClientConfig {
     pub(crate) remote: ServiceEndpoint,
@@ -46,22 +37,44 @@ pub(crate) struct PortalClientConfig {
     pub(crate) dial_policy: DialPolicy,
 }
 impl PortalClientConfig {
-    pub(crate) fn parse(
-        url: &Url,
-        query: &HashMap<String, String>,
-        net: CarrierMode,
-    ) -> Result<Self> {
-        let context = "Portal endpoint";
+    pub(crate) fn parse(url: &Url, query: &HashMap<String, String>) -> Result<Self> {
+        let context = match url.scheme() {
+            "vector" => "vector endpoint",
+            "egress" => "egress endpoint",
+            "nowhere" => "share link endpoint",
+            _ => bail!("unsupported client URL scheme"),
+        };
         if url.password().is_some() || url.fragment().is_some() {
             bail!("invalid URL password or fragment");
         }
         let remote = ServiceEndpoint::parse(url, false, context)?;
-        if (net == CarrierMode::Tcp && !remote.has_tcp())
-            || (net == CarrierMode::Udp && !remote.has_udp())
-        {
-            bail!("net selects an unavailable carrier");
-        }
+        let net = match url.scheme() {
+            "vector" => {
+                if !url.path().is_empty() && remote.has_tcp() && remote.has_udp() {
+                    bail!("{context}: path must declare exactly one carrier");
+                }
+                if remote.has_tcp() {
+                    CarrierMode::Tcp
+                } else {
+                    CarrierMode::Udp
+                }
+            }
+            "egress" => {
+                if !remote.has_udp() || (!url.path().is_empty() && remote.has_tcp()) {
+                    bail!("{context}: path must declare only a QUIC carrier");
+                }
+                CarrierMode::Udp
+            }
+            "nowhere" => match query.get("net").map(String::as_str) {
+                Some("tcp") => CarrierMode::Tcp,
+                Some("udp") => CarrierMode::Udp,
+                None => bail!("share link net is required"),
+                Some(_) => bail!("share link net must be tcp or udp"),
+            },
+            _ => bail!("unsupported client URL scheme"),
+        };
         let morph = match query.get("morph").map(String::as_str) {
+            None if url.scheme() == "nowhere" => bail!("share link morph is required"),
             None | Some("0") => false,
             Some("1") => true,
             Some(_) => bail!("{context}: morph must be 0 or 1"),
@@ -109,16 +122,11 @@ impl PortalClientConfig {
         }
         let query = query_first(url, VECTOR_QUERY_KEYS)?;
         validate_options(&query)?;
-        let net = match query.get("net").map(String::as_str) {
-            None | Some("tcp") => CarrierMode::Tcp,
-            Some("udp") => CarrierMode::Udp,
-            _ => bail!("net must be tcp or udp"),
-        };
         if first_raw_query_value(url, "in").is_some() {
             SocksListenConfig::from_url(url)?;
         }
         Ok((
-            Self::parse(url, &query, net)?,
+            Self::parse(url, &query)?,
             crate::protocol::Credentials::new(url)?,
         ))
     }
@@ -127,26 +135,12 @@ impl PortalClientConfig {
             bail!("fingerprint requires a nowhere:// share link");
         }
         crate::protocol::Credentials::decode_shared_key(url)?;
-        if url
-            .path()
-            .split('/')
-            .skip(1)
-            .any(|s| !matches!(s.split_once(':').map(|(c, _)| c), Some("tcp" | "udp")))
-        {
-            bail!("share link paths support only tcp and udp");
+        if !url.path().is_empty() {
+            bail!("share links require HOST:PORT without carrier paths");
         }
         let mut clean = url.clone();
         clean.set_fragment(None);
-        let endpoint = ServiceEndpoint::parse(&clean, false, "fingerprint endpoint")?;
-        Self::parse(
-            &clean,
-            &query_first(&clean, &["morph", "sni"])?,
-            if endpoint.has_tcp() {
-                CarrierMode::Tcp
-            } else {
-                CarrierMode::Udp
-            },
-        )
+        Self::parse(&clean, &query_first(&clean, &["net", "morph", "sni"])?)
     }
     pub(crate) fn endpoint(&self) -> String {
         self.remote.canonical()
@@ -212,10 +206,9 @@ impl VectorConfig {
     }
     pub(super) fn effective_url(&self) -> String {
         format!(
-            "vector://{}?in={}&net={}&sni={}&pin={}&morph={}&rate={}&etar={}",
+            "vector://{}?in={}&sni={}&pin={}&morph={}&rate={}&etar={}",
             self.endpoint(),
             self.socks.endpoint(),
-            self.net,
             self.sni.as_deref().unwrap_or(self.host()),
             self.pin.as_deref().unwrap_or("none"),
             u8::from(self.morph),

@@ -142,12 +142,12 @@ def main():
             assert read_message(ipc)["type"] == "snapshot"
 
             pin = subprocess.check_output([current, "fingerprint",
-                f"nowhere://{KEY}@127.0.0.1:{port}"], env=env, timeout=DEADLINE,
+                f"nowhere://{KEY}@127.0.0.1:{port}?net=tcp&morph=0"], env=env, timeout=DEADLINE,
                 stderr=subprocess.PIPE).decode().strip()
             assert len(pin) == 64
             ingress = reserve_port()
             vector = spawn(current, f"vector://{KEY}@127.0.0.1:{port}"
-                           f"?net=tcp&in=127.0.0.1:{ingress}&pin={pin}")
+                           f"?in=127.0.0.1:{ingress}&pin={pin}")
             wait_for(lambda: len(list(nw3_directory.glob("*.json"))) == 2)
             target = socket.socket()
             target.bind(("127.0.0.1", 0))

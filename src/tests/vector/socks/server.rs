@@ -13,10 +13,8 @@ use url::Url;
 #[test]
 fn socks_client_resource_admission_is_process_wide_and_reusable() {
     let vector = Vector::new(
-        Url::parse(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
-        )
-        .unwrap(),
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080")
+            .unwrap(),
         Logger,
     )
     .unwrap();
@@ -33,10 +31,8 @@ fn socks_client_resource_admission_is_process_wide_and_reusable() {
 #[tokio::test]
 async fn listener_shutdown_interrupts_idle_socks_handshake() {
     let vector = Vector::new(
-        Url::parse(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:9?net=tcp&in=127.0.0.1:1080",
-        )
-        .unwrap(),
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:9?in=127.0.0.1:1080")
+            .unwrap(),
         Logger,
     )
     .unwrap();
@@ -81,7 +77,7 @@ async fn client_shutdown_interrupts_pending_connect_setup() {
     });
     let vector = Vector::new(
         Url::parse(&format!(
-            "vector://0123456789abcdef0123456789abcdef@{portal_addr}?net=tcp&in=127.0.0.1:1080"
+            "vector://0123456789abcdef0123456789abcdef@{portal_addr}?in=127.0.0.1:1080"
         ))
         .unwrap(),
         Logger,
@@ -125,10 +121,8 @@ async fn client_shutdown_interrupts_pending_connect_setup() {
 #[tokio::test]
 async fn invalid_tcp_target_does_not_publish_access() {
     let vector = Vector::new(
-        Url::parse(
-            "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
-        )
-        .unwrap(),
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080")
+            .unwrap(),
         Logger,
     )
     .unwrap();
