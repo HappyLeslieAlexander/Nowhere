@@ -1,16 +1,16 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Local telemetry client connections and subscription requests.
+//! Local telemetry client read-only connections.
 
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::frame::{FrameReader, TelemetryReader, write_frame};
+use super::frame::{FrameReader, TelemetryReader};
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path, valid_instance};
 use crate::telemetry::local;
-use crate::telemetry::{ClientMessage, Hello, ServerMessage, Subscription, TELEMETRY_PROTOCOL};
+use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL};
 
 pub(crate) struct TelemetryClient {
     hello: Hello,
@@ -18,10 +18,7 @@ pub(crate) struct TelemetryClient {
 }
 
 impl TelemetryClient {
-    pub(crate) async fn connect(
-        discovered: &DiscoveredInstance,
-        subscription: Subscription,
-    ) -> Result<Self> {
+    pub(crate) async fn connect(discovered: &DiscoveredInstance) -> Result<Self> {
         if !valid_instance(discovered) {
             bail!("invalid registry name");
         }
@@ -49,7 +46,7 @@ impl TelemetryClient {
             local::connect(&entry.endpoint, discovered.pid),
         )
         .await??;
-        let (reader, mut writer) = tokio::io::split(stream);
+        let (reader, _writer) = tokio::io::split(stream);
         let mut reader = FrameReader::new(reader);
         let message = tokio::time::timeout(Duration::from_secs(5), reader.next::<ServerMessage>())
             .await
@@ -61,7 +58,6 @@ impl TelemetryClient {
         validate_hello(&hello, discovered)?;
         hello.instance.uid = discovered.uid;
         hello.instance.incarnation = discovered.incarnation;
-        write_frame(&mut writer, &ClientMessage::Subscribe { subscription }).await?;
         Ok(Self {
             hello,
             reader: TelemetryReader { inner: reader },

@@ -116,7 +116,7 @@ impl ClientTls {
             connector.connect(self.server_name.clone(), stream).await
         })
         .await
-        .map_err(|_| anyhow!("vector::tls::connect_tcp: TLS handshake timeout"))?
+        .context("vector::tls::connect_tcp: TLS handshake timeout")?
         .context("vector::tls::connect_tcp: TLS handshake failed")?;
         require_nw3(tls.get_ref().1.alpn_protocol())
             .context("vector::tls::connect_tcp: invalid negotiated protocol")?;

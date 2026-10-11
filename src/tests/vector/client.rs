@@ -72,12 +72,6 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
             &credentials,
             stats.clone(),
             true,
-            TelemetryHub::for_current_process(
-                crate::telemetry::InstanceRole::Vector,
-                "test",
-                "test",
-                std::time::Duration::from_secs(1),
-            ),
             CancellationToken::new(),
         )
         .unwrap();
@@ -109,41 +103,18 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
 
 #[test]
 fn setup_failures_and_nested_transport_errors_have_one_safe_reason() {
-    use crate::telemetry::{AccessOutcome, DiagnosticReason};
-    for (setup, reason, outcome) in [
-        (
-            SetupResult::InvalidRequest,
-            DiagnosticReason::InvalidRequest,
-            AccessOutcome::Rejected,
-        ),
-        (
-            SetupResult::FlowLimit,
-            DiagnosticReason::ResourceLimit,
-            AccessOutcome::Rejected,
-        ),
-        (
-            SetupResult::DialFailed,
-            DiagnosticReason::TargetConnectionFailed,
-            AccessOutcome::Error,
-        ),
-        (
-            SetupResult::InternalError,
-            DiagnosticReason::InternalError,
-            AccessOutcome::Error,
-        ),
+    use crate::telemetry::ResultCode;
+    for (setup, expected) in [
+        (SetupResult::InvalidRequest, ResultCode::InvalidRequest),
+        (SetupResult::FlowLimit, ResultCode::ResourceLimit),
+        (SetupResult::DialFailed, ResultCode::TargetConnectionFailed),
+        (SetupResult::InternalError, ResultCode::InternalError),
     ] {
-        let classified = OpenFlowError::Setup(setup).diagnostic_reason();
-        assert_eq!(classified, reason);
-        assert_eq!(AccessOutcome::from_reason(classified), outcome);
+        assert_eq!(OpenFlowError::Setup(setup).diagnostic_reason(), expected);
     }
-    let transport = OpenFlowError::Transport(
-        anyhow::anyhow!("connection timed out").context("TLS setup for secret.example:443"),
-    );
-    let classified = transport.diagnostic_reason();
-    assert_eq!(classified, DiagnosticReason::Timeout);
-    assert_eq!(
-        AccessOutcome::from_reason(classified),
-        AccessOutcome::Timeout
-    );
-    assert!(!classified.as_str().contains("secret"));
+    let error = std::io::Error::new(std::io::ErrorKind::TimedOut, "secret endpoint");
+    let transport = OpenFlowError::Transport(anyhow::Error::new(error).context("private target"));
+    assert_eq!(transport.diagnostic_reason(), ResultCode::Timeout);
+    let protocol = OpenFlowError::Protocol(anyhow::anyhow!("secret"));
+    assert_eq!(protocol.diagnostic_reason(), ResultCode::Protocol);
 }

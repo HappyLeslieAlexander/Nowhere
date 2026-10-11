@@ -6,8 +6,10 @@
 use anyhow::{Context, Result};
 use std::fmt;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum LifeState {
+    #[default]
     Starting = 0,
     Ready = 1,
     Draining = 2,
@@ -25,12 +27,16 @@ impl fmt::Display for LifeState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum LifeReason {
+    #[default]
     Startup,
     Listening,
+    #[serde(rename = "SIGINT")]
     SigInt,
     #[cfg(unix)]
+    #[serde(rename = "SIGTERM")]
     SigTerm,
     TcpListenerExit,
     QuicListenerExit,

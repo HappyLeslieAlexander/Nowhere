@@ -6,8 +6,7 @@
 use super::diagnostic::connection_failure_reason;
 use super::format::{bytes, duration_ms, panel};
 use crate::telemetry::{
-    Hello, InstanceRole, ServerMessage, Subscription, TelemetryClient, TelemetrySnapshot,
-    discover_instances,
+    Hello, InstanceRole, ServerMessage, TelemetryClient, TelemetrySnapshot, discover_instances,
 };
 use anyhow::{Context, Result, bail};
 use std::sync::Arc;
@@ -69,17 +68,16 @@ struct StatusItem {
     role: &'static str,
     pid: u32,
     id: String,
-    lifecycle: String,
     endpoint: String,
     snapshot: TelemetrySnapshot,
 }
 
 async fn read_status(instance: crate::telemetry::DiscoveredInstance) -> Result<StatusItem> {
     tokio::time::timeout(STATUS_TIMEOUT, async {
-        let client = TelemetryClient::connect(&instance, Subscription::Summary).await?;
+        let client = TelemetryClient::connect(&instance).await?;
         let (hello, mut reader) = client.into_parts();
         let ServerMessage::Snapshot(snapshot) = reader.next_message().await? else {
-            bail!("telemetry: subscription did not begin with snapshot");
+            bail!("telemetry: service did not send initial snapshot");
         };
         Ok(status_item(hello, snapshot))
     })
@@ -97,15 +95,6 @@ fn status_item(hello: Hello, snapshot: TelemetrySnapshot) -> StatusItem {
         role,
         pid: hello.instance.pid,
         id: hello.instance.id,
-        lifecycle: match hello.lifecycle.to_ascii_uppercase().as_str() {
-            "STARTING" => "STARTING",
-            "READY" | "RUNNING" => "READY",
-            "DRAINING" | "STOPPING" => "DRAINING",
-            "STOPPED" => "STOPPED",
-            "FAILED" | "ERROR" => "FAILED",
-            _ => "UNKNOWN",
-        }
-        .to_owned(),
         endpoint: crate::telemetry::display_endpoint(&hello.instance.endpoint),
         snapshot,
     }
@@ -121,7 +110,7 @@ fn status_panel(item: &StatusItem) -> String {
         .tcp_download_bytes
         .saturating_add(item.snapshot.udp_download_bytes);
     let mut rows = vec![
-        ("Status", item.lifecycle.clone()),
+        ("Status", item.snapshot.lifecycle.to_string()),
         ("Endpoint", item.endpoint.clone()),
         ("Uptime", duration_ms(item.snapshot.uptime_ms)),
         (

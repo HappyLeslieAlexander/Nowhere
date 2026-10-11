@@ -55,12 +55,6 @@ def read_message(sock):
     return json.loads(exact(sock, length))
 
 
-def subscribe(sock, mode):
-    payload = json.dumps({"type": "subscribe", "data": {
-        "subscription": mode}}).encode()
-    sock.sendall(struct.pack("!I", len(payload)) + payload)
-
-
 def next_kind(sock, kind):
     deadline = time.monotonic() + DEADLINE
     while time.monotonic() < deadline:
@@ -130,19 +124,18 @@ def main():
             assert hello["instance"]["pid"] == portal.pid
             assert hello["instance"]["role"] == "portal"
             assert KEY not in json.dumps(hello)
-            subscribe(ipc, "summary")
             snapshot = next_kind(ipc, "snapshot")
             assert snapshot["egress_online"] is None
-            assert next_kind(ipc, "lifecycle")["state"] in ("STARTING", "READY")
-            # Modes are fixed per connection; detail starts on a new connection.
+            assert snapshot["lifecycle"] in ("STARTING", "READY")
+            assert "config_summary" not in hello["instance"]
+            assert "lifecycle" not in hello
+            # Reconnection receives the same instance identity and current state.
             ipc.close()
             ipc = socket.socket(socket.AF_UNIX)
             ipc.settimeout(DEADLINE)
             ipc.connect(record["endpoint"])
             assert next_kind(ipc, "hello")["instance"]["id"] == hello["instance"]["id"]
-            subscribe(ipc, "detail")
             assert read_message(ipc)["type"] == "snapshot"
-            assert read_message(ipc)["type"] == "lifecycle"
 
             pin = subprocess.check_output([current, "fingerprint",
                 f"nowhere://{KEY}@127.0.0.1:{port}"], env=env, timeout=DEADLINE,
@@ -192,13 +185,11 @@ def main():
             started = next_kind(ipc, "access_start")
             finished = next_kind(ipc, "access_finish")
             assert finished["sequence"] > started["sequence"]
-            assert finished["upload_bytes"] == len(payload)
-            assert finished["download_bytes"] == len(payload)
-            assert finished["outcome"] == "success"
-            assert started["carrier"] == finished["carrier"] == "tls"
-            assert started["peer"] == finished["peer"] == "P001"
-            assert not any(key.startswith("initial_") or key in ("path_peers", "truncated")
-                           for event in (started, finished) for key in event)
+            assert finished["id"] == started["id"]
+            assert finished["result"] == "success"
+            assert started["carrier"] == "tls"
+            assert set(started) == {"sequence", "id", "timestamp_ms", "protocol", "target", "carrier"}
+            assert set(finished) == {"sequence", "id", "timestamp_ms", "result"}
             assert KEY not in json.dumps([started, finished])
             deadline = time.monotonic() + DEADLINE
             while time.monotonic() < deadline:
@@ -217,7 +208,6 @@ def main():
                 observer.settimeout(DEADLINE)
                 observer.connect(vector_record["endpoint"])
                 assert next_kind(observer, "hello")["instance"]["role"] == "vector"
-                subscribe(observer, "summary")
                 deadline = time.monotonic() + DEADLINE
                 while time.monotonic() < deadline:
                     observed = next_kind(observer, "snapshot")
@@ -226,7 +216,7 @@ def main():
                 assert observed["tcp_upload_bytes"] == len(payload), observed
                 assert observed["tcp_download_bytes"] == len(payload)
                 assert observed["egress_online"] is None
-            # Any post-subscription byte closes the connection, even a partial frame.
+            # Any input closes the connection, even a partial frame.
             ipc.sendall(b"\x00")
             while ipc.recv(65536):
                 pass
@@ -235,9 +225,7 @@ def main():
             ipc.settimeout(DEADLINE)
             ipc.connect(record["endpoint"])
             next_kind(ipc, "hello")
-            subscribe(ipc, "summary")
             assert read_message(ipc)["type"] == "snapshot"
-            assert read_message(ipc)["type"] == "lifecycle"
             status = subprocess.check_output([current, "status"], env=env, timeout=DEADLINE,
                                              stderr=subprocess.PIPE).decode()
             assert f"PORTAL · PID {portal.pid}" in status
@@ -264,7 +252,7 @@ def main():
                 assert legacy.poll() is None
             idle = subprocess.check_output([current, "status"], env=env, timeout=DEADLINE).decode()
             assert "IDLE" in idle
-            print(json.dumps({"headless": "passed", "summary_detail_reconnection": "passed",
+            print(json.dumps({"headless": "passed", "passive_reconnection": "passed",
                               "extra_input_disconnect": "passed",
                               "known_logical_bytes_each_direction": len(payload),
                               "namespace_isolation": "passed" if legacy is not None else "not run", "cleanup": "passed"}))

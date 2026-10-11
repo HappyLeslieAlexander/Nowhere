@@ -82,7 +82,7 @@ pub(crate) async fn dial_tcp_with_policy(
 
     tokio::time::timeout(timeout, connect)
         .await
-        .map_err(|_| anyhow!("common::util::dial_tcp_from_local_ip: dial timeout"))?
+        .context("common::util::dial_tcp_from_local_ip: dial timeout")?
 }
 
 pub(crate) async fn dial_udp_with_policy(
@@ -104,7 +104,7 @@ pub(crate) async fn dial_udp_with_policy(
 
     tokio::time::timeout(timeout, connect)
         .await
-        .map_err(|_| anyhow!("common::util::dial_udp_from_local_ip: dial timeout"))?
+        .context("common::util::dial_udp_from_local_ip: dial timeout")?
 }
 
 async fn connect_tcp_candidates(

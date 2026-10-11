@@ -10,7 +10,7 @@ mod udp;
 use crate::common::{Logger, OutboundDialer};
 use crate::portal::egress::EgressSlot;
 use crate::protocol::{FlowKind, SetupResult};
-use crate::telemetry::{AccessOutcome, AccessStart, TelemetryHub, TrafficProtocol};
+use crate::telemetry::{AccessStart, TelemetryHub, TrafficProtocol};
 use crate::transport::{Buffers, RateLimiter, Stats};
 pub(crate) use incoming::Incoming;
 use std::sync::Arc;
@@ -51,7 +51,6 @@ impl Forwarder {
     pub(crate) async fn serve(
         self: Arc<Self>,
         mut incoming: Incoming,
-        peer: String,
         connection_cancel: CancellationToken,
     ) {
         let carrier = incoming.carrier();
@@ -81,43 +80,31 @@ impl Forwarder {
             } else {
                 TrafficProtocol::Udp
             },
-            client: Some(peer.clone()),
-            peer: Some(peer),
             target: target.to_string(),
             carrier,
         });
         let Ok(_permit) = self.flows.clone().try_acquire_owned() else {
             let _ = incoming.result(SetupResult::FlowLimit).await;
-            access.finish(
-                AccessOutcome::Rejected,
-                Some(crate::telemetry::DiagnosticReason::ResourceLimit),
-            );
+            access.finish(crate::telemetry::ResultCode::ResourceLimit);
             return;
         };
         let result = match kind {
             FlowKind::Tcp => {
-                self.tcp(incoming, &target, carrier, &access, connection_cancel)
+                self.tcp(incoming, &target, carrier, connection_cancel)
                     .await
             }
-            FlowKind::Udp => {
-                self.udp(incoming, &target, &access, connection_cancel)
-                    .await
-            }
+            FlowKind::Udp => self.udp(incoming, &target, connection_cancel).await,
         };
         match result {
-            Ok(outcome) => access.finish(
-                outcome,
-                (outcome == AccessOutcome::Timeout)
-                    .then_some(crate::telemetry::DiagnosticReason::IdleTimeout),
-            ),
+            Ok(result) => access.finish(result),
             Err(error) => {
                 let reason = error
                     .downcast_ref::<crate::vector::OpenFlowError>()
                     .map_or_else(
-                        || crate::telemetry::error_reason(&format!("{error:#}")),
+                        || crate::telemetry::error_reason(&error),
                         |error| error.diagnostic_reason(),
                     );
-                access.finish_error(reason);
+                access.finish(reason);
             }
         }
     }

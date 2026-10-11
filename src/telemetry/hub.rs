@@ -9,23 +9,21 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, watch};
 
-use super::{DiagnosticReason, Runtime};
+use super::{DiagnosticContext, ResultCode};
 use crate::common::{LifeReason, LifeState};
 use crate::transport::Stats;
 
 use super::process::{ProcessSampler, now_unix_ms, process_uptime_ms};
 use super::wire::{
-    AccessFinished, AccessOutcome, AccessStart, AccessStarted, Event, InstanceDescriptor,
-    InstanceRole, LifecycleSnapshot, TelemetrySnapshot,
+    AccessFinished, AccessStart, AccessStarted, Diagnostic, Event, InstanceDescriptor,
+    InstanceRole, TelemetrySnapshot,
 };
 
 const DETAIL_EVENT_CAPACITY: usize = 1_024;
 
 pub(crate) struct TelemetryHub {
     descriptor: InstanceDescriptor,
-    privacy: Option<super::privacy::Privacy>,
     event_sequence: Mutex<u64>,
-    lifecycle: watch::Sender<LifecycleSnapshot>,
     snapshots: watch::Sender<TelemetrySnapshot>,
     events: broadcast::Sender<Event>,
     next_access_id: AtomicU64,
@@ -42,20 +40,13 @@ impl TelemetryHub {
     pub(crate) fn for_current_process(
         role: InstanceRole,
         endpoint: impl Into<String>,
-        config_summary: impl Into<String>,
         telemetry_interval: Duration,
     ) -> Arc<Self> {
         let endpoint = endpoint.into();
-        let config_summary = config_summary.into();
-        match InstanceDescriptor::current(
-            role,
-            endpoint.clone(),
-            config_summary.clone(),
-            telemetry_interval,
-        ) {
+        match InstanceDescriptor::current(role, endpoint.clone(), telemetry_interval) {
             Ok(descriptor) => Self::new(descriptor),
             Err(error) => Self::with_availability(
-                InstanceDescriptor::unavailable(role, endpoint, config_summary, telemetry_interval),
+                InstanceDescriptor::unavailable(role, endpoint, telemetry_interval),
                 Some(error.to_string()),
             ),
         }
@@ -65,20 +56,15 @@ impl TelemetryHub {
         descriptor: InstanceDescriptor,
         unavailable_reason: Option<String>,
     ) -> Arc<Self> {
-        let privacy = super::privacy::Privacy::new().ok();
-        let unavailable_reason = unavailable_reason.or_else(|| {
-            privacy
-                .is_none()
-                .then(|| "telemetry entropy unavailable".to_owned())
+        let (snapshots, _) = watch::channel(TelemetrySnapshot {
+            timestamp_ms: now_unix_ms(),
+            lifecycle_timestamp_ms: now_unix_ms(),
+            ..TelemetrySnapshot::default()
         });
-        let (snapshots, _) = watch::channel(TelemetrySnapshot::default());
-        let (lifecycle, _) = watch::channel(LifecycleSnapshot::default());
         let (events, _) = broadcast::channel(DETAIL_EVENT_CAPACITY);
         Arc::new(Self {
             descriptor,
-            privacy,
             event_sequence: Mutex::new(0),
-            lifecycle,
             snapshots,
             events,
             next_access_id: AtomicU64::new(1),
@@ -107,20 +93,17 @@ impl TelemetryHub {
     }
 
     pub(crate) fn set_lifecycle(&self, state: LifeState, reason: LifeReason) {
-        self.lifecycle.send_replace(LifecycleSnapshot {
-            state: state.to_string(),
-            reason: reason.to_string(),
-            timestamp_ms: now_unix_ms(),
+        self.snapshots.send_modify(|snapshot| {
+            snapshot.lifecycle = state;
+            snapshot.lifecycle_reason = reason;
+            snapshot.lifecycle_timestamp_ms = now_unix_ms();
+            snapshot.sequence += 1;
+            snapshot.timestamp_ms = snapshot.lifecycle_timestamp_ms;
         });
-        self.emit_runtime(Runtime::Lifecycle(state, reason), None, None);
-    }
-
-    pub(crate) fn lifecycle_receiver(&self) -> watch::Receiver<LifecycleSnapshot> {
-        self.lifecycle.subscribe()
     }
 
     pub(crate) fn set_egress_online(&self, online: Option<bool>) {
-        let changed = self.snapshots.send_if_modified(|snapshot| {
+        self.snapshots.send_if_modified(|snapshot| {
             if snapshot.egress_online == online {
                 return false;
             }
@@ -132,9 +115,6 @@ impl TelemetryHub {
             snapshot.timestamp_ms = now_unix_ms();
             true
         });
-        if changed {
-            self.emit_runtime(Runtime::EgressOnline(online == Some(true)), None, None);
-        }
     }
 
     pub(crate) fn capture_and_publish(&self, stats: &Stats, ping_ms: u64) {
@@ -151,6 +131,9 @@ impl TelemetryHub {
                     self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
                 }),
                 egress_online: current.egress_online,
+                lifecycle: current.lifecycle,
+                lifecycle_reason: current.lifecycle_reason,
+                lifecycle_timestamp_ms: current.lifecycle_timestamp_ms,
                 tcp_upload_bytes: stats.tcp_upload_bytes.load(Ordering::Relaxed),
                 tcp_download_bytes: stats.tcp_download_bytes.load(Ordering::Relaxed),
                 udp_upload_bytes: stats.udp_upload_bytes.load(Ordering::Relaxed),
@@ -171,44 +154,40 @@ impl TelemetryHub {
         });
     }
 
-    pub(crate) fn emit_runtime(
-        &self,
-        event: Runtime,
-        reason: Option<DiagnosticReason>,
-        client: Option<&str>,
-    ) {
+    pub(crate) fn emit_diagnostic(&self, context: DiagnosticContext, reason: ResultCode) {
         if self.events.receiver_count() == 0 {
             return;
         }
-        let Some(privacy) = &self.privacy else {
-            return;
-        };
-        let client = client.map(|value| privacy.alias("client", value));
-        self.publish_event(Event::RuntimeEvent(event.into_event(reason, client)));
+        self.publish_event(Event::Diagnostic(Diagnostic {
+            sequence: 0,
+            timestamp_ms: now_unix_ms(),
+            context,
+            reason,
+        }));
     }
 
     pub(crate) fn start_access(
         self: &Arc<Self>,
         build: impl FnOnce() -> AccessStart,
     ) -> AccessSpan {
-        if self.events.receiver_count() == 0 || self.privacy.is_none() {
+        if self.events.receiver_count() == 0 {
             return AccessSpan(None);
         }
         let start = build();
-        let started_at = Instant::now();
-        let privacy = self.privacy.as_ref().expect("available privacy");
         let started = AccessStarted {
             sequence: 0,
             id: self.next_access_id.fetch_add(1, Ordering::Relaxed),
             timestamp_ms: now_unix_ms(),
             protocol: start.protocol,
-            client: start.client.map(|v| privacy.alias("client", &v)),
-            peer: start.peer.map(|v| privacy.alias("peer", &v)),
             target: super::privacy::target(&start.target),
             carrier: start.carrier,
         };
-        self.publish_event(Event::AccessStart(started.clone()));
-        AccessSpan::new(Arc::clone(self), started, started_at)
+        let id = started.id;
+        self.publish_event(Event::AccessStart(started));
+        AccessSpan(Some(ActiveAccess {
+            hub: Arc::clone(self),
+            id,
+        }))
     }
 
     pub(crate) fn snapshot_receiver(&self) -> watch::Receiver<TelemetrySnapshot> {
@@ -224,94 +203,38 @@ impl TelemetryHub {
         self.events.subscribe()
     }
 
-    fn finish_access(
-        &self,
-        started: &AccessStarted,
-        started_at: Instant,
-        bytes: (u64, u64),
-        completion: (AccessOutcome, Option<DiagnosticReason>),
-    ) {
-        let (upload_bytes, download_bytes) = bytes;
-        let (outcome, error) = completion;
+    fn finish_access(&self, id: u64, result: ResultCode) {
         self.publish_event(Event::AccessFinish(AccessFinished {
             sequence: 0,
-            id: started.id,
+            id,
             timestamp_ms: now_unix_ms(),
-            duration_ms: started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
-            protocol: started.protocol,
-            client: started.client.clone(),
-            peer: started.peer.clone(),
-            target: started.target.clone(),
-            carrier: started.carrier,
-            upload_bytes,
-            download_bytes,
-            outcome,
-            error: error.map(|value| value.as_str().to_owned()),
+            result,
         }));
     }
 }
 
-/// Disabled observations carry no publisher, clock or counters.
 pub(crate) struct AccessSpan(Option<ActiveAccess>);
 
 struct ActiveAccess {
     hub: Arc<TelemetryHub>,
-    started: AccessStarted,
-    started_at: Instant,
-    upload_bytes: AtomicU64,
-    download_bytes: AtomicU64,
+    id: u64,
 }
 
 impl AccessSpan {
-    fn new(hub: Arc<TelemetryHub>, started: AccessStarted, started_at: Instant) -> Self {
-        Self(Some(ActiveAccess {
-            hub,
-            started,
-            started_at,
-            upload_bytes: AtomicU64::new(0),
-            download_bytes: AtomicU64::new(0),
-        }))
+    pub(crate) fn finish(mut self, result: ResultCode) {
+        self.finish_once(result);
     }
 
-    pub(crate) fn add_upload(&self, bytes: u64) {
-        if let Some(active) = &self.0 {
-            active.upload_bytes.fetch_add(bytes, Ordering::Relaxed);
+    fn finish_once(&mut self, result: ResultCode) {
+        if let Some(active) = self.0.take() {
+            active.hub.finish_access(active.id, result);
         }
-    }
-
-    pub(crate) fn add_download(&self, bytes: u64) {
-        if let Some(active) = &self.0 {
-            active.download_bytes.fetch_add(bytes, Ordering::Relaxed);
-        }
-    }
-
-    pub(crate) fn finish(mut self, outcome: AccessOutcome, error: Option<DiagnosticReason>) {
-        self.finish_once(outcome, error);
-    }
-
-    pub(crate) fn finish_error(self, reason: DiagnosticReason) {
-        self.finish(AccessOutcome::from_reason(reason), Some(reason));
-    }
-
-    fn finish_once(&mut self, outcome: AccessOutcome, error: Option<DiagnosticReason>) {
-        let Some(active) = self.0.take() else {
-            return;
-        };
-        active.hub.finish_access(
-            &active.started,
-            active.started_at,
-            (
-                active.upload_bytes.load(Ordering::Relaxed),
-                active.download_bytes.load(Ordering::Relaxed),
-            ),
-            (outcome, error),
-        );
     }
 }
 
 impl Drop for AccessSpan {
     fn drop(&mut self) {
-        self.finish_once(AccessOutcome::Cancelled, None);
+        self.finish_once(ResultCode::Cancelled);
     }
 }
 

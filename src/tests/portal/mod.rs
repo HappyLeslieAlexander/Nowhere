@@ -82,7 +82,6 @@ impl Harness {
             &creds,
             Arc::new(crate::transport::Stats::default()),
             true,
-            self.inner.forward.telemetry.clone(),
             CancellationToken::new(),
         )
         .unwrap()

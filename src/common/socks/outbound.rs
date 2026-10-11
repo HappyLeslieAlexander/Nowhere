@@ -59,7 +59,7 @@ impl OutboundDialer {
                     connect_tcp_addr(self.dial_policy.local_ip(address.ip())?, *address),
                 )
                 .await
-                .map_err(|_| anyhow!("common::socks::OutboundDialer::dial_tcp: dial timeout"))?
+                .context("common::socks::OutboundDialer::dial_tcp: dial timeout")?
                 .map(OutboundTcpStream::direct),
                 Target::Domain { .. } => dial_tcp_with_policy(
                     &self.dial_policy,
@@ -74,7 +74,7 @@ impl OutboundDialer {
         let target = SocksAddress::from_target(target);
         tokio::time::timeout(timeout, self.dial_socks_tcp(config, &target))
             .await
-            .map_err(|_| anyhow!("common::socks::OutboundDialer::dial_tcp: dial timeout"))?
+            .context("common::socks::OutboundDialer::dial_tcp: dial timeout")?
     }
 
     pub(crate) async fn dial_udp_target(
@@ -89,7 +89,7 @@ impl OutboundDialer {
                     connect_udp_addr(self.dial_policy.local_ip(address.ip())?, *address),
                 )
                 .await
-                .map_err(|_| anyhow!("common::socks::OutboundDialer::dial_udp: dial timeout"))?
+                .context("common::socks::OutboundDialer::dial_udp: dial timeout")?
                 .map(OutboundUdpSocket::Direct),
                 Target::Domain { .. } => {
                     dial_udp_with_policy(&self.dial_policy, &target.to_string(), timeout)
@@ -101,7 +101,7 @@ impl OutboundDialer {
         let target = SocksAddress::from_target(target);
         tokio::time::timeout(timeout, self.dial_socks_udp(config, target))
             .await
-            .map_err(|_| anyhow!("common::socks::OutboundDialer::dial_udp: dial timeout"))?
+            .context("common::socks::OutboundDialer::dial_udp: dial timeout")?
     }
 
     async fn dial_socks_tcp(

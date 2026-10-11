@@ -48,7 +48,6 @@ impl QuicConnection {
         connection: quinn::Connection,
         server_initiated: bool,
         stats: Arc<Stats>,
-        telemetry: Arc<crate::telemetry::TelemetryHub>,
     ) -> Arc<Self> {
         let bytes = crate::common::env_int("NOW_QUIC_UDP_QUEUE_BYTES", 4 * 1024 * 1024)
             .clamp(2, i32::MAX) as usize;
@@ -61,7 +60,6 @@ impl QuicConnection {
             budget: Arc::new(Semaphore::new(bytes)),
         });
         stats.quic_carriers_active.fetch_add(1, Ordering::Relaxed);
-        telemetry.emit_runtime(crate::telemetry::Runtime::QuicConnected, None, None);
         let task = this.clone();
         tokio::spawn(async move {
             task.dispatch().await;
@@ -73,7 +71,6 @@ impl QuicConnection {
             state.routes.clear();
             state.reassembly.clear();
             stats.quic_carriers_active.fetch_sub(1, Ordering::Relaxed);
-            telemetry.emit_runtime(crate::telemetry::Runtime::QuicDisconnected, None, None);
         });
         this
     }

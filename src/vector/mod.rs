@@ -82,19 +82,9 @@ impl ForwardVector {
         let telemetry_interval =
             telemetry_interval().context("vector::Vector::new: invalid NOW_TELEMETRY_INTERVAL")?;
         let credentials = Credentials::new(&parsed_url)?;
-        let telemetry_summary = format!(
-            "portal={} in={} {} rate={} etar={} log={}",
-            config.portal_endpoint(),
-            config.socks.endpoint(),
-            config.effective_route(),
-            config.rate_mbps,
-            config.etar_mbps,
-            config.log
-        );
         let telemetry = TelemetryHub::for_current_process(
             InstanceRole::Vector,
             config.socks.endpoint(),
-            telemetry_summary,
             telemetry_interval,
         );
         let stats = Arc::new(Stats::default());
@@ -109,7 +99,6 @@ impl ForwardVector {
             &credentials,
             stats.clone(),
             true,
-            telemetry.clone(),
             shutdown.clone(),
         )?;
         Ok(Self {

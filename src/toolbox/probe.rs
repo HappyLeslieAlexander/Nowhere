@@ -7,7 +7,6 @@ use super::diagnostic::connection_failure_reason;
 use super::format::{format_duration, panel};
 use crate::common::{flow_setup_timeout, handshake_timeout, shutdown_timeout};
 use crate::protocol::{Carrier, Credentials, SetupResult, Target};
-use crate::telemetry::{InstanceRole, TelemetryHub};
 use crate::transport::Stats;
 use crate::vector::{PortalClient, PortalClientConfig};
 use anyhow::{Context, Result, bail};
@@ -46,12 +45,6 @@ impl ToolboxClient {
             &self.credentials,
             Arc::new(Stats::default()),
             false,
-            TelemetryHub::for_current_process(
-                InstanceRole::Vector,
-                "toolbox",
-                "toolbox",
-                Duration::from_secs(1),
-            ),
             shutdown,
         )?;
         let started = Instant::now();

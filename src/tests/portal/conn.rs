@@ -457,8 +457,7 @@ async fn quic_udp_without_datagram_capability_rejects_flow() {
     })
     .await
     .unwrap();
-    assert_eq!(finish.outcome, crate::telemetry::AccessOutcome::Error);
-    assert_eq!(finish.error.as_deref(), Some("internal error"));
+    assert_eq!(finish.result, crate::telemetry::ResultCode::InternalError);
     assert!(q.close_reason().is_none());
     q.close(0u32.into(), b"test");
     endpoint.wait_idle().await;
@@ -514,7 +513,6 @@ async fn stream_id_exhaustion_enters_bounded_drain_without_truncation() {
         q,
         false,
         Arc::new(crate::transport::Stats::default()),
-        h.inner.forward.telemetry.clone(),
     );
     assert_eq!(
         owned.flow_id(4294967288).unwrap(),

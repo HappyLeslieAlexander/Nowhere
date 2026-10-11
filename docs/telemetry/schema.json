@@ -39,11 +39,6 @@
           "type": "string",
           "maxLength": 512,
           "description": "Validated service endpoint, without credentials or URL query parameters."
-        },
-        "config_summary": {
-          "type": "string",
-          "maxLength": 33792,
-          "description": "Allowlisted effective key=value options with defaults, credentials removed and pin presence only."
         }
       },
       "required": [
@@ -61,39 +56,10 @@
       "properties": {
         "instance": {
           "$ref": "#/$defs/instance"
-        },
-        "lifecycle": {
-          "enum": [
-            "STARTING",
-            "READY",
-            "DRAINING",
-            "STOPPED"
-          ]
-        },
-        "lifecycle_reason": {
-          "type": "string",
-          "maxLength": 64
         }
       },
       "required": [
-        "instance",
-        "lifecycle",
-        "lifecycle_reason"
-      ],
-      "additionalProperties": false
-    },
-    "subscribe": {
-      "type": "object",
-      "properties": {
-        "subscription": {
-          "enum": [
-            "summary",
-            "detail"
-          ]
-        }
-      },
-      "required": [
-        "subscription"
+        "instance"
       ],
       "additionalProperties": false
     },
@@ -233,6 +199,35 @@
             "null"
           ],
           "description": "Registration ownership: Portal out=egress has a valid Slot connection, or Egress is ACCEPTED with a live connection. Null when not applicable."
+        },
+        "lifecycle": {
+          "enum": [
+            "STARTING",
+            "READY",
+            "DRAINING",
+            "STOPPED"
+          ]
+        },
+        "lifecycle_reason": {
+          "enum": [
+            "STARTUP",
+            "LISTENING",
+            "SIGINT",
+            "SIGTERM",
+            "TCP_LISTENER_EXIT",
+            "QUIC_LISTENER_EXIT",
+            "SOCKS_LISTENER_EXIT",
+            "DRAINED",
+            "CLEANUP_COMPLETE",
+            "TIMEOUT",
+            "FORCED",
+            "START_FAILED"
+          ]
+        },
+        "lifecycle_timestamp_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
         }
       },
       "required": [
@@ -255,93 +250,10 @@
         "cpu_percent",
         "rss_bytes",
         "open_fds",
-        "egress_online"
-      ],
-      "additionalProperties": false
-    },
-    "lifecycle": {
-      "type": "object",
-      "properties": {
-        "state": {
-          "enum": [
-            "STARTING",
-            "READY",
-            "DRAINING",
-            "STOPPED"
-          ]
-        },
-        "reason": {
-          "type": "string",
-          "maxLength": 64
-        },
-        "timestamp_ms": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        }
-      },
-      "required": [
-        "state",
-        "reason",
-        "timestamp_ms"
-      ],
-      "additionalProperties": false
-    },
-    "runtime_event": {
-      "type": "object",
-      "properties": {
-        "sequence": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
-        "timestamp_ms": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
-        "level": {
-          "enum": [
-            "info",
-            "warn",
-            "error"
-          ]
-        },
-        "kind": {
-          "enum": [
-            "lifecycle",
-            "listener",
-            "authentication",
-            "carrier",
-            "reconnect"
-          ]
-        },
-        "client": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^C[0-9]{3,20}$",
-              "maxLength": 21
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "message": {
-          "type": "string",
-          "maxLength": 160,
-          "pattern": "^[ -~]+$",
-          "description": "Safe diagnostic template and optional classified reason; never a raw error chain."
-        }
-      },
-      "required": [
-        "sequence",
-        "timestamp_ms",
-        "level",
-        "kind",
-        "message",
-        "client"
+        "egress_online",
+        "lifecycle",
+        "lifecycle_reason",
+        "lifecycle_timestamp_ms"
       ],
       "additionalProperties": false
     },
@@ -369,35 +281,10 @@
             "udp"
           ]
         },
-        "client": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^C[0-9]{3,20}$",
-              "maxLength": 21
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "target": {
           "type": "string",
           "maxLength": 261,
           "description": "Validated destination host:port, bracketed for IPv6; <redacted> for invalid input."
-        },
-        "peer": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^P[0-9]{3,20}$",
-              "maxLength": 21
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Instance-local alias of the immediate transport peer."
         },
         "carrier": {
           "enum": [
@@ -412,9 +299,7 @@
         "id",
         "timestamp_ms",
         "protocol",
-        "client",
         "target",
-        "peer",
         "carrier"
       ],
       "additionalProperties": false
@@ -437,125 +322,15 @@
           "minimum": 0,
           "maximum": 18446744073709551615
         },
-        "protocol": {
-          "enum": [
-            "tcp",
-            "udp"
-          ]
-        },
-        "client": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^C[0-9]{3,20}$",
-              "maxLength": 21
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "target": {
-          "type": "string",
-          "maxLength": 261,
-          "description": "Validated destination host:port, bracketed for IPv6; <redacted> for invalid input."
-        },
-        "duration_ms": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
-        "upload_bytes": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
-        "download_bytes": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
-        "outcome": {
-          "enum": [
-            "success",
-            "error",
-            "timeout",
-            "cancelled",
-            "rejected"
-          ]
-        },
-        "error": {
-          "anyOf": [
-            {
-              "enum": [
-                "certificate expired",
-                "unknown certificate issuer",
-                "certificate verification failed",
-                "connection refused",
-                "DNS lookup failed",
-                "connection timed out",
-                "network unreachable",
-                "connection reset by peer",
-                "broken pipe",
-                "unexpected EOF",
-                "connection closed",
-                "application closed",
-                "authentication failed",
-                "resource limit reached",
-                "permission denied",
-                "handshake failed",
-                "protocol error",
-                "operation cancelled",
-                "operation failed",
-                "idle timeout",
-                "service draining",
-                "target connection failed",
-                "invalid request",
-                "internal error",
-                "flow setup rejected",
-                "datagram route unavailable"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "peer": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^P[0-9]{3,20}$",
-              "maxLength": 21
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Instance-local alias of the immediate transport peer."
-        },
-        "carrier": {
-          "enum": [
-            "tls",
-            "quic"
-          ],
-          "description": "Single bidirectional transport used by this Flow."
+        "result": {
+          "$ref": "#/$defs/result_code"
         }
       },
       "required": [
         "sequence",
         "id",
         "timestamp_ms",
-        "protocol",
-        "client",
-        "target",
-        "duration_ms",
-        "upload_bytes",
-        "download_bytes",
-        "outcome",
-        "error",
-        "peer",
-        "carrier"
+        "result"
       ],
       "additionalProperties": false
     },
@@ -650,22 +425,6 @@
       ],
       "additionalProperties": false
     },
-    "subscribe_message": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "subscribe"
-        },
-        "data": {
-          "$ref": "#/$defs/subscribe"
-        }
-      },
-      "required": [
-        "type",
-        "data"
-      ],
-      "additionalProperties": false
-    },
     "snapshot_message": {
       "type": "object",
       "properties": {
@@ -674,38 +433,6 @@
         },
         "data": {
           "$ref": "#/$defs/snapshot"
-        }
-      },
-      "required": [
-        "type",
-        "data"
-      ],
-      "additionalProperties": false
-    },
-    "lifecycle_message": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "lifecycle"
-        },
-        "data": {
-          "$ref": "#/$defs/lifecycle"
-        }
-      },
-      "required": [
-        "type",
-        "data"
-      ],
-      "additionalProperties": false
-    },
-    "runtime_event_message": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "runtime_event"
-        },
-        "data": {
-          "$ref": "#/$defs/runtime_event"
         }
       },
       "required": [
@@ -761,6 +488,114 @@
         "data"
       ],
       "additionalProperties": false
+    },
+    "result_code": {
+      "enum": [
+        "success",
+        "certificate_expired",
+        "application_closed",
+        "idle_timeout",
+        "service_draining",
+        "target_connection_failed",
+        "resource_limit",
+        "invalid_request",
+        "internal_error",
+        "setup_rejected",
+        "datagram_unavailable",
+        "unknown_issuer",
+        "certificate_verification",
+        "connection_refused",
+        "dns",
+        "timeout",
+        "network_unreachable",
+        "connection_reset",
+        "broken_pipe",
+        "unexpected_eof",
+        "connection_closed",
+        "authentication",
+        "permission_denied",
+        "handshake",
+        "protocol",
+        "cancelled",
+        "unknown"
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "timestamp_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "context": {
+          "enum": [
+            "egress_registration",
+            "egress_connection",
+            "socks_accept",
+            "socks_handshake",
+            "socks_admission"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "certificate_expired",
+            "application_closed",
+            "idle_timeout",
+            "service_draining",
+            "target_connection_failed",
+            "resource_limit",
+            "invalid_request",
+            "internal_error",
+            "setup_rejected",
+            "datagram_unavailable",
+            "unknown_issuer",
+            "certificate_verification",
+            "connection_refused",
+            "dns",
+            "timeout",
+            "network_unreachable",
+            "connection_reset",
+            "broken_pipe",
+            "unexpected_eof",
+            "connection_closed",
+            "authentication",
+            "permission_denied",
+            "handshake",
+            "protocol",
+            "cancelled",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "sequence",
+        "timestamp_ms",
+        "context",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "diagnostic_message": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "diagnostic"
+        },
+        "data": {
+          "$ref": "#/$defs/diagnostic"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -771,16 +606,7 @@
       "$ref": "#/$defs/hello_message"
     },
     {
-      "$ref": "#/$defs/subscribe_message"
-    },
-    {
       "$ref": "#/$defs/snapshot_message"
-    },
-    {
-      "$ref": "#/$defs/lifecycle_message"
-    },
-    {
-      "$ref": "#/$defs/runtime_event_message"
     },
     {
       "$ref": "#/$defs/access_start_message"
@@ -790,6 +616,9 @@
     },
     {
       "$ref": "#/$defs/gap_message"
+    },
+    {
+      "$ref": "#/$defs/diagnostic_message"
     }
   ]
 }

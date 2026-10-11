@@ -15,7 +15,6 @@ use tokio_util::sync::CancellationToken;
 pub(super) async fn tcp(
     portal: Arc<PortalInner>,
     stream: tokio::net::TcpStream,
-    peer: std::net::SocketAddr,
     admission: UnauthenticatedGuard,
 ) -> Result<()> {
     let stream = tokio::time::timeout(portal.runtime.handshake_timeout, async {
@@ -46,10 +45,7 @@ pub(super) async fn tcp(
     .await
     .context("TLS authentication timeout")??;
     drop(admission);
-    let guard = crate::vector::client::TlsCarrierGuard::new(
-        portal.forward.stats.clone(),
-        portal.forward.telemetry.clone(),
-    );
+    let guard = crate::vector::client::TlsCarrierGuard::new(portal.forward.stats.clone());
     let (read, write) = tokio::io::split(stream);
     portal
         .forward
@@ -63,7 +59,6 @@ pub(super) async fn tcp(
                     _flow: None,
                 },
             },
-            peer.to_string(),
             CancellationToken::new(),
         )
         .await;
@@ -137,7 +132,6 @@ async fn quic_authenticated(
         connection.clone(),
         role == ConnectionRole::Egress,
         portal.forward.stats.clone(),
-        portal.forward.telemetry.clone(),
     );
     let mut tasks = JoinSet::new();
     let _owner = if role == ConnectionRole::Egress {
@@ -173,7 +167,6 @@ async fn quic_authenticated(
                         send,
                         connection: q.clone(),
                     },
-                    q.connection.remote_address().to_string(),
                     q.cancel.clone(),
                 )
                 .await;
@@ -192,7 +185,7 @@ async fn quic_authenticated(
                     if raw&3!=0 {bail!("invalid Vector Stream direction");}
                     if q.flow_id(raw).is_err() {break;}
                     let forward=portal.forward.clone();let q=q.clone();
-                    tasks.spawn(async move {forward.serve(Incoming::Quic {recv,send,connection:q.clone()},q.connection.remote_address().to_string(),q.cancel.clone()).await;});
+                    tasks.spawn(async move {forward.serve(Incoming::Quic {recv,send,connection:q.clone()},q.cancel.clone()).await;});
                 },Err(_)=>break,
             },
             _=tasks.join_next(),if !tasks.is_empty()=>{},

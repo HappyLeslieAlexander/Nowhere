@@ -18,7 +18,7 @@ use crate::common::{
     REPLY_NETWORK_UNREACHABLE, REPLY_SUCCEEDED, SocksAddress, tcp_read_timeout,
 };
 use crate::protocol::{Carrier, SetupResult, Target};
-use crate::telemetry::{AccessOutcome, AccessSpan};
+use crate::telemetry::{AccessSpan, ResultCode};
 use crate::transport::TrafficDirection;
 
 use super::config::CarrierMode;
@@ -70,18 +70,17 @@ impl OpenFlowError {
         }
     }
 
-    pub(crate) fn diagnostic_reason(&self) -> crate::telemetry::DiagnosticReason {
-        use crate::telemetry::DiagnosticReason;
+    pub(crate) fn diagnostic_reason(&self) -> crate::telemetry::ResultCode {
+        use crate::telemetry::ResultCode;
         match self {
             Self::Setup(result) => match result {
-                SetupResult::InvalidRequest => DiagnosticReason::InvalidRequest,
-                SetupResult::FlowLimit => DiagnosticReason::ResourceLimit,
-                SetupResult::DialFailed => DiagnosticReason::TargetConnectionFailed,
-                SetupResult::Ready | SetupResult::InternalError => DiagnosticReason::InternalError,
+                SetupResult::InvalidRequest => ResultCode::InvalidRequest,
+                SetupResult::FlowLimit => ResultCode::ResourceLimit,
+                SetupResult::DialFailed => ResultCode::TargetConnectionFailed,
+                SetupResult::Ready | SetupResult::InternalError => ResultCode::InternalError,
             },
-            Self::Transport(error) | Self::Protocol(error) => {
-                crate::telemetry::error_reason(&format!("{error:#}"))
-            }
+            Self::Transport(error) => crate::telemetry::error_reason(error),
+            Self::Protocol(_) => ResultCode::Protocol,
         }
     }
 

@@ -6,7 +6,7 @@
 use super::{ActiveFlow, Forwarder, Incoming, Outlet};
 use crate::portal::egress;
 use crate::protocol::{Carrier, SetupResult, Target};
-use crate::telemetry::{AccessOutcome, AccessSpan};
+use crate::telemetry::ResultCode;
 use crate::transport::TrafficDirection;
 use crate::vector::{BoxReader, BoxWriter};
 use anyhow::{Context, Result};
@@ -20,9 +20,8 @@ impl Forwarder {
         mut incoming: Incoming,
         target: &Target,
         carrier: Carrier,
-        access: &AccessSpan,
         cancel: CancellationToken,
-    ) -> Result<AccessOutcome> {
+    ) -> Result<ResultCode> {
         let dial = async {
             match &self.outbound {
                 Outlet::Network(dialer) => {
@@ -50,9 +49,9 @@ impl Forwarder {
             }
         };
         let dialed = tokio::select! {
-            _ = cancel.cancelled() => return Ok(AccessOutcome::Cancelled),
-            _ = self.shutdown.cancelled() => return Ok(AccessOutcome::Cancelled),
-            closed = incoming.closed() => { closed?; return Ok(AccessOutcome::Cancelled); },
+            _ = cancel.cancelled() => return Ok(ResultCode::Cancelled),
+            _ = self.shutdown.cancelled() => return Ok(ResultCode::Cancelled),
+            closed = incoming.closed() => { closed?; return Ok(ResultCode::Cancelled); },
             result = dial => result,
         };
         let (mut target_read, mut target_write, _guard, _latency) = match dialed {
@@ -100,7 +99,6 @@ impl Forwarder {
                         .quic_upload_bytes
                         .fetch_add(n as u64, Ordering::Relaxed);
                 }
-                access.add_upload(n as u64);
             }
         };
         let download = async {
@@ -130,14 +128,13 @@ impl Forwarder {
                         .quic_download_bytes
                         .fetch_add(n as u64, Ordering::Relaxed);
                 }
-                access.add_download(n as u64);
             }
         };
         tokio::pin!(upload);
         tokio::pin!(download);
         tokio::select! {
-            _ = cancel.cancelled() => Ok(AccessOutcome::Cancelled),
-            _ = self.shutdown.cancelled() => Ok(AccessOutcome::Cancelled),
+            _ = cancel.cancelled() => Ok(ResultCode::Cancelled),
+            _ = self.shutdown.cancelled() => Ok(ResultCode::Cancelled),
             result = async {
                 tokio::select! {
                     result = &mut upload => {
@@ -151,7 +148,7 @@ impl Forwarder {
                             .await.context("TCP half-close timeout")?
                     },
                 }
-            } => result.map(|()| AccessOutcome::Success),
+            } => result.map(|()| ResultCode::Success),
         }
     }
 }

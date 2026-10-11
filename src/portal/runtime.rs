@@ -123,8 +123,8 @@ pub(super) async fn tcp_loop(
                     let p = portal.clone();
                     tasks.spawn(async move {
                         let _permit = permit;
-                        if let Err(error) = conn::tcp(p.clone(), stream, peer, admission).await {
-                            p.forward.logger.debug(format_args!("TLS connection failed: {}", crate::telemetry::diagnostic_reason(&format!("{error:#}"))));
+                        if let Err(error) = conn::tcp(p.clone(), stream, admission).await {
+                            p.forward.logger.debug(format_args!("TLS connection failed: {}", crate::telemetry::diagnostic_reason(&error)));
                         }
                     });
                 }
@@ -156,7 +156,7 @@ pub(super) async fn quic_loop(
                 tasks.spawn(async move {
                     let _permit = permit;
                     if let Err(error) = conn::quic(p.clone(), incoming, admission).await {
-                        p.forward.logger.debug(format_args!("QUIC connection failed: {}", crate::telemetry::diagnostic_reason(&format!("{error:#}"))));
+                        p.forward.logger.debug(format_args!("QUIC connection failed: {}", crate::telemetry::diagnostic_reason(&error)));
                     }
                 });
             },

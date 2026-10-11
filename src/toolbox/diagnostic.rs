@@ -73,7 +73,7 @@ pub(super) fn connection_failure_reason(error: &anyhow::Error) -> String {
             "invalid IPC message",
         ),
         (
-            "telemetry: subscription did not begin with snapshot",
+            "telemetry: service did not send initial snapshot",
             "invalid IPC initial snapshot",
         ),
         ("telemetry: failed to read frame", "IPC message read failed"),

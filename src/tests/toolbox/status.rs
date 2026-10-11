@@ -14,7 +14,6 @@ async fn status_reads_a_real_local_snapshot_and_redacts_metadata() {
     let hub = TelemetryHub::for_current_process(
         InstanceRole::Portal,
         "secret@localhost:2000",
-        "secret",
         Duration::from_secs(1),
     );
     let descriptor = hub.descriptor();
@@ -42,7 +41,6 @@ fn status_uses_vertical_rows_and_preserves_unavailable_resources() {
         role: "PORTAL",
         pid: 42,
         id: "instance".to_owned(),
-        lifecycle: "READY".to_owned(),
         endpoint: "127.0.0.1:2000".to_owned(),
         snapshot: TelemetrySnapshot::default(),
     };
@@ -59,7 +57,6 @@ fn status_displays_registration_state_and_resource_samples() {
         role: "EGRESS",
         pid: 42,
         id: "instance".to_owned(),
-        lifecycle: "READY".to_owned(),
         endpoint: "127.0.0.1:2000".to_owned(),
         snapshot: TelemetrySnapshot {
             egress_online: Some(false),

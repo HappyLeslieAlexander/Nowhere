@@ -4,33 +4,29 @@
 //! Telemetry frame limits, cancellation-safe reads, write timeouts, and command deadlines tests.
 
 use super::*;
-use crate::telemetry::{ClientMessage, MAX_FRAME_SIZE, Subscription};
+use crate::telemetry::{MAX_FRAME_SIZE, ServerMessage};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 #[tokio::test]
 async fn framing_round_trips_and_rejects_oversize_lengths() {
     let (mut left, mut right) = tokio::io::duplex(MAX_FRAME_SIZE + 16);
-    let message = ClientMessage::Subscribe {
-        subscription: Subscription::Detail,
-    };
+    let message = ServerMessage::Gap { missed: 1 };
     write_frame(&mut left, &message).await.unwrap();
     let mut framed = FrameReader::new(&mut right);
-    let decoded: ClientMessage = framed.next().await.unwrap();
+    let decoded: ServerMessage = framed.next().await.unwrap();
     assert_eq!(decoded, message);
 
     let (mut left, mut right) = tokio::io::duplex(16);
     left.write_u32((MAX_FRAME_SIZE + 1) as u32).await.unwrap();
     let mut framed = FrameReader::new(&mut right);
-    let result = framed.next::<ClientMessage>().await;
+    let result = framed.next::<ServerMessage>().await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn frame_reader_survives_cancelled_partial_reads() {
-    let message = ClientMessage::Subscribe {
-        subscription: Subscription::Detail,
-    };
+    let message = ServerMessage::Gap { missed: 1 };
     let payload = serde_json::to_vec(&message).unwrap();
     let length = (payload.len() as u32).to_be_bytes();
     let (mut writer, reader) = tokio::io::duplex(MAX_FRAME_SIZE + 16);
@@ -38,20 +34,20 @@ async fn frame_reader_survives_cancelled_partial_reads() {
 
     writer.write_all(&length[..2]).await.unwrap();
     assert!(
-        tokio::time::timeout(Duration::from_millis(10), framed.next::<ClientMessage>())
+        tokio::time::timeout(Duration::from_millis(10), framed.next::<ServerMessage>())
             .await
             .is_err()
     );
     writer.write_all(&length[2..]).await.unwrap();
     writer.write_all(&payload[..1]).await.unwrap();
     assert!(
-        tokio::time::timeout(Duration::from_millis(10), framed.next::<ClientMessage>())
+        tokio::time::timeout(Duration::from_millis(10), framed.next::<ServerMessage>())
             .await
             .is_err()
     );
     writer.write_all(&payload[1..]).await.unwrap();
 
-    assert_eq!(framed.next::<ClientMessage>().await.unwrap(), message);
+    assert_eq!(framed.next::<ServerMessage>().await.unwrap(), message);
 }
 
 #[tokio::test]
@@ -64,19 +60,15 @@ async fn slow_frame_writes_time_out() {
 }
 
 #[tokio::test]
-async fn command_length_and_partial_frame_deadline_are_bounded() {
-    let (mut writer, reader) = tokio::io::duplex(2048);
-    writer.write_u32(1025).await.unwrap();
-    let mut reader = FrameReader::new(reader);
-    assert!(reader.next_command().await.is_err());
+async fn partial_frame_deadline_is_bounded() {
     let (mut writer, reader) = tokio::io::duplex(16);
     writer.write_all(&[0]).await.unwrap();
     let mut reader = FrameReader::new(reader);
     assert!(
-        tokio::time::timeout(Duration::from_millis(10), reader.next_command())
+        tokio::time::timeout(Duration::from_millis(10), reader.next::<ServerMessage>())
             .await
             .is_err()
     );
     reader.started_at = Some(tokio::time::Instant::now() - Duration::from_secs(6));
-    assert!(reader.next_command().await.is_err());
+    assert!(reader.next::<ServerMessage>().await.is_err());
 }

@@ -111,7 +111,7 @@ pub(in crate::vector) async fn relay_tcp(
                     rate.wait_read(read as i64).await;
                 }
                 write_owned(&mut tunnel.writer, chunk).await?;
-                access.add_upload(read as u64);
+
                 vector
                     .stats
                     .tcp_upload_bytes
@@ -138,7 +138,7 @@ pub(in crate::vector) async fn relay_tcp(
                     rate.wait_write(read as i64).await;
                 }
                 write_owned_to(&mut client_write, chunk).await?;
-                access.add_download(read as u64);
+
                 vector
                     .stats
                     .tcp_download_bytes
@@ -153,26 +153,23 @@ pub(in crate::vector) async fn relay_tcp(
         tokio::pin!(portal_to_client);
         tokio::select! {
             result = &mut client_to_portal => match result {
-                Ok(()) => timeout(tcp_read_timeout(), &mut portal_to_client).await.unwrap_or_else(|_| Err(anyhow::anyhow!("TCP half-close timeout"))),
+                Ok(()) => timeout(tcp_read_timeout(), &mut portal_to_client).await.unwrap_or_else(|error| Err(error.into())),
                 Err(error) => Err(error),
             },
             result = &mut portal_to_client => match result {
-                Ok(()) => timeout(tcp_read_timeout(), &mut client_to_portal).await.unwrap_or_else(|_| Err(anyhow::anyhow!("TCP half-close timeout"))),
+                Ok(()) => timeout(tcp_read_timeout(), &mut client_to_portal).await.unwrap_or_else(|error| Err(error.into())),
                 Err(error) => Err(error),
             },
         }
     };
-    let reason = result
-        .as_ref()
-        .err()
-        .map(|error| crate::telemetry::error_reason(&format!("{error:#}")));
+    let reason = result.as_ref().err().map(crate::telemetry::error_reason);
     vector.logger.debug(format_args!(
         "vector::flow::relay_tcp: exchange complete: {}",
-        reason.map_or("EOF", crate::telemetry::DiagnosticReason::as_str),
+        reason.map_or("EOF", crate::telemetry::ResultCode::as_str),
     ));
     match reason {
-        Some(reason) => access.finish_error(reason),
-        None => access.finish(AccessOutcome::Success, None),
+        Some(reason) => access.finish(reason),
+        None => access.finish(ResultCode::Success),
     }
     result
 }

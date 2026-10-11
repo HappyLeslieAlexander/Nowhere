@@ -36,7 +36,6 @@ async fn start(
                 _flow: None,
             },
         },
-        "127.0.0.1:1234".to_owned(),
         CancellationToken::new(),
     ));
     let mut request = vec![kind];
@@ -59,7 +58,7 @@ async fn cancelled_tcp_and_idle_udp_are_not_reported_as_success() {
     let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     for (kind, target, expected) in [
         (0, Target::Ip(tcp.local_addr().unwrap()), "cancelled"),
-        (1, Target::Ip(udp.local_addr().unwrap()), "timeout"),
+        (1, Target::Ip(udp.local_addr().unwrap()), "idle_timeout"),
     ] {
         let forward = forwarder();
         let mut events = forward.telemetry.event_receiver();
@@ -81,11 +80,8 @@ async fn cancelled_tcp_and_idle_udp_are_not_reported_as_success() {
             .unwrap()
             .unwrap();
         let finish = finished(&mut events);
-        assert_eq!(finish["outcome"], expected);
-        assert_eq!(finish["carrier"], "tls");
-        if kind == 1 {
-            assert_eq!(finish["error"], "idle timeout");
-        }
+        assert_eq!(finish["result"], expected);
+        assert_eq!(finish.as_object().unwrap().len(), 4);
         assert_eq!(forward.stats.tcp_active.load(Ordering::Relaxed), 0);
         assert_eq!(forward.stats.udp_active.load(Ordering::Relaxed), 0);
         assert_eq!(forward.flows.available_permits(), 1024);
@@ -97,19 +93,9 @@ async fn flow_limit_and_dial_failure_publish_distinct_outcomes() {
     let unused = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let target = Target::Ip(unused.local_addr().unwrap());
     drop(unused);
-    for (limited, result, outcome, reason) in [
-        (
-            true,
-            SetupResult::FlowLimit,
-            "rejected",
-            "resource limit reached",
-        ),
-        (
-            false,
-            SetupResult::DialFailed,
-            "error",
-            "connection refused",
-        ),
+    for (limited, result, reason) in [
+        (true, SetupResult::FlowLimit, "resource_limit"),
+        (false, SetupResult::DialFailed, "connection_refused"),
     ] {
         let forward = forwarder();
         let mut events = forward.telemetry.event_receiver();
@@ -140,10 +126,7 @@ async fn flow_limit_and_dial_failure_publish_distinct_outcomes() {
             .unwrap()
             .unwrap();
         let finish = finished(&mut events);
-        assert_eq!(finish["outcome"], outcome);
-        assert_eq!(finish["error"], reason);
-        assert_eq!(finish["upload_bytes"], 0);
-        assert_eq!(finish["download_bytes"], 0);
+        assert_eq!(finish["result"], reason);
         assert_eq!(forward.stats.tcp_active.load(Ordering::Relaxed), 0);
         drop(held);
         assert_eq!(forward.flows.available_permits(), 1024);

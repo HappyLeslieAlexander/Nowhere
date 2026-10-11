@@ -90,16 +90,6 @@ impl Portal {
         let telemetry = TelemetryHub::for_current_process(
             InstanceRole::Portal,
             endpoint.canonical(),
-            format!(
-                "listen={} out={out_label} tls={tls_mode} rate={rate} etar={etar} morph={}{} log={log}",
-                endpoint.canonical(),
-                u8::from(morph_keys.is_some()),
-                if slot.is_some() {
-                    String::new()
-                } else {
-                    format!(" {dial}")
-                }
-            ),
             runtime.telemetry_interval,
         );
         if slot.is_some() {

@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::WRITE_TIMEOUT;
 use crate::telemetry::local::Reader;
-use crate::telemetry::{ClientMessage, MAX_FRAME_SIZE, ServerMessage};
+use crate::telemetry::{MAX_FRAME_SIZE, ServerMessage};
 
 pub(crate) struct TelemetryReader {
     pub(super) inner: FrameReader<Reader>,
@@ -92,10 +92,6 @@ where
         }
     }
 
-    pub(super) fn into_inner(self) -> R {
-        self.inner
-    }
-
     fn check_deadline(&self) -> Result<()> {
         if self
             .started_at
@@ -106,13 +102,10 @@ where
         Ok(())
     }
 
-    pub(super) async fn next_command(&mut self) -> Result<ClientMessage> {
-        self.read_frame(1024).await
-    }
     pub(super) async fn next<T: DeserializeOwned>(&mut self) -> Result<T> {
-        self.read_frame(MAX_FRAME_SIZE).await
+        self.read_frame().await
     }
-    async fn read_frame<T>(&mut self, limit: usize) -> Result<T>
+    async fn read_frame<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,
     {
@@ -137,7 +130,7 @@ where
 
         if self.payload.is_empty() {
             let length = u32::from_be_bytes(self.length_bytes) as usize;
-            if length == 0 || length > limit {
+            if length == 0 || length > MAX_FRAME_SIZE {
                 bail!("telemetry: invalid frame length {length}");
             }
             self.payload.resize(length, 0);

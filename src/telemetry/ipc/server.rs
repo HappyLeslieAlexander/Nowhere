@@ -5,7 +5,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use tokio::io::AsyncReadExt;
@@ -13,12 +12,10 @@ use tokio::sync::{Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
 
 use super::MAX_CLIENTS;
-use super::frame::{FrameReader, write_frame};
+use super::frame::write_frame;
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path};
 use crate::telemetry::local::{self, Listener, Stream};
-use crate::telemetry::{
-    ClientMessage, Hello, ServerMessage, Subscription, TELEMETRY_PROTOCOL, TelemetryHub,
-};
+use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL, TelemetryHub};
 
 pub(crate) struct TelemetryServer {
     listener: Listener,
@@ -107,37 +104,23 @@ async fn serve_client(
     hub: Arc<TelemetryHub>,
     shutdown: CancellationToken,
 ) -> Result<()> {
-    let (reader, mut writer) = tokio::io::split(stream);
-    let mut reader = FrameReader::new(reader);
-    let mut lifecycles = hub.lifecycle_receiver();
-    let initial_lifecycle = lifecycles.borrow_and_update().clone();
+    let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut events = hub.event_receiver();
+    let mut snapshots = hub.snapshot_receiver();
+    let mut extra = [0u8; 1];
     write_frame(
         &mut writer,
         &ServerMessage::Hello(Hello {
             instance: hub.descriptor().clone(),
-            lifecycle: initial_lifecycle.state,
-            lifecycle_reason: initial_lifecycle.reason,
         }),
     )
     .await?;
-
-    let mut snapshots = hub.snapshot_receiver();
-    let command = tokio::select! {
-        _ = shutdown.cancelled() => return Ok(()),
-        result = tokio::time::timeout(Duration::from_secs(5), reader.next_command()) => result??,
-    };
-    let ClientMessage::Subscribe { subscription } = command;
-    let mut events = (subscription == Subscription::Detail).then(|| hub.event_receiver());
-    let mut reader = reader.into_inner();
-    let mut extra = [0u8; 1];
     let initial_snapshot = snapshots.borrow_and_update().clone();
     write_frame(&mut writer, &ServerMessage::Snapshot(initial_snapshot)).await?;
-    let initial_lifecycle = lifecycles.borrow_and_update().clone();
-    write_frame(&mut writer, &ServerMessage::Lifecycle(initial_lifecycle)).await?;
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => return Ok(()),
-            // EOF and any additional input end this fixed subscription.
+
             _ = reader.read(&mut extra) => return Ok(()),
             changed = snapshots.changed() => {
                 changed.context("telemetry snapshot source closed")?;
@@ -147,20 +130,7 @@ async fn serve_client(
                     &ServerMessage::Snapshot(snapshot),
                 ).await?;
             }
-            changed = lifecycles.changed() => {
-                changed.context("telemetry lifecycle source closed")?;
-                let lifecycle = lifecycles.borrow_and_update().clone();
-                write_frame(
-                    &mut writer,
-                    &ServerMessage::Lifecycle(lifecycle),
-                ).await?;
-            }
-            event = async {
-                match &mut events {
-                    Some(events) => events.recv().await,
-                    None => std::future::pending().await,
-                }
-            } => {
+            event = events.recv() => {
                 match event {
                     Ok(event) => {
                         write_frame(&mut writer, &ServerMessage::from(event)).await?;

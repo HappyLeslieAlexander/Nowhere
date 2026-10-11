@@ -48,17 +48,6 @@ impl Egress {
         };
         let upload = rate("rate")?;
         let download = rate("etar")?;
-        let summary = format!(
-            "portal={} {} {dial} rate={upload} etar={download} log={}",
-            config.endpoint(),
-            config
-                .effective_route()
-                .split_whitespace()
-                .filter(|s| !s.starts_with("net="))
-                .collect::<Vec<_>>()
-                .join(" "),
-            query.get("log").map(String::as_str).unwrap_or("info")
-        );
         let effective = format!(
             "egress://{}?sni={}&pin={}&{}&morph={}&rate={upload}&etar={download}&log={}",
             config.endpoint(),
@@ -71,7 +60,6 @@ impl Egress {
         let telemetry = TelemetryHub::for_current_process(
             InstanceRole::Egress,
             config.endpoint(),
-            summary,
             crate::common::telemetry_interval()?,
         );
         telemetry.set_egress_online(Some(false));

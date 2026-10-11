@@ -11,7 +11,6 @@ use crate::protocol::{
     AuthTransport, Credentials, FlowKind, SetupResult, Target, encode_auth_frame,
     encode_target_into,
 };
-use crate::telemetry::TelemetryHub;
 use crate::transport::{QuicConnection, Stats};
 use anyhow::{Context, Result, anyhow, bail};
 use std::sync::Arc;
@@ -26,7 +25,6 @@ pub(crate) struct PortalClient {
     pub(crate) stats: Arc<Stats>,
     pub(super) account_stats: bool,
     credentials: Credentials,
-    telemetry: Arc<TelemetryHub>,
     tls: ClientTls,
     quic: Mutex<Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
     latency: Arc<LatencyTracker>,
@@ -49,23 +47,16 @@ impl Drop for ConnectionAttempt {
         }
     }
 }
-pub(crate) struct TlsCarrierGuard(
-    Arc<Stats>,
-    Option<crate::common::LatencyGuard>,
-    Arc<TelemetryHub>,
-);
+pub(crate) struct TlsCarrierGuard(Arc<Stats>, Option<crate::common::LatencyGuard>);
 impl TlsCarrierGuard {
-    pub(crate) fn new(stats: Arc<Stats>, telemetry: Arc<TelemetryHub>) -> Self {
+    pub(crate) fn new(stats: Arc<Stats>) -> Self {
         stats.tls_carriers_active.fetch_add(1, Ordering::Relaxed);
-        telemetry.emit_runtime(crate::telemetry::Runtime::TlsConnected, None, None);
-        Self(stats, None, telemetry)
+        Self(stats, None)
     }
 }
 impl Drop for TlsCarrierGuard {
     fn drop(&mut self) {
         self.0.tls_carriers_active.fetch_sub(1, Ordering::Relaxed);
-        self.2
-            .emit_runtime(crate::telemetry::Runtime::TlsDisconnected, None, None);
     }
 }
 impl PortalClient {
@@ -74,7 +65,6 @@ impl PortalClient {
         credentials: &Credentials,
         stats: Arc<Stats>,
         account_stats: bool,
-        telemetry: Arc<TelemetryHub>,
         shutdown: CancellationToken,
     ) -> Result<Arc<Self>> {
         let tls = ClientTls::new(&config)?;
@@ -85,7 +75,6 @@ impl PortalClient {
             stats,
             account_stats,
             credentials: credentials.clone(),
-            telemetry,
             tls,
             quic: Mutex::new(None),
             latency,
@@ -142,7 +131,7 @@ impl PortalClient {
                 endpoint.family,
             )
             .await?;
-        let mut guard = TlsCarrierGuard::new(self.stats.clone(), self.telemetry.clone());
+        let mut guard = TlsCarrierGuard::new(self.stats.clone());
         let latency = self.latency.register();
         latency.update_tcp(stream.get_ref().0.get_ref());
         guard.1 = Some(latency);
@@ -168,7 +157,7 @@ impl PortalClient {
         kind: FlowKind,
         target: &Target,
     ) -> std::result::Result<QuicFlow, OpenFlowError> {
-        let state = tokio::select! {_=self.shutdown.cancelled()=>return Err(OpenFlowError::Transport(anyhow!("client shutting down"))),state=self.quic.lock()=>state};
+        let state = tokio::select! {_=self.shutdown.cancelled()=>return Err(OpenFlowError::Transport(crate::telemetry::ResultCode::Cancelled.into())),state=self.quic.lock()=>state};
         let existing = state
             .as_ref()
             .filter(|(_, q)| {
@@ -197,12 +186,7 @@ impl PortalClient {
                 AuthTransport::Quic,
                 &exporter,
             ));
-            let q = QuicConnection::new(
-                connection,
-                false,
-                self.stats.clone(),
-                self.telemetry.clone(),
-            );
+            let q = QuicConnection::new(connection, false, self.stats.clone());
             attempt = Some(ConnectionAttempt(Some(q.clone())));
             endpoint = Some(ep);
             q
@@ -233,9 +217,9 @@ impl PortalClient {
             .await
             .map_err(|e| OpenFlowError::Transport(e.into()))?;
         let result=tokio::select! {
-            _=self.shutdown.cancelled()=>return Err(OpenFlowError::Transport(anyhow!("client shutting down"))),
+            _=self.shutdown.cancelled()=>return Err(OpenFlowError::Transport(crate::telemetry::ResultCode::Cancelled.into())),
             result=timeout(crate::common::flow_setup_timeout(),crate::protocol::read_flow_result(&mut recv))=>result,
-        }.map_err(|_|OpenFlowError::Transport(anyhow!("Flow setup timeout")))?.map_err(OpenFlowError::Protocol)?;
+        }.map_err(|error|OpenFlowError::Transport(error.into()))?.map_err(OpenFlowError::Protocol)?;
         if let Some(endpoint) = endpoint {
             let limits =
                 crate::transport::transport_flow_control().map_err(OpenFlowError::Transport)?;
@@ -250,7 +234,7 @@ impl PortalClient {
                         .close(1u32.into(), b"role direction violation");
                 }
             });
-            // Only the first request retains the connection lock until authentication is established.
+
             **locked.as_mut().unwrap() = Some((endpoint, q.clone()));
             attempt.as_mut().unwrap().0 = None;
         }
@@ -301,7 +285,7 @@ pub(crate) async fn read_ready(reader: &mut BoxReader) -> std::result::Result<()
         crate::protocol::read_flow_result(reader),
     )
     .await
-    .map_err(|_| OpenFlowError::Transport(anyhow!("Flow setup timeout")))?
+    .map_err(|error| OpenFlowError::Transport(error.into()))?
     .map_err(OpenFlowError::Protocol)?;
     match SetupResult::from(result) {
         SetupResult::Ready => Ok(()),

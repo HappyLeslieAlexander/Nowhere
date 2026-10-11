@@ -127,10 +127,7 @@ async fn pending_target_setup_does_not_block_control_shutdown() {
     portal_task.abort();
 }
 
-async fn relay_finish(
-    blocked_send: bool,
-    cancel_carrier: bool,
-) -> (AccessOutcome, Option<String>, u64, u64) {
+async fn relay_finish(blocked_send: bool, cancel_carrier: bool) -> ResultCode {
     let vector = Vector::new(
         Url::parse(
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
@@ -142,7 +139,7 @@ async fn relay_finish(
     let mut events = vector.inner.telemetry.event_receiver();
 
     let target = SocksAddress::Ip("127.0.0.1:53".parse().unwrap());
-    let access = start_access(&vector.inner, TrafficProtocol::Udp, None, &target);
+    let access = start_access(&vector.inner, TrafficProtocol::Udp, &target);
     let (stream, peer) = tokio::io::duplex(1);
     let (reader, writer) = tokio::io::split(stream);
     let tunnel = UdpTunnel::stream(
@@ -213,33 +210,25 @@ async fn relay_finish(
         }
     }
     let finish = finish.expect("missing access finish");
-    (
-        finish.outcome,
-        finish.error,
-        finish.upload_bytes,
-        finish.download_bytes,
-    )
+    finish.result
 }
 
 #[tokio::test]
 async fn idle_timeout_during_udp_send_is_reported_as_timeout() {
     let finish = relay_finish(true, false).await;
-    assert_eq!(finish.0, AccessOutcome::Timeout);
-    assert_eq!(finish.1.as_deref(), Some("idle timeout"));
-    assert_eq!((finish.2, finish.3), (0, 0));
+    assert_eq!(finish, ResultCode::IdleTimeout);
 }
 
 #[tokio::test]
 async fn cancelled_udp_carrier_is_not_reported_as_success() {
     let finish = relay_finish(false, true).await;
-    assert_eq!(finish.0, AccessOutcome::Cancelled);
+    assert_eq!(finish, ResultCode::Cancelled);
 }
 
 #[tokio::test]
 async fn normal_udp_stream_eof_is_reported_as_success() {
     let finish = relay_finish(false, false).await;
-    assert_eq!(finish.0, AccessOutcome::Success);
-    assert_eq!(finish.1, None);
+    assert_eq!(finish, ResultCode::Success);
 }
 
 #[tokio::test]

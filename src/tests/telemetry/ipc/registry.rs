@@ -10,13 +10,9 @@ use std::time::Duration;
 
 #[tokio::test]
 async fn registry_round_trips_and_endpoint_is_local() {
-    let descriptor = InstanceDescriptor::current(
-        InstanceRole::Portal,
-        "secret",
-        "secret",
-        Duration::from_secs(1),
-    )
-    .unwrap();
+    let descriptor =
+        InstanceDescriptor::current(InstanceRole::Portal, "secret", Duration::from_secs(1))
+            .unwrap();
     let server = TelemetryServer::bind(TelemetryHub::new(descriptor)).unwrap();
     let value: serde_json::Value =
         serde_json::from_slice(&local::read_registry(&server.registry_path).unwrap()).unwrap();
@@ -55,8 +51,7 @@ async fn registry_round_trips_and_endpoint_is_local() {
 #[tokio::test]
 async fn namespace_mismatch_is_ignored_without_deletion() {
     let descriptor =
-        InstanceDescriptor::current(InstanceRole::Portal, "local", "", Duration::from_secs(1))
-            .unwrap();
+        InstanceDescriptor::current(InstanceRole::Portal, "local", Duration::from_secs(1)).unwrap();
     let server = TelemetryServer::bind(TelemetryHub::new(descriptor)).unwrap();
     let mut value: serde_json::Value =
         serde_json::from_slice(&local::read_registry(&server.registry_path).unwrap()).unwrap();
@@ -78,8 +73,7 @@ async fn namespace_mismatch_is_ignored_without_deletion() {
 #[tokio::test]
 async fn symlink_registry_is_rejected_without_following_it() {
     let descriptor =
-        InstanceDescriptor::current(InstanceRole::Portal, "local", "", Duration::from_secs(1))
-            .unwrap();
+        InstanceDescriptor::current(InstanceRole::Portal, "local", Duration::from_secs(1)).unwrap();
     let server = TelemetryServer::bind(TelemetryHub::new(descriptor)).unwrap();
     let link = server.registry_path.with_extension("link");
     std::os::unix::fs::symlink(&server.registry_path, &link).unwrap();

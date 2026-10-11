@@ -160,15 +160,6 @@ impl PortalClientConfig {
     pub(crate) fn udp_endpoint(&self) -> Option<CarrierEndpoint> {
         self.remote.udp
     }
-    pub(crate) fn effective_route(&self) -> String {
-        format!(
-            "net={} sni={} pin={} morph={}",
-            self.net,
-            self.sni.as_deref().unwrap_or(self.host()),
-            self.pin.as_deref().unwrap_or("none"),
-            u8::from(self.morph)
-        )
-    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SocksListenConfig {

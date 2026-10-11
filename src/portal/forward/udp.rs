@@ -7,7 +7,7 @@ use super::{ActiveFlow, Forwarder, Incoming, Outlet};
 use crate::common::OutboundUdpSocket;
 use crate::portal::egress;
 use crate::protocol::{SetupResult, Target};
-use crate::telemetry::{AccessOutcome, AccessSpan};
+use crate::telemetry::ResultCode;
 use crate::vector::UdpTunnel;
 use anyhow::{Context, Result};
 use std::sync::atomic::Ordering;
@@ -18,9 +18,8 @@ impl Forwarder {
         &self,
         mut incoming: Incoming,
         target: &Target,
-        access: &AccessSpan,
         cancel: CancellationToken,
-    ) -> Result<AccessOutcome> {
+    ) -> Result<ResultCode> {
         let dial = async {
             match &self.outbound {
                 Outlet::Network(dialer) => dialer
@@ -37,9 +36,9 @@ impl Forwarder {
             }
         };
         let target = tokio::select! {
-            _ = cancel.cancelled() => return Ok(AccessOutcome::Cancelled),
-            _ = self.shutdown.cancelled() => return Ok(AccessOutcome::Cancelled),
-            closed = incoming.closed() => { closed?; return Ok(AccessOutcome::Cancelled); },
+            _ = cancel.cancelled() => return Ok(ResultCode::Cancelled),
+            _ = self.shutdown.cancelled() => return Ok(ResultCode::Cancelled),
+            closed = incoming.closed() => { closed?; return Ok(ResultCode::Cancelled); },
             result = dial => result,
         };
         let mut target = match target {
@@ -85,7 +84,6 @@ impl Forwarder {
             self,
             &mut input,
             &mut target,
-            access,
             cancel,
             input_cancel,
             target_cancel,
@@ -155,12 +153,11 @@ async fn relay_udp(
     forward: &Forwarder,
     input: &mut UdpTunnel,
     target: &mut UdpTarget,
-    access: &AccessSpan,
     cancel: CancellationToken,
     input_cancel: CancellationToken,
     target_cancel: CancellationToken,
     target_buffer: &mut Vec<u8>,
-) -> Result<AccessOutcome> {
+) -> Result<ResultCode> {
     let (send, recv) = input.split_mut();
     let (mut target_send, mut target_recv) = target.split_mut();
     let activity = tokio::sync::Notify::new();
@@ -180,7 +177,6 @@ async fn relay_udp(
                     .stats
                     .udp_upload_bytes
                     .fetch_add(payload.len() as u64, Ordering::Relaxed);
-                access.add_upload(payload.len() as u64);
             }
             activity.notify_one();
         }
@@ -199,7 +195,6 @@ async fn relay_udp(
                     .stats
                     .udp_download_bytes
                     .fetch_add(payload.len() as u64, Ordering::Relaxed);
-                access.add_download(payload.len() as u64);
             }
             activity.notify_one();
         }
@@ -214,23 +209,23 @@ async fn relay_udp(
             || input_cancel.is_cancelled()
             || target_cancel.is_cancelled()
         {
-            AccessOutcome::Cancelled
+            ResultCode::Cancelled
         } else {
-            AccessOutcome::Success
+            ResultCode::Success
         }
     };
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => return Ok(AccessOutcome::Cancelled),
-            _ = forward.shutdown.cancelled() => return Ok(AccessOutcome::Cancelled),
-            _ = input_cancel.cancelled() => return Ok(AccessOutcome::Cancelled),
-            _ = target_cancel.cancelled() => return Ok(AccessOutcome::Cancelled),
+            _ = cancel.cancelled() => return Ok(ResultCode::Cancelled),
+            _ = forward.shutdown.cancelled() => return Ok(ResultCode::Cancelled),
+            _ = input_cancel.cancelled() => return Ok(ResultCode::Cancelled),
+            _ = target_cancel.cancelled() => return Ok(ResultCode::Cancelled),
             result = &mut upload => return result.map(|()| completion()),
             result = &mut download => return result.map(|()| completion()),
             _ = activity.notified() => idle.as_mut().reset(
                 tokio::time::Instant::now() + forward.runtime.udp_idle_timeout,
             ),
-            _ = &mut idle => return Ok(AccessOutcome::Timeout),
+            _ = &mut idle => return Ok(ResultCode::IdleTimeout),
         }
     }
 }

@@ -3,26 +3,25 @@
 
 //! Structured, process-local telemetry for protected IPC subscribers.
 
+mod diagnostic;
 mod hub;
 mod ipc;
 mod local;
 mod privacy;
 mod process;
-mod runtime;
 mod wire;
 
+pub(crate) use diagnostic::{ResultCode, error_reason};
 pub(crate) use hub::{AccessSpan, TelemetryHub};
 pub(crate) use ipc::{DiscoveredInstance, TelemetryClient, TelemetryServer, discover_instances};
 pub(crate) use privacy::endpoint as display_endpoint;
-pub(crate) use privacy::{DiagnosticReason, error_reason};
-pub(crate) use runtime::Runtime;
 
-pub(crate) fn diagnostic_reason(value: &str) -> &'static str {
+pub(crate) fn diagnostic_reason(value: &anyhow::Error) -> &'static str {
     error_reason(value).as_str()
 }
 pub(crate) use wire::{
-    AccessOutcome, AccessStart, ClientMessage, Hello, InstanceRole, MAX_FRAME_SIZE, ServerMessage,
-    Subscription, TELEMETRY_PROTOCOL, TelemetrySnapshot, TrafficProtocol,
+    AccessStart, DiagnosticContext, Hello, InstanceRole, MAX_FRAME_SIZE, ServerMessage,
+    TELEMETRY_PROTOCOL, TelemetrySnapshot, TrafficProtocol,
 };
 #[cfg(test)]
 #[path = "../tests/telemetry/support.rs"]

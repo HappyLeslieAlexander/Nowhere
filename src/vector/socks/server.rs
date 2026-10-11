@@ -25,7 +25,7 @@ use crate::common::{
     read_request, udp_idle_timeout, write_reply,
 };
 use crate::telemetry::{
-    AccessOutcome, AccessSpan, AccessStart, Runtime, TrafficProtocol, error_reason,
+    AccessSpan, AccessStart, DiagnosticContext, ResultCode, TrafficProtocol, error_reason,
 };
 
 use super::super::VectorInner;
@@ -74,11 +74,7 @@ pub(in crate::vector) async fn serve_listener(
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer)) => {
                     let Some(admission) = try_admit_client(&vector) else {
-                        vector.telemetry.emit_runtime(
-                            Runtime::SocksClientLimit,
-                            None,
-                            Some(&peer.to_string()),
-                        );
+                        vector.telemetry.emit_diagnostic(DiagnosticContext::SocksAdmission, ResultCode::ResourceLimit);
                         drop(stream);
                         continue;
                     };
@@ -94,11 +90,8 @@ pub(in crate::vector) async fn serve_listener(
                     });
                 }
                 Err(error) => {
-                    vector.telemetry.emit_runtime(
-                        Runtime::SocksAcceptFailed,
-                        Some(error_reason(&format!("{error:#}"))),
-                        None,
-                    );
+                    let error: anyhow::Error = error.into();
+                    vector.telemetry.emit_diagnostic(DiagnosticContext::SocksAccept, error_reason(&error));
                     vector.logger.error(format_args!(
                         "vector::socks::serve_listener: accept failed: {error}"
                     ));
@@ -142,19 +135,15 @@ async fn handle_client(
     let request = match request {
         Ok(Ok(request)) => request,
         Ok(Err(error)) => {
-            vector.telemetry.emit_runtime(
-                Runtime::SocksHandshakeFailed,
-                Some(error_reason(&format!("{error:#}"))),
-                Some(&peer.to_string()),
-            );
+            vector
+                .telemetry
+                .emit_diagnostic(DiagnosticContext::SocksHandshake, error_reason(&error));
             return Err(error);
         }
         Err(_) => {
-            vector.telemetry.emit_runtime(
-                Runtime::SocksHandshakeTimeout,
-                None,
-                Some(&peer.to_string()),
-            );
+            vector
+                .telemetry
+                .emit_diagnostic(DiagnosticContext::SocksHandshake, ResultCode::Timeout);
             return Err(anyhow!("SOCKS5 handshake timeout"));
         }
     };
@@ -170,16 +159,11 @@ async fn handle_client(
                 return Ok(());
             }
             let target = to_target(&request.address)?;
-            let access = start_access(
-                &vector,
-                TrafficProtocol::Tcp,
-                Some(peer.to_string()),
-                &request.address,
-            );
+            let access = start_access(&vector, TrafficProtocol::Tcp, &request.address);
             let opened = tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => {
-                    access.finish(AccessOutcome::Cancelled, None);
+                    access.finish(ResultCode::Cancelled);
                     return Ok(());
                 }
                 opened = open_tcp(vector.client.clone(), &target) => opened,
@@ -191,7 +175,7 @@ async fn handle_client(
                     tokio::select! {
                         biased;
                         _ = shutdown.cancelled() => {
-                            access.finish(AccessOutcome::Cancelled, None);
+                            access.finish(ResultCode::Cancelled);
                             return Ok(());
                         }
                         result = write_reply(
@@ -206,7 +190,7 @@ async fn handle_client(
                     }
                 }
                 Err(error) => {
-                    access.finish_error(error.diagnostic_reason());
+                    access.finish(error.diagnostic_reason());
                     write_reply(
                         &mut stream,
                         error.socks_reply(),

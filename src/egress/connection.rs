@@ -21,7 +21,7 @@ impl Egress {
             if let Err(error) = self.registered_connection().await {
                 self.forward.logger.debug(format_args!(
                     "Egress connection failed: {}",
-                    crate::telemetry::diagnostic_reason(&format!("{error:#}"))
+                    crate::telemetry::diagnostic_reason(&error)
                 ));
             }
             self.forward.telemetry.set_egress_online(Some(false));
@@ -32,27 +32,31 @@ impl Egress {
         }
     }
     pub(super) async fn registered_connection(&self) -> Result<()> {
-        self.forward.telemetry.emit_runtime(
-            crate::telemetry::Runtime::EgressConnecting,
-            None,
-            None,
-        );
-        let (endpoint, connection) = connect_quic(&self.config, &self.tls).await?;
-        super::registration::register(
-            &connection,
-            self.credentials.egress_key,
-            &self.forward.telemetry,
-        )
-        .await?;
+        let (endpoint, connection) =
+            connect_quic(&self.config, &self.tls)
+                .await
+                .inspect_err(|error| {
+                    if !self.forward.shutdown.is_cancelled() {
+                        self.forward.telemetry.emit_diagnostic(
+                            crate::telemetry::DiagnosticContext::EgressConnection,
+                            crate::telemetry::error_reason(error),
+                        );
+                    }
+                })?;
+        super::registration::register(&connection, self.credentials.egress_key)
+            .await
+            .inspect_err(|error| {
+                if !self.forward.shutdown.is_cancelled() {
+                    self.forward.telemetry.emit_diagnostic(
+                        crate::telemetry::DiagnosticContext::EgressRegistration,
+                        crate::telemetry::error_reason(error),
+                    );
+                }
+            })?;
         let limits = crate::transport::transport_flow_control()?;
         connection.set_receive_window(limits.connection_receive_window.into());
         connection.set_max_concurrent_bi_streams(1024u32.into());
-        let q = QuicConnection::new(
-            connection.clone(),
-            true,
-            self.forward.stats.clone(),
-            self.forward.telemetry.clone(),
-        );
+        let q = QuicConnection::new(connection.clone(), true, self.forward.stats.clone());
         let _owner = Registered {
             connection: q.clone(),
             telemetry: self.forward.telemetry.clone(),
@@ -72,6 +76,7 @@ impl Egress {
                     Ok((send, recv)) => {
                         let raw = u64::from(recv.id());
                         if raw & 3 != 1 {
+                            self.forward.telemetry.emit_diagnostic(crate::telemetry::DiagnosticContext::EgressConnection, crate::telemetry::ResultCode::Protocol);
                             bail!("Portal business Stream direction violation");
                         }
                         if q.flow_id(raw).is_err() {
@@ -82,7 +87,7 @@ impl Egress {
                         tasks.spawn(async move {
                             forward.serve(
                                 Incoming::Quic { send, recv, connection: connection.clone() },
-                                connection.connection.remote_address().to_string(),
+
                                 connection.cancel.clone(),
                             ).await;
                         });
