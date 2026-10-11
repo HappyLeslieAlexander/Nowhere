@@ -31,8 +31,19 @@ impl Egress {
         }
     }
     pub(super) async fn registered_connection(&self) -> Result<()> {
-        let (endpoint, connection) = connect_quic(&self.config, &self.tls).await?;
-        super::registration::register(&connection, self.credentials.egress_key).await?;
+        let (endpoint, connection) = tokio::select! {
+            biased;
+            _ = self.forward.shutdown.cancelled() => return Ok(()),
+            result = connect_quic(&self.config, &self.tls) => result?,
+        };
+        tokio::select! {
+            biased;
+            _ = self.forward.shutdown.cancelled() => {
+                connection.close(0u32.into(), b"shutdown");
+                return Ok(());
+            },
+            result = super::registration::register(&connection, self.credentials.egress_key) => result?,
+        }
         let limits = crate::transport::transport_flow_control()?;
         connection.set_receive_window(limits.connection_receive_window.into());
         connection.set_max_concurrent_bi_streams(1024u32.into());

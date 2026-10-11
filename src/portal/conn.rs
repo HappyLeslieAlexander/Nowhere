@@ -17,7 +17,7 @@ pub(super) async fn tcp(
     stream: tokio::net::TcpStream,
     admission: UnauthenticatedGuard,
 ) -> Result<()> {
-    let stream = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+    let authentication = tokio::time::timeout(portal.runtime.handshake_timeout, async {
         stream.set_nodelay(true)?;
         let stream = MorphTcpStream::accept(stream, portal.morph_keys.clone()).await?;
         let mut tls = tokio_rustls::TlsAcceptor::from(portal.tls_server_config.clone())
@@ -41,9 +41,12 @@ pub(super) async fn tcp(
             bail!("invalid TLS role");
         }
         Ok::<_, anyhow::Error>(tls)
-    })
-    .await
-    .context("TLS authentication timeout")??;
+    });
+    let stream = tokio::select! {
+        biased;
+        _ = portal.forward.shutdown.cancelled() => return Ok(()),
+        result = authentication => result.context("TLS authentication timeout")??,
+    };
     drop(admission);
     let (read, write) = tokio::io::split(stream);
     portal
@@ -74,9 +77,12 @@ pub(super) async fn quic(
     incoming: quinn::Incoming,
     admission: UnauthenticatedGuard,
 ) -> Result<()> {
-    let connection = tokio::time::timeout(portal.runtime.handshake_timeout, incoming)
-        .await
-        .context("QUIC handshake timeout")??;
+    let connection = tokio::select! {
+        biased;
+        _ = portal.forward.shutdown.cancelled() => return Ok(()),
+        result = tokio::time::timeout(portal.runtime.handshake_timeout, incoming) =>
+            result.context("QUIC handshake timeout")??,
+    };
     let result = quic_authenticated(portal, connection.clone(), admission).await;
     connection.close(0u32.into(), b"connection ended");
     result
@@ -87,9 +93,8 @@ async fn quic_authenticated(
     admission: UnauthenticatedGuard,
 ) -> Result<()> {
     crate::vector::tls::require_quic_nw3(&connection)?;
-    let (mut send, mut recv, role) =
-        tokio::time::timeout(portal.runtime.handshake_timeout, async {
-            let authentication=async {
+    let authentication = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+        let authentication = async {
             let (send, mut recv) = connection.accept_bi().await?;
             if u64::from(recv.id()) != 0 {
                 bail!("authentication must use first client Stream");
@@ -106,19 +111,22 @@ async fn quic_authenticated(
             )
             .await?;
             Ok::<_, anyhow::Error>((send, recv, role))
-            };
-            tokio::pin!(authentication);
-            let mut discarded=0;
-            loop {
-                tokio::select! {
-                    biased;
-                    datagram=connection.read_datagram()=>{datagram?;discarded+=1;if discarded%64==0 {tokio::task::yield_now().await;}},
-                    result=&mut authentication=>break result,
-                }
+        };
+        tokio::pin!(authentication);
+        let mut discarded = 0;
+        loop {
+            tokio::select! {
+                biased;
+                datagram=connection.read_datagram()=>{datagram?;discarded+=1;if discarded%64==0 {tokio::task::yield_now().await;}},
+                result=&mut authentication=>break result,
             }
-        })
-        .await
-        .context("QUIC authentication timeout")??;
+        }
+    });
+    let (mut send, mut recv, role) = tokio::select! {
+        biased;
+        _ = portal.forward.shutdown.cancelled() => return Ok(()),
+        result = authentication => result.context("QUIC authentication timeout")??,
+    };
     drop(admission);
     let limits = crate::transport::transport_flow_control()?;
     connection.set_receive_window(limits.connection_receive_window.into());
@@ -129,13 +137,20 @@ async fn quic_authenticated(
         let Some(slot) = &portal.egress_slot else {
             bail!("Egress registration unavailable");
         };
-        tokio::time::timeout(portal.runtime.handshake_timeout, recv.read_to_end(0))
-            .await
-            .context("Egress authentication Stream timeout")??;
+        tokio::select! {
+            biased;
+            _ = portal.forward.shutdown.cancelled() => return Ok(()),
+            result = tokio::time::timeout(portal.runtime.handshake_timeout, recv.read_to_end(0)) => {
+                result.context("Egress authentication Stream timeout")??;
+            },
+        }
         if !slot.claim(q.clone()) {
             send.write_all(&[1]).await?;
             send.finish()?;
-            let _ = tokio::time::timeout(portal.runtime.handshake_timeout, send.stopped()).await;
+            tokio::select! {
+                _ = portal.forward.shutdown.cancelled() => {},
+                _ = tokio::time::timeout(portal.runtime.handshake_timeout, send.stopped()) => {},
+            }
             q.close();
             return Ok(());
         }

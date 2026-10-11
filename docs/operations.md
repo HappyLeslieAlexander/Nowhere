@@ -106,8 +106,10 @@ settings. Use [Testing](testing.md#performance-measurements) for measurements.
 
 Shutdown stops admission, cancels service work and drains within
 `NOW_SHUTDOWN_TIMEOUT` (default `5s`). Tasks and owned resources are reclaimed;
-active counters decrement with their owners. A timed-out drain aborts remaining
-tasks. QUIC UDP ID exhaustion also stops new Flows and closes or reconnects
+active counters decrement with their owners. Pending handshakes, authentication
+and Egress registration waits are cancelled without waiting for their timeouts.
+A timed-out drain aborts remaining tasks. QUIC UDP ID exhaustion also stops new
+Flows and closes or reconnects
 after bounded drain, without an additional protocol frame.
 
 See [process control](platforms.md#process-control) for native shutdown signals.

@@ -5,6 +5,56 @@
 
 use super::*;
 use crate::protocol::{AuthTransport, encode_auth_frame};
+
+#[tokio::test]
+async fn shutdown_cancels_incomplete_tcp_handshakes() {
+    for morph in [false, true] {
+        let h = Harness::new("direct", morph).await;
+        let inner = h.inner.clone();
+        let permits = inner.connection_admission.available_permits();
+        let _stream = tokio::net::TcpStream::connect(h.tcp).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while inner.connection_admission.available_permits() == permits {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        h.close().await;
+        assert_eq!(inner.connection_admission.available_permits(), permits);
+    }
+}
+
+#[tokio::test]
+async fn shutdown_cancels_incomplete_quic_authentication_and_registration() {
+    for prefix in [0, 1, 16] {
+        let h = Harness::new("egress", false).await;
+        let inner = h.inner.clone();
+        let permits = inner.connection_admission.available_permits();
+        let (endpoint, q) = connect(&h).await;
+        let (mut send, _recv) = q.open_bi().await.unwrap();
+        send.write_all(&tag(&q, true)[..prefix]).await.unwrap();
+        // With a complete tag, wait until the server has consumed authentication
+        // and is waiting for the registration Stream's FIN.
+        if prefix == 16 {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while inner.unauthenticated_admission.active() != 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        h.close().await;
+        tokio::time::timeout(Duration::from_secs(2), q.closed())
+            .await
+            .unwrap();
+        assert_eq!(inner.connection_admission.available_permits(), permits);
+        assert!(!inner.egress_slot.as_ref().unwrap().online());
+        endpoint.wait_idle().await;
+    }
+}
+
 async fn connect(h: &Harness) -> (quinn::Endpoint, quinn::Connection) {
     let (config, _) = PortalClientConfig::from_probe_url(&h.url("vector", "udp", false)).unwrap();
     let tls = crate::vector::tls::ClientTls::new(&config).unwrap();

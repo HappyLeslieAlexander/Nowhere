@@ -9,6 +9,65 @@ use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, Credentials};
 use url::Url;
 
 #[tokio::test]
+async fn shutdown_cancels_pending_connection_and_registration() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef";
+    let url = Url::parse(&format!("portal://{KEY}@127.0.0.1:2000")).unwrap();
+    let (_, tls, quic) = crate::common::new_server_configs_with_reload_interval(
+        &url,
+        std::time::Duration::from_secs(3600),
+        Logger,
+    )
+    .unwrap();
+    let pin = crate::tls_test_support::server_certificate_pin(&tls);
+    for accept in [false, true] {
+        let endpoint =
+            quinn::Endpoint::server(quic.clone(), "127.0.0.1:0".parse().unwrap()).unwrap();
+        let egress = Egress::new(
+            Url::parse(&format!(
+                "egress://{KEY}@{}?pin={pin}",
+                endpoint.local_addr().unwrap()
+            ))
+            .unwrap(),
+            Logger,
+        )
+        .unwrap();
+        let shutdown = egress.forward.shutdown.clone();
+        let task = tokio::spawn(async move { egress.registered_connection().await });
+        let incoming = tokio::time::timeout(std::time::Duration::from_secs(2), endpoint.accept())
+            .await
+            .unwrap()
+            .unwrap();
+        let held = if accept {
+            let connection = incoming.await.unwrap();
+            let (send, mut recv) = connection.accept_bi().await.unwrap();
+            assert_eq!(recv.read_to_end(16).await.unwrap().len(), 16);
+            (connection, send, recv)
+        } else {
+            // Hold the Initial without completing the QUIC handshake.
+            shutdown.cancel();
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            incoming.ignore();
+            continue;
+        };
+        shutdown.cancel();
+        tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let (connection, _send, _recv) = held;
+        tokio::time::timeout(std::time::Duration::from_secs(2), connection.closed())
+            .await
+            .unwrap();
+        endpoint.wait_idle().await;
+    }
+}
+
+#[tokio::test]
 async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     const KEY: &str = "0123456789abcdef0123456789abcdef";
     let url = Url::parse(&format!("portal://{KEY}@127.0.0.1:2000")).unwrap();
