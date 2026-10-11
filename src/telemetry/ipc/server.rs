@@ -71,16 +71,6 @@ impl TelemetryServer {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn discovered(&self) -> DiscoveredInstance {
-        let descriptor = &self.descriptor;
-        DiscoveredInstance {
-            registry_name: descriptor.registry_name(),
-            uid: descriptor.uid,
-            pid: descriptor.pid,
-            incarnation: descriptor.incarnation,
-        }
-    }
     pub(crate) async fn run(mut self, shutdown: CancellationToken) {
         let mut tasks = tokio::task::JoinSet::new();
         loop {

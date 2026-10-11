@@ -9,6 +9,18 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
+impl TelemetryServer {
+    pub(crate) fn discovered(&self) -> DiscoveredInstance {
+        let descriptor = &self.descriptor;
+        DiscoveredInstance {
+            registry_name: descriptor.registry_name(),
+            uid: descriptor.uid,
+            pid: descriptor.pid,
+            incarnation: descriptor.incarnation,
+        }
+    }
+}
+
 fn start_service() -> (
     Arc<crate::transport::Stats>,
     DiscoveredInstance,
