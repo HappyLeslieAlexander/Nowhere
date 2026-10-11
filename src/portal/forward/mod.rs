@@ -98,3 +98,7 @@ impl Forwarder {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/portal/forward/errors.rs"]
+mod tests;

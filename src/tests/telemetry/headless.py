@@ -240,8 +240,22 @@ def main():
             assert b"terminal" not in removed.stderr
             ipc.close()
             ipc = None
-            stop(vector)
             stop(portal)
+            with socket.create_connection(("127.0.0.1", ingress), timeout=DEADLINE) as control:
+                control.sendall(b"\x05\x01\x00")
+                assert exact(control, 2) == b"\x05\x00"
+                control.sendall(b"\x05\x03\x00\x01" + bytes(6))
+                reply = exact(control, 10)
+                assert reply[:4] == b"\x05\x00\x00\x01"
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as datagram:
+                    datagram.bind(("127.0.0.1", 0))
+                    datagram.sendto(b"\x00\x00\x00\x01\x7f\x00\x00\x01\x00\x35x",
+                                    (socket.inet_ntoa(reply[4:8]), struct.unpack("!H", reply[8:])[0]))
+                    wait_for(lambda: "connection refused" in logs[vector.pid][1].read_text().lower())
+            udp_errors = [line for line in logs[vector.pid][1].read_text().splitlines()
+                          if "open_and_relay_udp_target" in line]
+            assert len(udp_errors) == 1 and "flow transport failed" in udp_errors[0]
+            stop(vector)
             assert portal.returncode == 0 and vector.returncode == 0
             for process, role in [(portal, "Portal"), (vector, "Vector")]:
                 stdout, stderr = (path.read_text() for path in logs[process.pid])
@@ -263,6 +277,7 @@ def main():
             print(json.dumps({"headless": "passed", "passive_reconnection": "passed",
                               "extra_input_ignored": "passed",
                               "raw_stderr_and_stdout": "passed",
+                              "udp_original_error_chain": "passed",
                               "known_logical_bytes_each_direction": len(payload),
                               "namespace_isolation": "passed" if legacy is not None else "not run", "cleanup": "passed"}))
         finally:

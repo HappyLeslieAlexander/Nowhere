@@ -180,12 +180,12 @@ async fn handle_client(
                     }
                 }
                 Err(error) => {
-                    write_reply(
+                    let _ = write_reply(
                         &mut stream,
                         error.socks_reply(),
                         &SocksAddress::unspecified(),
                     )
-                    .await?;
+                    .await;
                     Err(anyhow::Error::new(error)
                         .context(format!("CONNECT {} failed", request.address)))
                 }

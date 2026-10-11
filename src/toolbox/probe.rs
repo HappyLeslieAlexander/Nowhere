@@ -67,7 +67,7 @@ impl ToolboxClient {
             Ok(Err(error)) => {
                 let result = error
                     .setup_result()
-                    .map_or_else(|| Err(anyhow::anyhow!("{error:#}")), Ok);
+                    .map_or_else(|| Err(anyhow::Error::new(error)), Ok);
                 ("—", result)
             }
             Err(_) => ("—", Err(anyhow::anyhow!("Flow setup timeout"))),

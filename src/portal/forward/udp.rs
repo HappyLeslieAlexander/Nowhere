@@ -43,14 +43,14 @@ impl Forwarder {
         let mut target = match target {
             Ok(target) => target,
             Err(error) => {
-                incoming
+                let _ = incoming
                     .result(
                         error
                             .downcast_ref::<crate::vector::OpenFlowError>()
                             .and_then(|e| e.setup_result())
                             .unwrap_or(SetupResult::DialFailed),
                     )
-                    .await?;
+                    .await;
                 return Err(error);
             }
         };
