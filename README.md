@@ -62,7 +62,7 @@ Listen on port `2000`; allow both TCP and UDP through the firewall:
 Compare this fingerprint with Portal's trusted startup log, then set `pin=<sha256>`:
 
 ```bash
-./target/release/nowhere fingerprint "nowhere://<generated-key>@portal.example:2000?net=tcp&morph=0"
+./target/release/nowhere fingerprint "nowhere://<generated-key>@portal.example:2000?morph=0"
 ```
 
 ### 5. Connect applications

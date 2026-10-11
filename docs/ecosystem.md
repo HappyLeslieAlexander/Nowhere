@@ -78,26 +78,8 @@ QR codes and mobile import links. Its management model is Portal-only.
 
 ## Share links
 
-Client sharing and service configuration have distinct URL schemes:
-
-| Scheme | Purpose | Consumer |
-|---|---|---|
-| `nowhere://` | Share a Portal connection and display name | Anywhere; CLI `fingerprint` |
-| `portal://` | Configure listeners and the fixed exit | `nowhere` CLI |
-| `vector://` | Configure SOCKS5 ingress | `nowhere` CLI |
-| `egress://` | Register a QUIC exit connection | `nowhere` CLI |
-
-Share links use a compact host and port:
-
-```text
-nowhere://KEY@HOST:PORT?net=tcp&morph=0#NAME
-```
-
-`net` and `morph` are required; `#NAME` is recommended as the display name.
-[Configuration](configuration.md#share-links) defines transport selection, Morph
-and endpoint rules. Client import guides describe any additional fields. For
-certificate inspection, see
-[Operations](operations.md#diagnose-target-setup).
+Use [share links](configuration.md#share-links) to distribute Portal connections.
+Client import guides describe any additional fields.
 
 ## Service configuration
 

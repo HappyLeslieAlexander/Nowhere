@@ -82,32 +82,26 @@ diagnostic on stderr. Explicit families and concrete binds fail on errors. See
 
 ## Share links
 
-Client sharing uses a compact host and port with query-based transport selection:
+Share links use a compact host and port:
 
 ```text
-nowhere://KEY@HOST:PORT?net=tcp&morph=0#NAME
-```
-
-Examples:
-
-```text
-nowhere://KEY@relay.example:2000?net=tcp&morph=0#NAME
-nowhere://KEY@relay.example:2001?net=udp&morph=1#NAME
+nowhere://KEY@HOST:PORT
+nowhere://KEY@HOST:PORT?net=udp&morph=1#NAME
 ```
 
 Share links do not accept carrier paths. Use a concrete DNS name, IPv4 address
-or bracketed IPv6 address. `net` and `morph` are required; a display name as
-`#NAME` is recommended. Percent-encode spaces and reserved characters in names.
+or bracketed IPv6 address. A display name as `#NAME` is recommended.
+Percent-encode spaces and reserved characters in names.
 
-| Parameter | Accepted value | Requirement | Purpose |
+Optional parameters:
+
+| Parameter | Accepted value | Default | Purpose |
 |---|---|---|---|
-| `net` | `tcp` or `udp` | Required | Client carrier: TLS or QUIC |
-| `morph` | `0` or `1` | Required | Shared-key wire masking; peers must agree |
+| `net` | `tcp` or `udp` | `tcp` | Client carrier: TLS or QUIC |
+| `morph` | `0` or `1` | `0` | Shared-key wire masking; peers must agree |
 
-`fingerprint` accepts the same link with or without `#NAME`. For certificate
-inspection with optional `sni`, see
-[Operations](operations.md#diagnose-target-setup). Client import guides describe
-any additional share-link fields.
+For certificate inspection with `fingerprint`, see
+[Operations](operations.md#diagnose-target-setup).
 
 ## Portal URL
 

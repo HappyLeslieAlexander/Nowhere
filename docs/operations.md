@@ -50,13 +50,13 @@ in the [wire specification](protocol.md#setup-results).
 Read a presented certificate over TCP/TLS:
 
 ```sh
-nowhere fingerprint "nowhere://KEY@relay.example:2000?net=tcp&morph=0"
+nowhere fingerprint "nowhere://KEY@relay.example:2000?morph=0"
 ```
 
-Fingerprint inspection requires explicit `net` and `morph`; `#NAME` and an `sni`
-DNS name are optional. It reads the certificate over TCP/TLS, including when
-`net=udp`, so the shared host and port must expose TLS. Compare the result through
-a trusted channel before configuring a pin. See [Security](security.md#certificate-trust).
+`fingerprint` requires `morph=0|1` matching Portal; `#NAME` and an `sni` DNS
+name are optional. Inspection uses TCP/TLS even with `net=udp`, so the shared
+host and port must expose TLS. Compare the result through a trusted channel
+before configuring a pin. See [Security](security.md#certificate-trust).
 
 Running `nowhere` without arguments displays help and exits normally.
 
