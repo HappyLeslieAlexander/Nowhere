@@ -27,7 +27,7 @@ startup; the record is not a periodically written log.
 
 ### Unix
 
-The directory `nowhere-telemetry-nw3-<effective UID>/` is owned by that user with
+The directory `nowhere-telemetry-3-<effective UID>/` is owned by that user with
 mode `0700`. An instance atomically publishes
 `nowhere.<32 lowercase hexadecimal instance ID>.json` with mode `0600`.
 
@@ -41,7 +41,7 @@ The directory suffix is the first 16 bytes of SHA-256 of the current user's SID,
 encoded as lowercase hexadecimal. Endpoints are local byte-mode named pipes:
 
 ```text
-\\.\pipe\nowhere-telemetry-nw3-<user suffix>-<instance ID>
+\\.\pipe\nowhere-telemetry-3-<user suffix>-<instance ID>
 ```
 
 Directories, files and pipes restrict access to that user. Remote pipe clients

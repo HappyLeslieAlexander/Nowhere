@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/NodePassProject/Nowhere/docs/telemetry/schema.json",
-  "title": "NW3 local statistics",
+  "$id": "urn:nowhere:telemetry:3",
+  "title": "Nowhere telemetry 3",
   "oneOf": [
     {
       "type": "object",

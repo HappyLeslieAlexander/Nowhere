@@ -13,7 +13,7 @@ pub(in crate::telemetry) type Stream = UnixStream;
 pub(in crate::telemetry) struct Listener(UnixListener);
 pub(in crate::telemetry) fn directory() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "nowhere-telemetry-nw3-{}",
+        "nowhere-telemetry-3-{}",
         super::super::process::process_uid()
     ))
 }

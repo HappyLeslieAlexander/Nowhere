@@ -90,7 +90,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="n3-", dir="/tmp") as tmp:
         env = dict(os.environ, TMPDIR=tmp, TOKIO_WORKER_THREADS="2")
         nw2_directory = Path(tmp) / f"nowhere-telemetry-{os.getuid()}"
-        nw3_directory = Path(tmp) / f"nowhere-telemetry-nw3-{os.getuid()}"
+        nw3_directory = Path(tmp) / f"nowhere-telemetry-3-{os.getuid()}"
         try:
             logs = {}
 
