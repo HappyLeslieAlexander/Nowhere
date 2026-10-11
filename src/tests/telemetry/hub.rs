@@ -163,14 +163,17 @@ fn unavailable_rtt_remains_null_and_registration_updates_sequence() {
 #[test]
 fn concurrent_sampling_and_registration_keep_snapshots_ordered() {
     let hub = TelemetryHub::new(descriptor());
+    let stats = Stats::default();
     let completed = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for _ in 0..2 {
             let hub = &hub;
             let completed = &completed;
+            let stats = &stats;
             scope.spawn(move || {
                 for _ in 0..300 {
-                    hub.capture_and_publish(&Stats::default(), 17);
+                    stats.tcp_upload_bytes.fetch_add(1, Ordering::Relaxed);
+                    hub.capture_and_publish(stats, 17);
                 }
                 completed.fetch_add(1, Ordering::Release);
             });
@@ -184,17 +187,24 @@ fn concurrent_sampling_and_registration_keep_snapshots_ordered() {
             completed_ref.fetch_add(1, Ordering::Release);
         });
         let mut previous = 0;
+        let mut previous_upload = 0;
         while completed.load(Ordering::Acquire) != 3 {
             let snapshot = hub.snapshot_receiver().borrow().clone();
             assert!(snapshot.sequence >= previous, "snapshot sequence regressed");
             if snapshot.egress_online == Some(false) {
                 assert_eq!(snapshot.ping_ms, None);
             }
+            assert!(
+                snapshot.tcp_upload_bytes >= previous_upload,
+                "cumulative traffic regressed"
+            );
+            previous_upload = snapshot.tcp_upload_bytes;
             previous = snapshot.sequence;
             std::thread::yield_now();
         }
     });
     assert_eq!(hub.snapshot_receiver().borrow().egress_online, Some(false));
+    assert_eq!(hub.snapshot_receiver().borrow().tcp_upload_bytes, 600);
 }
 
 #[test]

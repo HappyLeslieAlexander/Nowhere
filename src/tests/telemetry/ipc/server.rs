@@ -132,13 +132,13 @@ async fn summary_clients_do_not_enable_access_collection() {
 
 #[tokio::test]
 async fn additional_input_disconnects_without_waiting_for_a_whole_frame() {
-    for extra in [
-        vec![0],
-        serde_json::to_vec(&ClientMessage::Subscribe {
-            subscription: Subscription::Summary,
-        })
-        .unwrap(),
-    ] {
+    let payload = serde_json::to_vec(&ClientMessage::Subscribe {
+        subscription: Subscription::Summary,
+    })
+    .unwrap();
+    let mut repeated = (payload.len() as u32).to_be_bytes().to_vec();
+    repeated.extend_from_slice(&payload);
+    for extra in [vec![0], repeated] {
         let (hub, _, shutdown, task) = start_service();
         let stream = local::connect(&local::endpoint(&hub.descriptor().id), std::process::id())
             .await
@@ -235,7 +235,13 @@ async fn invalid_initial_commands_close_without_enabling_detail() {
         };
         next_kind(&mut reader, "hello").await;
         write_frame(&mut writer, &command).await.unwrap();
-        drain_until_closed(&mut reader).await;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), reader.next_message())
+                .await
+                .unwrap()
+                .is_err(),
+            "invalid commands must close without publishing data"
+        );
         let _span = hub.start_access(|| panic!("invalid command must not enable detail"));
         shutdown.cancel();
         task.await.unwrap();
@@ -326,4 +332,26 @@ async fn failed_publication_rolls_back_only_owned_resources() {
     assert!(pending.exists());
     std::fs::remove_file(pending).unwrap();
     std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn subscribed_connections_remain_live_past_the_initial_deadline() {
+    let (hub, discovered, shutdown, task) = start_service();
+    let mut readers = Vec::new();
+    for mode in [Subscription::Summary, Subscription::Detail] {
+        let client = TelemetryClient::connect(&discovered, mode).await.unwrap();
+        let (_, mut reader) = client.into_parts();
+        initial_messages(&mut reader).await;
+        readers.push(reader);
+    }
+    tokio::time::sleep(Duration::from_millis(5_100)).await;
+    hub.capture_and_publish(&crate::transport::Stats::default(), 17);
+    for reader in &mut readers {
+        let ServerMessage::Snapshot(snapshot) = next_kind(reader, "snapshot").await else {
+            unreachable!()
+        };
+        assert_eq!(snapshot.ping_ms, Some(17));
+    }
+    shutdown.cancel();
+    task.await.unwrap();
 }
