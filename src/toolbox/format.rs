@@ -32,29 +32,6 @@ pub(super) fn bytes(value: u64) -> String {
     "0 B".to_owned()
 }
 
-pub(super) fn duration_ms(value: u64) -> String {
-    if value < 1_000 {
-        return format!("{value}ms");
-    }
-    let duration = Duration::from_millis(value);
-    let seconds = duration.as_secs();
-    if seconds < 60 {
-        return format!("{:.1}s", value as f64 / 1_000.0);
-    }
-    let minutes = seconds / 60;
-    let remaining_seconds = seconds % 60;
-    if minutes < 60 {
-        return format!("{minutes}m {remaining_seconds:02}s");
-    }
-    let hours = minutes / 60;
-    let remaining_minutes = minutes % 60;
-    if hours < 24 {
-        return format!("{hours}h {remaining_minutes:02}m");
-    }
-    let days = hours / 24;
-    format!("{days}d {:02}h", hours % 24)
-}
-
 pub(super) fn panel(title: &str, rows: &[(&str, String)]) -> String {
     let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
     let mut output = format!("{title}\n{}\n", "─".repeat(title.chars().count()));

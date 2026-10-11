@@ -191,3 +191,27 @@ pub(super) async fn connect_udp_addr(
 #[cfg(test)]
 #[path = "../tests/common/network.rs"]
 mod tests;
+
+pub(crate) fn normal_close(error: &anyhow::Error) -> bool {
+    fn closed(error: &(dyn std::error::Error + 'static)) -> bool {
+        if let Some(error) = error.downcast_ref::<quinn::ConnectionError>() {
+            return matches!(error, quinn::ConnectionError::LocallyClosed)
+                || matches!(error, quinn::ConnectionError::ApplicationClosed(close) if close.error_code == 0u32.into());
+        }
+        if let Some(error) = error.downcast_ref::<std::io::Error>() {
+            return error.get_ref().is_some_and(|error| closed(error));
+        }
+        if let Some(error) = error.downcast_ref::<quinn::ReadError>() {
+            return matches!(error, quinn::ReadError::ConnectionLost(error) if closed(error));
+        }
+        if let Some(error) = error.downcast_ref::<quinn::WriteError>() {
+            return matches!(error, quinn::WriteError::ConnectionLost(error) if closed(error));
+        }
+        error.is::<crate::vector::OpenFlowError>()
+            && matches!(
+                error.downcast_ref::<crate::vector::OpenFlowError>(),
+                Some(crate::vector::OpenFlowError::Cancelled)
+            )
+    }
+    error.chain().any(closed)
+}

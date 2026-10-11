@@ -5,7 +5,6 @@
 
 use super::Egress;
 use crate::portal::forward::Incoming;
-use crate::telemetry::TelemetryHub;
 use crate::transport::QuicConnection;
 use crate::vector::client::connect_quic;
 use anyhow::{Result, bail};
@@ -18,13 +17,13 @@ impl Egress {
             if self.forward.shutdown.is_cancelled() {
                 return;
             }
-            if let Err(error) = self.registered_connection().await {
-                self.forward.logger.debug(format_args!(
-                    "Egress connection failed: {}",
-                    crate::telemetry::diagnostic_reason(&error)
-                ));
+            if let Err(error) = self.registered_connection().await
+                && !self.forward.shutdown.is_cancelled()
+            {
+                self.forward
+                    .logger
+                    .error(format_args!("Egress connection failed: {error:#}"));
             }
-            self.forward.telemetry.set_egress_online(Some(false));
             tokio::select! {
                 _ = self.forward.shutdown.cancelled() => return,
                 _ = tokio::time::sleep(crate::common::service_cooldown()) => {},
@@ -32,51 +31,25 @@ impl Egress {
         }
     }
     pub(super) async fn registered_connection(&self) -> Result<()> {
-        let (endpoint, connection) =
-            connect_quic(&self.config, &self.tls)
-                .await
-                .inspect_err(|error| {
-                    if !self.forward.shutdown.is_cancelled() {
-                        self.forward.telemetry.emit_diagnostic(
-                            crate::telemetry::DiagnosticContext::EgressConnection,
-                            crate::telemetry::error_reason(error),
-                        );
-                    }
-                })?;
-        super::registration::register(&connection, self.credentials.egress_key)
-            .await
-            .inspect_err(|error| {
-                if !self.forward.shutdown.is_cancelled() {
-                    self.forward.telemetry.emit_diagnostic(
-                        crate::telemetry::DiagnosticContext::EgressRegistration,
-                        crate::telemetry::error_reason(error),
-                    );
-                }
-            })?;
+        let (endpoint, connection) = connect_quic(&self.config, &self.tls).await?;
+        super::registration::register(&connection, self.credentials.egress_key).await?;
         let limits = crate::transport::transport_flow_control()?;
         connection.set_receive_window(limits.connection_receive_window.into());
         connection.set_max_concurrent_bi_streams(1024u32.into());
-        let q = QuicConnection::new(connection.clone(), true, self.forward.stats.clone());
+        let q = QuicConnection::new(connection.clone(), true);
         let _owner = Registered {
             connection: q.clone(),
-            telemetry: self.forward.telemetry.clone(),
         };
-        self.forward.telemetry.set_egress_online(Some(true));
         let mut tasks = JoinSet::new();
-        let mut sample = tokio::time::interval(self.forward.runtime.telemetry_interval);
         loop {
             tokio::select! {
                 _ = self.forward.shutdown.cancelled() => break,
                 _ = q.cancel.cancelled() => break,
                 _ = q.draining.cancelled() => break,
-                _ = sample.tick() => self.forward.telemetry.capture_and_publish(
-                    &self.forward.stats,
-                ),
                 stream = connection.accept_bi() => match stream {
                     Ok((send, recv)) => {
                         let raw = u64::from(recv.id());
                         if raw & 3 != 1 {
-                            self.forward.telemetry.emit_diagnostic(crate::telemetry::DiagnosticContext::EgressConnection, crate::telemetry::ResultCode::Protocol);
                             bail!("Portal business Stream direction violation");
                         }
                         if q.flow_id(raw).is_err() {
@@ -102,21 +75,26 @@ impl Egress {
             })
             .await;
         }
+        let failure = connection
+            .close_reason()
+            .map(anyhow::Error::new)
+            .filter(|error| !crate::common::normal_close(error));
         q.close();
         tasks.abort_all();
         while tasks.join_next().await.is_some() {}
         let _ = tokio::time::timeout(crate::common::shutdown_timeout(), endpoint.wait_idle()).await;
+        if let Some(error) = failure {
+            return Err(error);
+        }
         Ok(())
     }
 }
 struct Registered {
     connection: Arc<QuicConnection>,
-    telemetry: Arc<TelemetryHub>,
 }
 impl Drop for Registered {
     fn drop(&mut self) {
         self.connection.close();
-        self.telemetry.set_egress_online(Some(false));
     }
 }
 

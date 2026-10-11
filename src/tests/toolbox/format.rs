@@ -14,24 +14,6 @@ fn formats_byte_totals_with_iec_units() {
 }
 
 #[test]
-fn formats_uptime_across_unit_boundaries() {
-    for (input, expected) in [
-        (0, "0ms"),
-        (999, "999ms"),
-        (1_000, "1.0s"),
-        (59_999, "60.0s"),
-        (60_000, "1m 00s"),
-        (3_599_999, "59m 59s"),
-        (3_600_000, "1h 00m"),
-        (86_399_999, "23h 59m"),
-        (86_400_000, "1d 00h"),
-        (90_000_000, "1d 01h"),
-    ] {
-        assert_eq!(duration_ms(input), expected);
-    }
-}
-
-#[test]
 fn panel_aligns_labels_and_values() {
     assert_eq!(
         panel(

@@ -4,10 +4,11 @@
 //! Vector QUIC first-flow pipelining and authenticated connection reuse tests.
 
 use super::*;
-use crate::common::{LogLevel, Logger};
+use crate::common::Logger;
 use crate::protocol::{
     ConnectionRole, FlowResult, read_auth_frame, read_flow_start, read_request, write_flow_result,
 };
+use std::sync::atomic::Ordering;
 #[tokio::test]
 async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_without_auth() {
     const KEY: &str = "0123456789abcdef0123456789abcdef";
@@ -15,7 +16,7 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
     let (_, tls, mut server) = crate::common::new_server_configs_with_reload_interval(
         &url,
         std::time::Duration::from_secs(3600),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
     let pin = crate::tls_test_support::server_certificate_pin(&tls);
@@ -99,22 +100,4 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
     }
     peer.await.unwrap();
     endpoint.wait_idle().await;
-}
-
-#[test]
-fn setup_failures_and_nested_transport_errors_have_one_safe_reason() {
-    use crate::telemetry::ResultCode;
-    for (setup, expected) in [
-        (SetupResult::InvalidRequest, ResultCode::InvalidRequest),
-        (SetupResult::FlowLimit, ResultCode::ResourceLimit),
-        (SetupResult::DialFailed, ResultCode::TargetConnectionFailed),
-        (SetupResult::InternalError, ResultCode::InternalError),
-    ] {
-        assert_eq!(OpenFlowError::Setup(setup).diagnostic_reason(), expected);
-    }
-    let error = std::io::Error::new(std::io::ErrorKind::TimedOut, "secret endpoint");
-    let transport = OpenFlowError::Transport(anyhow::Error::new(error).context("private target"));
-    assert_eq!(transport.diagnostic_reason(), ResultCode::Timeout);
-    let protocol = OpenFlowError::Protocol(anyhow::anyhow!("secret"));
-    assert_eq!(protocol.diagnostic_reason(), ResultCode::Protocol);
 }

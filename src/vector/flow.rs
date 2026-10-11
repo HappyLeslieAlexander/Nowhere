@@ -18,10 +18,7 @@ use crate::common::{
     REPLY_NETWORK_UNREACHABLE, REPLY_SUCCEEDED, SocksAddress, tcp_read_timeout,
 };
 use crate::protocol::{Carrier, SetupResult, Target};
-use crate::telemetry::{AccessSpan, ResultCode};
-use crate::transport::TrafficDirection;
 
-use super::config::CarrierMode;
 use super::{PortalClient, VectorInner};
 mod tcp;
 pub(crate) use self::tcp::{TcpTunnel, TcpTunnelGuard};
@@ -36,22 +33,9 @@ pub(super) fn to_target(address: &SocksAddress) -> Result<Target> {
     }
 }
 
-pub(super) fn carrier_name(carrier: Carrier) -> &'static str {
-    match carrier {
-        Carrier::TlsTcp => "TLS",
-        Carrier::Quic => "QUIC",
-    }
-}
-
-pub(super) const fn configured_carrier(mode: CarrierMode) -> Carrier {
-    match mode {
-        CarrierMode::Tcp => Carrier::TlsTcp,
-        CarrierMode::Udp => Carrier::Quic,
-    }
-}
-
 #[derive(Debug)]
 pub(crate) enum OpenFlowError {
+    Cancelled,
     Setup(SetupResult),
     Transport(anyhow::Error),
     Protocol(anyhow::Error),
@@ -60,6 +44,7 @@ pub(crate) enum OpenFlowError {
 impl OpenFlowError {
     pub(super) fn socks_reply(&self) -> u8 {
         match self {
+            Self::Cancelled => REPLY_GENERAL_FAILURE,
             Self::Setup(SetupResult::InvalidRequest | SetupResult::FlowLimit) => {
                 REPLY_CONNECTION_NOT_ALLOWED
             }
@@ -70,24 +55,10 @@ impl OpenFlowError {
         }
     }
 
-    pub(crate) fn diagnostic_reason(&self) -> crate::telemetry::ResultCode {
-        use crate::telemetry::ResultCode;
-        match self {
-            Self::Setup(result) => match result {
-                SetupResult::InvalidRequest => ResultCode::InvalidRequest,
-                SetupResult::FlowLimit => ResultCode::ResourceLimit,
-                SetupResult::DialFailed => ResultCode::TargetConnectionFailed,
-                SetupResult::Ready | SetupResult::InternalError => ResultCode::InternalError,
-            },
-            Self::Transport(error) => crate::telemetry::error_reason(error),
-            Self::Protocol(_) => ResultCode::Protocol,
-        }
-    }
-
     pub(crate) fn setup_result(&self) -> Option<SetupResult> {
         match self {
             Self::Setup(result) => Some(*result),
-            Self::Transport(_) | Self::Protocol(_) => None,
+            Self::Cancelled | Self::Transport(_) | Self::Protocol(_) => None,
         }
     }
 }
@@ -95,14 +66,10 @@ impl OpenFlowError {
 impl std::fmt::Display for OpenFlowError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cancelled => formatter.write_str("operation cancelled"),
             Self::Setup(result) => write!(formatter, "flow setup rejected: {}", result.as_str()),
-            Self::Transport(error) | Self::Protocol(error) => {
-                if formatter.alternate() {
-                    write!(formatter, "{error:#}")
-                } else {
-                    error.fmt(formatter)
-                }
-            }
+            Self::Transport(_) => formatter.write_str("flow transport failed"),
+            Self::Protocol(_) => formatter.write_str("flow protocol failed"),
         }
     }
 }
@@ -124,4 +91,11 @@ impl Drop for FlowGuard {
     }
 }
 
-impl std::error::Error for OpenFlowError {}
+impl std::error::Error for OpenFlowError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Transport(error) | Self::Protocol(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}

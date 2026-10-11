@@ -3,7 +3,6 @@
 
 //! QUIC connection ownership, UDP routing, receive budgets, and bounded draining.
 
-use super::Stats;
 use crate::common::{BudgetedDatagram, reserve_udp_budget};
 use crate::protocol::{
     DatagramReassembler, OwnedUdpFrame, ReassemblyConfig, ReassemblyOutcome, decode_udp_frame_owned,
@@ -44,11 +43,7 @@ pub(crate) struct QuicConnection {
     budget: Arc<Semaphore>,
 }
 impl QuicConnection {
-    pub(crate) fn new(
-        connection: quinn::Connection,
-        server_initiated: bool,
-        stats: Arc<Stats>,
-    ) -> Arc<Self> {
+    pub(crate) fn new(connection: quinn::Connection, server_initiated: bool) -> Arc<Self> {
         let bytes = crate::common::env_int("NOW_QUIC_UDP_QUEUE_BYTES", 4 * 1024 * 1024)
             .clamp(2, i32::MAX) as usize;
         let this = Arc::new(Self {
@@ -59,7 +54,6 @@ impl QuicConnection {
             state: Mutex::new(UdpState::new(bytes)),
             budget: Arc::new(Semaphore::new(bytes)),
         });
-        stats.quic_carriers_active.fetch_add(1, Ordering::Relaxed);
         let task = this.clone();
         tokio::spawn(async move {
             task.dispatch().await;
@@ -70,7 +64,6 @@ impl QuicConnection {
             }
             state.routes.clear();
             state.reassembly.clear();
-            stats.quic_carriers_active.fetch_sub(1, Ordering::Relaxed);
         });
         this
     }

@@ -26,10 +26,6 @@ fn absent_values_use_the_existing_defaults() {
     assert_eq!(config.tcp_read_timeout, DEFAULT_TCP_READ_TIMEOUT);
     assert_eq!(config.udp_idle_timeout, DEFAULT_UDP_IDLE_TIMEOUT);
     assert_eq!(config.handshake_timeout, DEFAULT_HANDSHAKE_TIMEOUT);
-    assert_eq!(
-        config.telemetry_interval,
-        crate::common::DEFAULT_TELEMETRY_INTERVAL
-    );
     assert_eq!(config.shutdown_timeout, DEFAULT_SHUTDOWN_TIMEOUT);
     assert_eq!(config.reload_interval, DEFAULT_RELOAD_INTERVAL);
 }
@@ -62,7 +58,6 @@ fn all_durations_reject_zero_and_invalid_syntax() {
         "NOW_TCP_READ_TIMEOUT",
         "NOW_UDP_IDLE_TIMEOUT",
         "NOW_HANDSHAKE_TIMEOUT",
-        "NOW_TELEMETRY_INTERVAL",
         "NOW_SHUTDOWN_TIMEOUT",
         "NOW_RELOAD_INTERVAL",
     ] {
@@ -84,7 +79,6 @@ fn values_are_parsed_once_into_typed_fields() {
         ("NOW_TCP_READ_TIMEOUT", "1300ms"),
         ("NOW_UDP_IDLE_TIMEOUT", "1400ms"),
         ("NOW_HANDSHAKE_TIMEOUT", "1500ms"),
-        ("NOW_TELEMETRY_INTERVAL", "1700ms"),
         ("NOW_SHUTDOWN_TIMEOUT", "1800ms"),
         ("NOW_RELOAD_INTERVAL", "1900ms"),
     ])
@@ -98,27 +92,8 @@ fn values_are_parsed_once_into_typed_fields() {
     assert_eq!(config.tcp_read_timeout, Duration::from_millis(1300));
     assert_eq!(config.udp_idle_timeout, Duration::from_millis(1400));
     assert_eq!(config.handshake_timeout, Duration::from_millis(1500));
-    assert_eq!(config.telemetry_interval, Duration::from_millis(1700));
     assert_eq!(config.shutdown_timeout, Duration::from_millis(1800));
     assert_eq!(config.reload_interval, Duration::from_millis(1900));
-}
-
-#[test]
-fn telemetry_interval_enforces_dashboard_bounds() {
-    assert!(parse(&[("NOW_TELEMETRY_INTERVAL", "249ms")]).is_err());
-    assert_eq!(
-        parse(&[("NOW_TELEMETRY_INTERVAL", "250ms")])
-            .unwrap()
-            .telemetry_interval,
-        Duration::from_millis(250)
-    );
-    assert_eq!(
-        parse(&[("NOW_TELEMETRY_INTERVAL", "60s")])
-            .unwrap()
-            .telemetry_interval,
-        Duration::from_secs(60)
-    );
-    assert!(parse(&[("NOW_TELEMETRY_INTERVAL", "60001ms")]).is_err());
 }
 
 #[test]

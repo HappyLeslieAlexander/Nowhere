@@ -4,7 +4,6 @@
 //! Shared Portal integration harness, target servers, and transport exchange fixtures.
 
 use super::*;
-use crate::common::LogLevel;
 use crate::protocol::{SetupResult, Target};
 use crate::vector::{PortalClient, PortalClientConfig};
 use std::time::Duration;
@@ -18,7 +17,7 @@ struct Harness {
     udp: std::net::SocketAddr,
     pin: String,
     stop: CancellationToken,
-    tasks: Vec<JoinHandle<()>>,
+    tasks: Vec<JoinHandle<anyhow::Result<()>>>,
 }
 impl Harness {
     async fn new(out: &str, morph: bool) -> Self {
@@ -31,7 +30,7 @@ impl Harness {
                 u8::from(morph)
             ))
             .unwrap(),
-            Logger::new(LogLevel::None, false),
+            Logger,
         )
         .unwrap();
         let inner = portal.inner;
@@ -92,6 +91,7 @@ impl Harness {
         for task in &mut self.tasks {
             tokio::time::timeout(Duration::from_secs(2), task)
                 .await
+                .unwrap()
                 .unwrap()
                 .unwrap();
         }

@@ -136,23 +136,8 @@ async fn slot_busy_role_direction_and_old_owner_cleanup() {
     send.write_all(&tag(&q3, true)).await.unwrap();
     send.finish().unwrap();
     assert_eq!(recv.read_to_end(1).await.unwrap(), [0]);
-    assert!(
-        !h.inner
-            .egress_slot
-            .as_ref()
-            .unwrap()
-            .release(&owner, &h.inner.forward.telemetry)
-    );
+    assert!(!h.inner.egress_slot.as_ref().unwrap().release(&owner));
     assert!(h.inner.egress_slot.as_ref().unwrap().online());
-    assert_eq!(
-        h.inner
-            .forward
-            .telemetry
-            .snapshot_receiver()
-            .borrow()
-            .egress_online,
-        Some(true)
-    );
     q3.close(0u32.into(), b"test");
     e3.wait_idle().await;
     e2.wait_idle().await;
@@ -326,11 +311,7 @@ async fn flow_limit_is_per_flow_and_other_flows_survive() {
 #[tokio::test]
 async fn egress_reconnects_with_new_owner_and_does_not_recover_old_flows() {
     let h = Harness::new("egress", false).await;
-    let egress = crate::Egress::new(
-        h.url("egress", "udp", false),
-        Logger::new(LogLevel::None, false),
-    )
-    .unwrap();
+    let egress = crate::Egress::new(h.url("egress", "udp", false), Logger).unwrap();
     let task = tokio::spawn(egress.run());
     let slot = h.inner.egress_slot.as_ref().unwrap();
     let owner = tokio::time::timeout(Duration::from_secs(2), async {
@@ -372,17 +353,8 @@ async fn egress_reconnects_with_new_owner_and_does_not_recover_old_flows() {
     })
     .await
     .unwrap();
-    assert!(!slot.release(&owner, &h.inner.forward.telemetry));
+    assert!(!slot.release(&owner));
     assert!(Arc::ptr_eq(&new, &slot.connection().unwrap()));
-    assert_eq!(
-        h.inner
-            .forward
-            .telemetry
-            .snapshot_receiver()
-            .borrow()
-            .egress_online,
-        Some(true)
-    );
     task.abort();
     let _ = task.await;
     h.close().await;
@@ -429,7 +401,6 @@ async fn udp_reset_and_stop_sending_reclaim_only_the_owned_flow() {
 #[tokio::test]
 async fn quic_udp_without_datagram_capability_rejects_flow() {
     let h = Harness::new("direct", false).await;
-    let mut events = h.inner.forward.telemetry.event_receiver();
 
     let (config, _) = PortalClientConfig::from_probe_url(&h.url("vector", "udp", false)).unwrap();
     let tls = crate::vector::tls::ClientTls::new(&config).unwrap();
@@ -448,16 +419,6 @@ async fn quic_udp_without_datagram_capability_rejects_flow() {
     let (mut send, mut recv) = q.open_bi().await.unwrap();
     request(&mut send, 1, &target).await;
     assert_eq!(result(&mut recv).await, SetupResult::InternalError);
-    let finish = tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            if let crate::telemetry::Event::AccessFinish(finish) = events.recv().await.unwrap() {
-                break finish;
-            }
-        }
-    })
-    .await
-    .unwrap();
-    assert_eq!(finish.result, crate::telemetry::ResultCode::InternalError);
     assert!(q.close_reason().is_none());
     q.close(0u32.into(), b"test");
     endpoint.wait_idle().await;
@@ -509,11 +470,7 @@ async fn stream_id_exhaustion_enters_bounded_drain_without_truncation() {
     auth.write_all(&tag(&q, false)).await.unwrap();
     auth.finish().unwrap();
     recv.read_to_end(0).await.unwrap();
-    let owned = crate::transport::QuicConnection::new(
-        q,
-        false,
-        Arc::new(crate::transport::Stats::default()),
-    );
+    let owned = crate::transport::QuicConnection::new(q, false);
     assert_eq!(
         owned.flow_id(4294967288).unwrap(),
         crate::protocol::MAX_FLOW_ID
@@ -635,7 +592,7 @@ async fn egress_source_binding_applies_only_to_targets_and_does_not_fallback() {
     let h = Harness::new("egress", false).await;
     let mut url = h.url("egress", "udp", false);
     url.query_pairs_mut().append_pair("dial4", "192.0.2.254");
-    let egress = crate::Egress::new(url, Logger::new(LogLevel::None, false)).unwrap();
+    let egress = crate::Egress::new(url, Logger).unwrap();
     let task = tokio::spawn(egress.run());
     tokio::time::timeout(Duration::from_secs(2), async {
         while !h.inner.egress_slot.as_ref().unwrap().online() {

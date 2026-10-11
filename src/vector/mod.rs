@@ -5,7 +5,6 @@
 
 pub(crate) mod client;
 pub(crate) mod config;
-mod event;
 mod flow;
 mod socks;
 pub(crate) mod tls;
@@ -27,12 +26,12 @@ pub(crate) use self::flow::{BoxReader, BoxWriter, OpenFlowError, TcpTunnel, TcpT
 pub(crate) use self::tls::fetch_certificate_fingerprint;
 pub(crate) use self::udp_flow::{ReceivedUdpPacket, UdpTunnel, UdpTunnelReceiver, UdpTunnelSender};
 use crate::common::{
-    LifeReason, LifeState, Logger, ShutdownSignals, rate_limit_bytes_per_second, shutdown_timeout,
-    tcp_data_buf_size, telemetry_interval, udp_data_buf_size,
+    Logger, ShutdownSignals, rate_limit_bytes_per_second, shutdown_timeout, tcp_data_buf_size,
+    udp_data_buf_size,
 };
 use crate::protocol::Credentials;
+use crate::telemetry::InstanceRole;
 use crate::telemetry::TelemetryServer;
-use crate::telemetry::{InstanceRole, TelemetryHub};
 use crate::transport::{Buffers, RateLimiter, Stats};
 
 const SOCKS_CLIENT_RESOURCE_LIMIT: usize = 1024;
@@ -56,8 +55,6 @@ impl Vector {
 pub(super) struct VectorInner {
     config: VectorConfig,
     logger: Logger,
-    telemetry: Arc<TelemetryHub>,
-    telemetry_interval: std::time::Duration,
     stats: Arc<Stats>,
     buffers: Buffers,
     rate_limiter: Option<Arc<RateLimiter>>,
@@ -70,7 +67,7 @@ pub(super) struct VectorInner {
 
 impl ForwardVector {
     fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
-        let result = Self::build(parsed_url, logger.clone());
+        let result = Self::build(parsed_url, logger);
         if result.is_err() {
             logger.flush();
         }
@@ -79,14 +76,7 @@ impl ForwardVector {
 
     fn build(parsed_url: Url, logger: Logger) -> Result<Self> {
         let config = VectorConfig::from_url(&parsed_url)?;
-        let telemetry_interval =
-            telemetry_interval().context("vector::Vector::new: invalid NOW_TELEMETRY_INTERVAL")?;
         let credentials = Credentials::new(&parsed_url)?;
-        let telemetry = TelemetryHub::for_current_process(
-            InstanceRole::Vector,
-            config.socks.endpoint(),
-            telemetry_interval,
-        );
         let stats = Arc::new(Stats::default());
         let shutdown = CancellationToken::new();
         let read_bps = rate_limit_bytes_per_second(config.rate_mbps) as i64;
@@ -105,8 +95,6 @@ impl ForwardVector {
             inner: Arc::new(VectorInner {
                 config,
                 logger,
-                telemetry,
-                telemetry_interval,
                 stats,
                 buffers: Buffers::new(tcp_data_buf_size(), udp_data_buf_size()),
                 rate_limiter,
@@ -122,9 +110,6 @@ impl ForwardVector {
     }
 
     pub async fn run(self) -> Result<()> {
-        self.inner
-            .telemetry
-            .set_lifecycle(LifeState::Starting, LifeReason::Startup);
         let mut signals = match ShutdownSignals::new()
             .context("vector::Vector::run: failed to install shutdown signal handlers")
         {
@@ -140,18 +125,19 @@ impl ForwardVector {
             };
         let telemetry_shutdown = CancellationToken::new();
         let mut telemetry_tasks: JoinSet<()> = JoinSet::new();
-        match TelemetryServer::bind(self.inner.telemetry.clone()) {
+        match TelemetryServer::bind(
+            InstanceRole::Vector,
+            self.inner.config.socks.endpoint(),
+            self.inner.stats.clone(),
+        ) {
             Ok(server) => {
                 telemetry_tasks.spawn(server.run(telemetry_shutdown.clone()));
             }
-            Err(_) => self.inner.logger.warn(format_args!(
-                "vector::Vector::run: LOCAL_IPC_UNAVAILABLE; continuing without local IPC"
-            )),
+            Err(error) => self
+                .inner
+                .logger
+                .error(format_args!("Local IPC unavailable: {error:#}")),
         }
-        telemetry_tasks.spawn(event::telemetry_loop(
-            self.inner.clone(),
-            telemetry_shutdown.clone(),
-        ));
         self.inner.logger.info(format_args!(
             "Vector starting: {}",
             self.inner.config.effective_url()
@@ -171,33 +157,18 @@ impl ForwardVector {
             ));
         }
 
-        self.inner
-            .telemetry
-            .set_lifecycle(LifeState::Ready, LifeReason::Listening);
-        let (reason, failure) = tokio::select! {
-            signal = signals.recv() => match signal {
-                Ok(reason) => (reason, None),
-                Err(error) => (
-                    LifeReason::SigInt,
-                    Some(error.context("vector::Vector::run: shutdown signal stream failed")),
-                ),
-            },
-            result = listener_tasks.join_next(), if !listener_tasks.is_empty() => (
-                LifeReason::SocksListenerExit,
-                Some(vector_listener_exit_error(result)),
-            ),
+        let failure = tokio::select! {
+            signal = signals.recv() => signal.err(),
+            result = listener_tasks.join_next(), if !listener_tasks.is_empty() => Some(vector_listener_exit_error(result)),
         };
         self.inner.shutdown.cancel();
         let deadline = Instant::now() + shutdown_timeout();
-        self.inner
-            .telemetry
-            .set_lifecycle(LifeState::Draining, reason);
 
         let cleanup = async {
             while listener_tasks.join_next().await.is_some() {}
             self.inner.client.close(deadline).await;
         };
-        let outcome = tokio::select! {
+        let (drained, forced) = tokio::select! {
             biased;
             signal = signals.recv() => {
                 if let Err(error) = signal {
@@ -205,31 +176,22 @@ impl ForwardVector {
                         "vector::Vector::run: shutdown signal stream failed during cleanup: {error}"
                     ));
                 }
-                LifeReason::Forced
+                (false, true)
             }
             result = timeout_at(deadline, cleanup) => match result {
-                Ok(()) => LifeReason::CleanupComplete,
-                Err(_) => LifeReason::Timeout,
+                Ok(()) => (true, false),
+                Err(_) => (false, false),
             }
         };
-        if outcome != LifeReason::CleanupComplete {
+        if !drained {
             listener_tasks.abort_all();
             while listener_tasks.join_next().await.is_some() {}
-            let close_deadline = if outcome == LifeReason::Forced {
-                Instant::now()
-            } else {
-                deadline
-            };
+            let close_deadline = if forced { Instant::now() } else { deadline };
             self.inner.client.close(close_deadline).await;
         }
         if let Some(rate) = &self.inner.rate_limiter {
             rate.reset();
         }
-        self.inner
-            .telemetry
-            .set_lifecycle(LifeState::Stopped, outcome);
-        self.inner.telemetry.capture_and_publish(&self.inner.stats);
-        tokio::task::yield_now().await;
         telemetry_shutdown.cancel();
         while telemetry_tasks.join_next().await.is_some() {}
         self.inner.logger.info(format_args!(
@@ -238,14 +200,12 @@ impl ForwardVector {
         self.inner.logger.flush();
         match failure {
             Some(error) => Err(error),
+            None if !drained && !forced => anyhow::bail!("Vector shutdown timed out"),
             None => Ok(()),
         }
     }
 
     fn start_failed(&self, error: anyhow::Error) -> Result<()> {
-        self.inner
-            .telemetry
-            .set_lifecycle(LifeState::Stopped, LifeReason::StartFailed);
         self.inner.logger.flush();
         Err(error)
     }

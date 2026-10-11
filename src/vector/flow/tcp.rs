@@ -13,7 +13,6 @@ pub(crate) struct TcpTunnel {
     carrier: Carrier,
 }
 pub(crate) struct TcpTunnelGuard {
-    pub(crate) _carrier: Option<crate::vector::client::TlsCarrierGuard>,
     pub(crate) _flow: Option<FlowGuard>,
 }
 impl TcpTunnel {
@@ -81,20 +80,9 @@ pub(in crate::vector) async fn relay_tcp(
     vector: Arc<VectorInner>,
     client: TcpStream,
     mut tunnel: TcpTunnel,
-    client_peer: std::net::SocketAddr,
-    target: &SocksAddress,
-    access: AccessSpan,
 ) -> Result<()> {
-    vector.logger.debug(format_args!(
-        "vector::flow::relay_tcp: exchange starting: carrier={} {client_peer} <-> {} <-> {} <-> {target}",
-        carrier_name(tunnel.carrier),
-        vector.config.socks.endpoint(),
-        vector.config.portal_endpoint(),
-    ));
-
-    let result = {
+    {
         let (mut client_read, mut client_write) = client.into_split();
-        let carrier = tunnel.carrier;
         let client_to_portal = async {
             loop {
                 let Some(chunk) = read_with_flush(
@@ -115,10 +103,6 @@ pub(in crate::vector) async fn relay_tcp(
                 vector
                     .stats
                     .tcp_upload_bytes
-                    .fetch_add(read as u64, Ordering::Relaxed);
-                vector
-                    .stats
-                    .payload_counter(carrier, TrafficDirection::Upload)
                     .fetch_add(read as u64, Ordering::Relaxed);
             }
         };
@@ -143,10 +127,6 @@ pub(in crate::vector) async fn relay_tcp(
                     .stats
                     .tcp_download_bytes
                     .fetch_add(read as u64, Ordering::Relaxed);
-                vector
-                    .stats
-                    .payload_counter(carrier, TrafficDirection::Download)
-                    .fetch_add(read as u64, Ordering::Relaxed);
             }
         };
         tokio::pin!(client_to_portal);
@@ -161,15 +141,5 @@ pub(in crate::vector) async fn relay_tcp(
                 Err(error) => Err(error),
             },
         }
-    };
-    let reason = result.as_ref().err().map(crate::telemetry::error_reason);
-    vector.logger.debug(format_args!(
-        "vector::flow::relay_tcp: exchange complete: {}",
-        reason.map_or("EOF", crate::telemetry::ResultCode::as_str),
-    ));
-    match reason {
-        Some(reason) => access.finish(reason),
-        None => access.finish(ResultCode::Success),
     }
-    result
 }

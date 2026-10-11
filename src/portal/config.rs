@@ -8,8 +8,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use tokio::sync::Semaphore;
 
-use crate::common::{DEFAULT_TELEMETRY_INTERVAL, MAX_TELEMETRY_INTERVAL, MIN_TELEMETRY_INTERVAL};
-
 const DEFAULT_QUIC_UDP_QUEUE_BYTES: usize = 4 * 1024 * 1024;
 
 const DEFAULT_TCP_DATA_BUF_SIZE: usize = 32 * 1024;
@@ -32,7 +30,6 @@ pub(crate) struct PortalRuntimeConfig {
     pub(crate) tcp_read_timeout: Duration,
     pub(crate) udp_idle_timeout: Duration,
     pub(crate) handshake_timeout: Duration,
-    pub(crate) telemetry_interval: Duration,
     pub(crate) shutdown_timeout: Duration,
     pub(crate) reload_interval: Duration,
 }
@@ -97,18 +94,6 @@ impl PortalRuntimeConfig {
             "NOW_HANDSHAKE_TIMEOUT",
             DEFAULT_HANDSHAKE_TIMEOUT,
         )?;
-        let telemetry_interval = read_duration(
-            &mut source,
-            "NOW_TELEMETRY_INTERVAL",
-            DEFAULT_TELEMETRY_INTERVAL,
-        )?;
-        if !(MIN_TELEMETRY_INTERVAL..=MAX_TELEMETRY_INTERVAL).contains(&telemetry_interval) {
-            bail!(
-                "portal::config: NOW_TELEMETRY_INTERVAL must be in {}..={}",
-                humantime::format_duration(MIN_TELEMETRY_INTERVAL),
-                humantime::format_duration(MAX_TELEMETRY_INTERVAL)
-            );
-        }
         let shutdown_timeout = read_duration(
             &mut source,
             "NOW_SHUTDOWN_TIMEOUT",
@@ -126,7 +111,6 @@ impl PortalRuntimeConfig {
             tcp_read_timeout,
             udp_idle_timeout,
             handshake_timeout,
-            telemetry_interval,
             shutdown_timeout,
             reload_interval,
         })

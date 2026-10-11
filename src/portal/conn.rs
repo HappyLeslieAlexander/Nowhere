@@ -45,7 +45,6 @@ pub(super) async fn tcp(
     .await
     .context("TLS authentication timeout")??;
     drop(admission);
-    let guard = crate::vector::client::TlsCarrierGuard::new(portal.forward.stats.clone());
     let (read, write) = tokio::io::split(stream);
     portal
         .forward
@@ -54,10 +53,7 @@ pub(super) async fn tcp(
             Incoming::Tls {
                 reader: Box::pin(read),
                 writer: Box::pin(write),
-                guard: TcpTunnelGuard {
-                    _carrier: Some(guard),
-                    _flow: None,
-                },
+                guard: TcpTunnelGuard { _flow: None },
             },
             CancellationToken::new(),
         )
@@ -67,11 +63,10 @@ pub(super) async fn tcp(
 struct SlotOwner {
     slot: Arc<EgressSlot>,
     connection: Arc<QuicConnection>,
-    telemetry: Arc<crate::telemetry::TelemetryHub>,
 }
 impl Drop for SlotOwner {
     fn drop(&mut self) {
-        self.slot.release(&self.connection, &self.telemetry);
+        self.slot.release(&self.connection);
     }
 }
 pub(super) async fn quic(
@@ -128,11 +123,7 @@ async fn quic_authenticated(
     let limits = crate::transport::transport_flow_control()?;
     connection.set_receive_window(limits.connection_receive_window.into());
     connection.set_max_concurrent_bi_streams(1024u32.into());
-    let q = QuicConnection::new(
-        connection.clone(),
-        role == ConnectionRole::Egress,
-        portal.forward.stats.clone(),
-    );
+    let q = QuicConnection::new(connection.clone(), role == ConnectionRole::Egress);
     let mut tasks = JoinSet::new();
     let _owner = if role == ConnectionRole::Egress {
         let Some(slot) = &portal.egress_slot else {
@@ -141,7 +132,7 @@ async fn quic_authenticated(
         tokio::time::timeout(portal.runtime.handshake_timeout, recv.read_to_end(0))
             .await
             .context("Egress authentication Stream timeout")??;
-        if !slot.claim(q.clone(), &portal.forward.telemetry) {
+        if !slot.claim(q.clone()) {
             send.write_all(&[1]).await?;
             send.finish()?;
             let _ = tokio::time::timeout(portal.runtime.handshake_timeout, send.stopped()).await;
@@ -151,7 +142,6 @@ async fn quic_authenticated(
         let owner = SlotOwner {
             slot: slot.clone(),
             connection: q.clone(),
-            telemetry: portal.forward.telemetry.clone(),
         };
         send.write_all(&[0]).await?;
         send.finish()?;

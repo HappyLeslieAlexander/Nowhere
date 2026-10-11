@@ -4,7 +4,7 @@
 //! SOCKS5 UDP source validation, target admission, and association shutdown tests.
 
 use super::*;
-use crate::common::{LogLevel, Logger};
+use crate::common::Logger;
 use crate::vector::ForwardVector as Vector;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -50,7 +50,7 @@ fn udp_target_resource_admission_is_held_for_the_target_lifetime() {
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
         )
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
     let admission = &vector.inner.socks_udp_target_admission;
@@ -80,7 +80,7 @@ async fn pending_target_setup_does_not_block_control_shutdown() {
             "vector://0123456789abcdef0123456789abcdef@{portal_addr}?net=tcp&in=127.0.0.1:1080"
         ))
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
 
@@ -127,28 +127,23 @@ async fn pending_target_setup_does_not_block_control_shutdown() {
     portal_task.abort();
 }
 
-async fn relay_finish(blocked_send: bool, cancel_carrier: bool) -> ResultCode {
+async fn relay_finish(blocked_send: bool, cancel_carrier: bool) {
     let vector = Vector::new(
         Url::parse(
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
         )
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
-    let mut events = vector.inner.telemetry.event_receiver();
 
     let target = SocksAddress::Ip("127.0.0.1:53".parse().unwrap());
-    let access = start_access(&vector.inner, TrafficProtocol::Udp, &target);
     let (stream, peer) = tokio::io::duplex(1);
     let (reader, writer) = tokio::io::split(stream);
     let tunnel = UdpTunnel::stream(
         Box::pin(reader),
         Box::pin(writer),
-        crate::vector::flow::TcpTunnelGuard {
-            _carrier: None,
-            _flow: None,
-        },
+        crate::vector::flow::TcpTunnelGuard { _flow: None },
         vector.inner.stats.clone(),
         true,
     );
@@ -186,7 +181,6 @@ async fn relay_finish(blocked_send: bool, cancel_carrier: bool) -> ResultCode {
         tunnel,
         receiver,
         CancellationToken::new(),
-        access,
     ));
     tokio::task::yield_now().await;
     if blocked_send {
@@ -203,32 +197,21 @@ async fn relay_finish(blocked_send: bool, cancel_carrier: bool) -> ResultCode {
     assert_eq!(stats.udp_active.load(Ordering::Relaxed), 0);
     assert_eq!(stats.udp_upload_bytes.load(Ordering::Relaxed), 0);
     assert_eq!(stats.udp_download_bytes.load(Ordering::Relaxed), 0);
-    let mut finish = None;
-    while let Ok(event) = events.try_recv() {
-        if let crate::telemetry::Event::AccessFinish(event) = event {
-            assert!(finish.replace(event).is_none(), "duplicate finish");
-        }
-    }
-    let finish = finish.expect("missing access finish");
-    finish.result
 }
 
 #[tokio::test]
 async fn idle_timeout_during_udp_send_is_reported_as_timeout() {
-    let finish = relay_finish(true, false).await;
-    assert_eq!(finish, ResultCode::IdleTimeout);
+    relay_finish(true, false).await;
 }
 
 #[tokio::test]
 async fn cancelled_udp_carrier_is_not_reported_as_success() {
-    let finish = relay_finish(false, true).await;
-    assert_eq!(finish, ResultCode::Cancelled);
+    relay_finish(false, true).await;
 }
 
 #[tokio::test]
 async fn normal_udp_stream_eof_is_reported_as_success() {
-    let finish = relay_finish(false, false).await;
-    assert_eq!(finish, ResultCode::Success);
+    relay_finish(false, false).await;
 }
 
 #[tokio::test]
@@ -238,10 +221,9 @@ async fn invalid_udp_target_does_not_publish_access() {
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
         )
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
-    let mut events = vector.inner.telemetry.event_receiver();
 
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
     let (_sender, receiver) = mpsc::channel(1);
@@ -260,8 +242,4 @@ async fn invalid_udp_target_does_not_publish_access() {
     )
     .await
     .unwrap();
-    assert!(matches!(
-        events.try_recv(),
-        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
-    ));
 }

@@ -6,7 +6,6 @@
 use super::*;
 
 mod socks;
-mod telemetry;
 
 #[tokio::test]
 async fn direct_tls_quic_tcp_udp_morph_and_half_close() {
@@ -54,11 +53,7 @@ async fn full_ipv6_tls_quic_direct_socks_egress_tcp_udp_morph_matrix() {
         ] {
             let h = Harness::family(&out, morph, "[::1]").await;
             let egress_task = if out == "egress" {
-                let egress = crate::Egress::new(
-                    h.url("egress", "udp", morph),
-                    Logger::new(LogLevel::None, false),
-                )
-                .unwrap();
+                let egress = crate::Egress::new(h.url("egress", "udp", morph), Logger).unwrap();
                 let task = tokio::spawn(egress.run());
                 tokio::time::timeout(Duration::from_secs(3), async {
                     while !h.inner.egress_slot.as_ref().unwrap().online() {

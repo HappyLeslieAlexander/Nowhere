@@ -11,7 +11,7 @@ use tokio::io::AsyncWriteExt;
 #[tokio::test]
 async fn framing_round_trips_and_rejects_oversize_lengths() {
     let (mut left, mut right) = tokio::io::duplex(MAX_FRAME_SIZE + 16);
-    let message = ServerMessage::Gap { missed: 1 };
+    let message = ServerMessage::Snapshot(crate::telemetry::TelemetrySnapshot::default());
     write_frame(&mut left, &message).await.unwrap();
     let mut framed = FrameReader::new(&mut right);
     let decoded: ServerMessage = framed.next().await.unwrap();
@@ -26,7 +26,7 @@ async fn framing_round_trips_and_rejects_oversize_lengths() {
 
 #[tokio::test]
 async fn frame_reader_survives_cancelled_partial_reads() {
-    let message = ServerMessage::Gap { missed: 1 };
+    let message = ServerMessage::Snapshot(crate::telemetry::TelemetrySnapshot::default());
     let payload = serde_json::to_vec(&message).unwrap();
     let length = (payload.len() as u32).to_be_bytes();
     let (mut writer, reader) = tokio::io::duplex(MAX_FRAME_SIZE + 16);

@@ -11,9 +11,6 @@ use percent_encoding::percent_decode_str;
 use url::Url;
 
 pub const DEFAULT_RATE_LIMIT: i32 = 0;
-pub const DEFAULT_TELEMETRY_INTERVAL: Duration = Duration::from_secs(1);
-pub const MIN_TELEMETRY_INTERVAL: Duration = Duration::from_millis(250);
-pub const MAX_TELEMETRY_INTERVAL: Duration = Duration::from_secs(60);
 
 pub fn query_first(parsed_url: &Url, allowed: &[&str]) -> Result<HashMap<String, String>> {
     let mut values = HashMap::with_capacity(allowed.len());
@@ -106,33 +103,6 @@ pub fn handshake_timeout() -> Duration {
 
 pub fn flow_setup_timeout() -> Duration {
     env_duration("NOW_FLOW_SETUP_TIMEOUT", Duration::from_secs(20))
-}
-
-pub fn telemetry_interval() -> Result<Duration> {
-    let raw = match std::env::var("NOW_TELEMETRY_INTERVAL") {
-        Ok(raw) => Some(raw),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(std::env::VarError::NotUnicode(raw)) => {
-            bail!("NOW_TELEMETRY_INTERVAL is not valid Unicode: {raw:?}")
-        }
-    };
-    parse_telemetry_interval(raw.as_deref())
-}
-
-fn parse_telemetry_interval(raw: Option<&str>) -> Result<Duration> {
-    let value = match raw {
-        Some(raw) => humantime::parse_duration(raw)
-            .with_context(|| format!("invalid NOW_TELEMETRY_INTERVAL={raw:?}"))?,
-        None => DEFAULT_TELEMETRY_INTERVAL,
-    };
-    if !(MIN_TELEMETRY_INTERVAL..=MAX_TELEMETRY_INTERVAL).contains(&value) {
-        bail!(
-            "NOW_TELEMETRY_INTERVAL must be in {}..={}",
-            humantime::format_duration(MIN_TELEMETRY_INTERVAL),
-            humantime::format_duration(MAX_TELEMETRY_INTERVAL)
-        );
-    }
-    Ok(value)
 }
 
 pub fn service_cooldown() -> Duration {

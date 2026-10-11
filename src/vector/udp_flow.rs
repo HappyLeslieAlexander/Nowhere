@@ -7,8 +7,8 @@ mod framing;
 use super::PortalClient;
 use super::flow::{BoxReader, BoxWriter, FlowGuard, OpenFlowError, TcpTunnelGuard};
 use crate::common::{BudgetedDatagram, UdpDatagramSend};
-use crate::protocol::{Carrier, FlowKind, Target, write_udp_packet};
-use crate::transport::{QuicConnection, Stats, TrafficDirection, UdpRoute};
+use crate::protocol::{FlowKind, Target, write_udp_packet};
+use crate::transport::{QuicConnection, Stats, UdpRoute};
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use framing::UotReadState;
@@ -19,7 +19,6 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub(crate) struct UdpTunnel {
-    pub(super) carrier: Carrier,
     sender: UdpTunnelSender,
     receiver: UdpTunnelReceiver,
     _guard: TcpTunnelGuard,
@@ -33,8 +32,6 @@ pub(crate) struct UdpTunnelSender {
     packet_id: u32,
     stats: Arc<Stats>,
     account: bool,
-    carrier: Carrier,
-    direction: TrafficDirection,
     cancel: CancellationToken,
 }
 pub(crate) struct UdpTunnelReceiver {
@@ -43,8 +40,6 @@ pub(crate) struct UdpTunnelReceiver {
     uot: UotReadState,
     stats: Arc<Stats>,
     account: bool,
-    carrier: Carrier,
-    direction: TrafficDirection,
     cancel: CancellationToken,
 }
 impl UdpTunnel {
@@ -63,15 +58,12 @@ impl UdpTunnel {
             None
         };
         Self {
-            carrier: Carrier::TlsTcp,
             sender: UdpTunnelSender {
                 writer: Some(writer),
                 quic: None,
                 packet_id: 1,
                 stats: stats.clone(),
                 account,
-                carrier: Carrier::TlsTcp,
-                direction: TrafficDirection::Upload,
                 cancel: cancel.clone(),
             },
             receiver: UdpTunnelReceiver {
@@ -80,8 +72,6 @@ impl UdpTunnel {
                 uot: UotReadState::default(),
                 stats,
                 account,
-                carrier: Carrier::TlsTcp,
-                direction: TrafficDirection::Download,
                 cancel: cancel.clone(),
             },
             _guard: guard,
@@ -116,15 +106,12 @@ impl UdpTunnel {
             None
         };
         Self {
-            carrier: Carrier::Quic,
             sender: UdpTunnelSender {
                 writer: None,
                 quic: Some((quic, id)),
                 packet_id: 1,
                 stats: stats.clone(),
                 account,
-                carrier: Carrier::Quic,
-                direction: TrafficDirection::Upload,
                 cancel: cancel.clone(),
             },
             receiver: UdpTunnelReceiver {
@@ -133,21 +120,13 @@ impl UdpTunnel {
                 uot: UotReadState::default(),
                 stats,
                 account,
-                carrier: Carrier::Quic,
-                direction: TrafficDirection::Download,
                 cancel: cancel.clone(),
             },
-            _guard: TcpTunnelGuard {
-                _carrier: None,
-                _flow: None,
-            },
+            _guard: TcpTunnelGuard { _flow: None },
             _flow: flow,
             _route: Some(route),
             cancel,
         }
-    }
-    pub(crate) fn reverse_direction(&mut self) {
-        std::mem::swap(&mut self.sender.direction, &mut self.receiver.direction);
     }
     pub(crate) fn activate(&self) {
         if let Some(route) = &self._route {
@@ -203,14 +182,9 @@ impl UdpTunnelSender {
         } else {
             bail!("UDP sender missing");
         };
-        if sent {
-            if self.account {
-                self.stats
-                    .udp_upload_bytes
-                    .fetch_add(payload.len() as u64, Ordering::Relaxed);
-            }
+        if sent && self.account {
             self.stats
-                .payload_counter(self.carrier, self.direction)
+                .udp_upload_bytes
                 .fetch_add(payload.len() as u64, Ordering::Relaxed);
         }
         Ok(sent)
@@ -229,14 +203,11 @@ impl UdpTunnelReceiver {
                 else {Ok(self.datagrams.as_mut().expect("UDP receiver").recv().await.map(ReceivedUdpPacket::Owned))}
             } => packet,
         }?;
-        if let Some(packet) = &packet {
-            if self.account {
-                self.stats
-                    .udp_download_bytes
-                    .fetch_add(packet.len() as u64, Ordering::Relaxed);
-            }
+        if let Some(packet) = &packet
+            && self.account
+        {
             self.stats
-                .payload_counter(self.carrier, self.direction)
+                .udp_download_bytes
                 .fetch_add(packet.len() as u64, Ordering::Relaxed);
         }
         Ok(packet)

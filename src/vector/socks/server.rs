@@ -24,18 +24,15 @@ use crate::common::{
     authenticate, bind_udp_addrs, decode_udp_packet, encode_udp_packet_into, handshake_timeout,
     read_request, udp_idle_timeout, write_reply,
 };
-use crate::telemetry::{
-    AccessSpan, AccessStart, DiagnosticContext, ResultCode, TrafficProtocol, error_reason,
-};
 
 use super::super::VectorInner;
-use super::super::flow::{carrier_name, configured_carrier, open_tcp, relay_tcp, to_target};
+use super::super::flow::{open_tcp, relay_tcp, to_target};
 use super::super::udp_flow::{UdpTunnel, open_udp};
 
 #[path = "udp.rs"]
 mod udp;
 
-use self::udp::{run_udp_association, start_access};
+use self::udp::run_udp_association;
 const TCP_LISTEN_BACKLOG: i32 = 1024;
 const SOCKS_UDP_PACKET_MAX: usize = u16::MAX as usize + 3 + 1 + 1 + 255 + 2;
 
@@ -74,7 +71,6 @@ pub(in crate::vector) async fn serve_listener(
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer)) => {
                     let Some(admission) = try_admit_client(&vector) else {
-                        vector.telemetry.emit_diagnostic(DiagnosticContext::SocksAdmission, ResultCode::ResourceLimit);
                         drop(stream);
                         continue;
                     };
@@ -82,18 +78,17 @@ pub(in crate::vector) async fn serve_listener(
                     let shutdown = shutdown.clone();
                     clients.spawn(async move {
                         let _admission = admission;
-                        if let Err(error) = handle_client(vector.clone(), stream, peer, shutdown).await {
-                            vector.logger.debug(format_args!(
-                                "vector::socks::handle_client: {peer}: {error}"
+                        if let Err(error) = handle_client(vector.clone(), stream, peer, shutdown).await && !crate::common::normal_close(&error) {
+                            vector.logger.error(format_args!(
+                                "vector::socks::handle_client: {peer}: {error:#}"
                             ));
                         }
                     });
                 }
                 Err(error) => {
                     let error: anyhow::Error = error.into();
-                    vector.telemetry.emit_diagnostic(DiagnosticContext::SocksAccept, error_reason(&error));
                     vector.logger.error(format_args!(
-                        "vector::socks::serve_listener: accept failed: {error}"
+                        "vector::socks::serve_listener: accept failed: {error:#}"
                     ));
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
@@ -135,15 +130,9 @@ async fn handle_client(
     let request = match request {
         Ok(Ok(request)) => request,
         Ok(Err(error)) => {
-            vector
-                .telemetry
-                .emit_diagnostic(DiagnosticContext::SocksHandshake, error_reason(&error));
             return Err(error);
         }
         Err(_) => {
-            vector
-                .telemetry
-                .emit_diagnostic(DiagnosticContext::SocksHandshake, ResultCode::Timeout);
             return Err(anyhow!("SOCKS5 handshake timeout"));
         }
     };
@@ -159,11 +148,9 @@ async fn handle_client(
                 return Ok(());
             }
             let target = to_target(&request.address)?;
-            let access = start_access(&vector, TrafficProtocol::Tcp, &request.address);
             let opened = tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => {
-                    access.finish(ResultCode::Cancelled);
                     return Ok(());
                 }
                 opened = open_tcp(vector.client.clone(), &target) => opened,
@@ -175,7 +162,6 @@ async fn handle_client(
                     tokio::select! {
                         biased;
                         _ = shutdown.cancelled() => {
-                            access.finish(ResultCode::Cancelled);
                             return Ok(());
                         }
                         result = write_reply(
@@ -183,26 +169,25 @@ async fn handle_client(
                             reply,
                             &unspecified,
                         ) => {
-                            if let Err(error) = result {
-                                access.finish(error_reason(&error));
+                            if let Err(error) = result && !crate::common::normal_close(&error) {
                                 return Err(error);
                             }
                         },
                     }
                     tokio::select! {
-                        result = relay_tcp(vector, stream, tunnel, peer, &request.address, access) => result,
+                        result = relay_tcp(vector, stream, tunnel) => result,
                         _ = shutdown.cancelled() => Ok(()),
                     }
                 }
                 Err(error) => {
-                    access.finish(error.diagnostic_reason());
                     write_reply(
                         &mut stream,
                         error.socks_reply(),
                         &SocksAddress::unspecified(),
                     )
                     .await?;
-                    Err(anyhow!("CONNECT {} failed: {error}", request.address))
+                    Err(anyhow::Error::new(error)
+                        .context(format!("CONNECT {} failed", request.address)))
                 }
             }
         }

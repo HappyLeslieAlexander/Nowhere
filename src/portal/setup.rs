@@ -14,7 +14,6 @@ use crate::common::{
     resolve_bind_addrs,
 };
 use crate::protocol::Credentials;
-use crate::telemetry::{InstanceRole, TelemetryHub};
 use crate::transport::{Buffers, MorphKeys, RateLimiter, Stats};
 use anyhow::Result;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 const PORTAL_QUERY_PARAMETERS: &[&str] = &[
-    "tls", "crt", "key", "rate", "etar", "dial", "dial4", "dial6", "morph", "out", "log",
+    "tls", "crt", "key", "rate", "etar", "dial", "dial4", "dial6", "morph", "out",
 ];
 impl Portal {
     pub fn new_with_listen_host(
@@ -69,16 +68,15 @@ impl Portal {
         let rate = parse_rate(&query, "rate")?;
         let etar = parse_rate(&query, "etar")?;
         let (tls_mode, tls_server_config, mut quic_server_config) =
-            new_server_configs_with_reload_interval(&url, runtime.reload_interval, logger.clone())?;
+            new_server_configs_with_reload_interval(&url, runtime.reload_interval, logger)?;
         super::listener::configure_transport(
             &mut quic_server_config,
             runtime.udp_idle_timeout,
             Some(std::time::Duration::from_secs(15)),
             morph_keys.is_some(),
         )?;
-        let log = query.get("log").map(String::as_str).unwrap_or("info");
         let effective = format!(
-            "portal://{}?out={out_label}&tls={tls_mode}{}&morph={}&rate={rate}&etar={etar}&log={log}",
+            "portal://{}?out={out_label}&tls={tls_mode}{}&morph={}&rate={rate}&etar={etar}",
             endpoint.canonical(),
             if slot.is_some() {
                 String::new()
@@ -87,14 +85,6 @@ impl Portal {
             },
             u8::from(morph_keys.is_some())
         );
-        let telemetry = TelemetryHub::for_current_process(
-            InstanceRole::Portal,
-            endpoint.canonical(),
-            runtime.telemetry_interval,
-        );
-        if slot.is_some() {
-            telemetry.set_egress_online(Some(false));
-        }
         let outbound = match &slot {
             Some(slot) => Outlet::Egress(slot.clone()),
             None => Outlet::Network(Arc::new(OutboundDialer::new(dial, socks))),
@@ -103,7 +93,6 @@ impl Portal {
             runtime,
             outbound,
             logger,
-            telemetry,
             stats: Arc::new(Stats::default()),
             buffers: Buffers::new(runtime.tcp_data_buf_size, runtime.udp_data_buf_size),
             rate: RateLimiter::new(
@@ -149,15 +138,10 @@ impl Portal {
     }
 }
 fn validate_query(query: &std::collections::HashMap<String, String>) -> Result<()> {
-    for name in ["log", "tls", "crt", "key", "rate", "etar", "dial", "out"] {
+    for name in ["tls", "crt", "key", "rate", "etar", "dial", "out"] {
         if query.get(name).is_some_and(String::is_empty) {
             anyhow::bail!("empty {name} parameter");
         }
-    }
-    if let Some(log) = query.get("log")
-        && !matches!(log.as_str(), "none" | "debug" | "info" | "warn" | "error")
-    {
-        anyhow::bail!("invalid log level");
     }
     if let Some(tls) = query.get("tls")
         && !matches!(tls.as_str(), "1" | "2")

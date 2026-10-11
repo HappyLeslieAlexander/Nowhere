@@ -27,11 +27,7 @@ async fn egress_bridges_multiple_vectors_and_cleans_up_on_disconnect() {
     let (udp, udp_task) = udp_echo().await;
     for morph in [false, true] {
         let h = Harness::new("egress", morph).await;
-        let egress = crate::Egress::new(
-            h.url("egress", "udp", morph),
-            Logger::new(LogLevel::None, false),
-        )
-        .unwrap();
+        let egress = crate::Egress::new(h.url("egress", "udp", morph), Logger).unwrap();
         let egress_task = tokio::spawn(egress.run());
         tokio::time::timeout(Duration::from_secs(3), async {
             while !h.inner.egress_slot.as_ref().unwrap().online() {
@@ -45,7 +41,6 @@ async fn egress_bridges_multiple_vectors_and_cleans_up_on_disconnect() {
         tokio::join!(exchange(&tls, &tcp, &udp), exchange(&quic, &tcp, &udp));
         let stats = &h.inner.forward.stats;
         let udp_bytes = 2 * udp_sizes().iter().sum::<usize>() as u64;
-        let payload_per_vector = 131072 + udp_bytes / 2;
         assert_eq!(
             stats
                 .tcp_upload_bytes
@@ -69,30 +64,6 @@ async fn egress_bridges_multiple_vectors_and_cleans_up_on_disconnect() {
                 .udp_download_bytes
                 .load(std::sync::atomic::Ordering::Relaxed),
             udp_bytes
-        );
-        assert_eq!(
-            stats
-                .tls_upload_bytes
-                .load(std::sync::atomic::Ordering::Relaxed),
-            payload_per_vector
-        );
-        assert_eq!(
-            stats
-                .quic_upload_bytes
-                .load(std::sync::atomic::Ordering::Relaxed),
-            payload_per_vector * 3
-        );
-        assert_eq!(
-            stats
-                .tls_download_bytes
-                .load(std::sync::atomic::Ordering::Relaxed),
-            payload_per_vector
-        );
-        assert_eq!(
-            stats
-                .quic_download_bytes
-                .load(std::sync::atomic::Ordering::Relaxed),
-            payload_per_vector * 3
         );
         let mut held = quic.open_tcp(&tcp).await.unwrap();
         egress_task.abort();

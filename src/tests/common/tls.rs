@@ -4,7 +4,7 @@
 //! TLS configuration tests.
 
 use super::*;
-use crate::common::{LogLevel, Logger};
+use crate::common::Logger;
 
 fn new_server_configs(
     parsed_url: &Url,
@@ -30,7 +30,7 @@ fn certificate_sha256_uses_lowercase_hex() {
 fn server_tls_config_explicitly_disables_early_data() {
     let (_, tls, _quic) = new_server_configs(
         &Url::parse("portal://secret@127.0.0.1:2000?tls=1").unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
 
@@ -42,7 +42,7 @@ fn server_tls_config_explicitly_disables_early_data() {
 fn server_offers_only_nw3() {
     let (_, tls, _) = new_server_configs(
         &Url::parse("portal://secret@127.0.0.1:2000?tls=1&alpn=private/2&pool=8").unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
 

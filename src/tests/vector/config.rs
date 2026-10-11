@@ -19,7 +19,7 @@ fn defaults_unknown_and_removed_options_are_ignored() {
     assert_eq!(config.net, CarrierMode::Tcp);
     assert_eq!(
         config.effective_url(),
-        "vector://localhost:2000?in=127.0.0.1:1080&net=tcp&sni=localhost&pin=none&morph=0&rate=0&etar=0&log=info"
+        "vector://localhost:2000?in=127.0.0.1:1080&net=tcp&sni=localhost&pin=none&morph=0&rate=0&etar=0"
     );
     assert!(!config.effective_url().contains("secret"));
     assert!(!config.effective_url().contains("rev="));
@@ -30,7 +30,7 @@ fn defaults_unknown_and_removed_options_are_ignored() {
 #[test]
 fn recognized_invalid_values_and_missing_ingress_fail() {
     for query in [
-        "net=", "net=quic", "morph=2", "rate=-1", "etar=no", "log=bad", "pin=bad",
+        "net=", "net=quic", "morph=2", "rate=-1", "etar=no", "pin=bad",
     ] {
         assert!(parse(query).is_err(), "{query}");
     }

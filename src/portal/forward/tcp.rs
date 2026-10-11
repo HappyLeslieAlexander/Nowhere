@@ -5,9 +5,7 @@
 
 use super::{ActiveFlow, Forwarder, Incoming, Outlet};
 use crate::portal::egress;
-use crate::protocol::{Carrier, SetupResult, Target};
-use crate::telemetry::ResultCode;
-use crate::transport::TrafficDirection;
+use crate::protocol::{SetupResult, Target};
 use crate::vector::{BoxReader, BoxWriter};
 use anyhow::{Context, Result};
 use std::sync::atomic::Ordering;
@@ -19,9 +17,8 @@ impl Forwarder {
         &self,
         mut incoming: Incoming,
         target: &Target,
-        carrier: Carrier,
         cancel: CancellationToken,
-    ) -> Result<ResultCode> {
+    ) -> Result<()> {
         let dial = async {
             match &self.outbound {
                 Outlet::Network(dialer) => {
@@ -48,9 +45,9 @@ impl Forwarder {
             }
         };
         let dialed = tokio::select! {
-            _ = cancel.cancelled() => return Ok(ResultCode::Cancelled),
-            _ = self.shutdown.cancelled() => return Ok(ResultCode::Cancelled),
-            closed = incoming.closed() => { closed?; return Ok(ResultCode::Cancelled); },
+            _ = cancel.cancelled() => return Ok(()),
+            _ = self.shutdown.cancelled() => return Ok(()),
+            closed = incoming.closed() => { closed?; return Ok(()); },
             result = dial => result,
         };
         let (mut target_read, mut target_write, _guard) = match dialed {
@@ -70,7 +67,6 @@ impl Forwarder {
         incoming.result(SetupResult::Ready).await?;
         let _active = ActiveFlow::new(self.stats.clone(), false);
         let (mut client_read, mut client_write, _client_guard) = incoming.into_tcp();
-        let upstream_quic = matches!(self.outbound, Outlet::Egress(_));
         let upload = async {
             loop {
                 let Some(chunk) = crate::transport::read_with_flush(
@@ -90,14 +86,6 @@ impl Forwarder {
                 self.stats
                     .tcp_upload_bytes
                     .fetch_add(n as u64, Ordering::Relaxed);
-                self.stats
-                    .payload_counter(carrier, TrafficDirection::Upload)
-                    .fetch_add(n as u64, Ordering::Relaxed);
-                if upstream_quic {
-                    self.stats
-                        .quic_upload_bytes
-                        .fetch_add(n as u64, Ordering::Relaxed);
-                }
             }
         };
         let download = async {
@@ -119,21 +107,13 @@ impl Forwarder {
                 self.stats
                     .tcp_download_bytes
                     .fetch_add(n as u64, Ordering::Relaxed);
-                self.stats
-                    .payload_counter(carrier, TrafficDirection::Download)
-                    .fetch_add(n as u64, Ordering::Relaxed);
-                if upstream_quic {
-                    self.stats
-                        .quic_download_bytes
-                        .fetch_add(n as u64, Ordering::Relaxed);
-                }
             }
         };
         tokio::pin!(upload);
         tokio::pin!(download);
         tokio::select! {
-            _ = cancel.cancelled() => Ok(ResultCode::Cancelled),
-            _ = self.shutdown.cancelled() => Ok(ResultCode::Cancelled),
+            _ = cancel.cancelled() => Ok(()),
+            _ = self.shutdown.cancelled() => Ok(()),
             result = async {
                 tokio::select! {
                     result = &mut upload => {
@@ -147,7 +127,7 @@ impl Forwarder {
                             .await.context("TCP half-close timeout")?
                     },
                 }
-            } => result.map(|()| ResultCode::Success),
+            } => result,
         }
     }
 }

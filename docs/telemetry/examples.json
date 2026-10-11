@@ -9,188 +9,51 @@
           "role": "portal",
           "pid": 42,
           "version": "3.0.0-dev",
-          "endpoint": "*:2077",
-          "telemetry_interval_ms": 1000
-        }
-      }
-    },
-    {
-      "type": "gap",
-      "data": {
-        "missed": 3
-      }
-    },
-    {
-      "type": "diagnostic",
-      "data": {
-        "sequence": 1,
-        "timestamp_ms": 1770000000000,
-        "context": "socks_handshake",
-        "reason": "timeout"
-      }
-    },
-    {
-      "type": "access_start",
-      "data": {
-        "sequence": 2,
-        "id": 1,
-        "timestamp_ms": 1770000000000,
-        "protocol": "tcp",
-        "target": "example.com:443",
-        "carrier": "tls"
-      }
-    },
-    {
-      "type": "access_finish",
-      "data": {
-        "sequence": 3,
-        "id": 1,
-        "timestamp_ms": 1770000000462,
-        "result": "success"
-      }
-    },
-    {
-      "type": "snapshot",
-      "data": {
-        "sequence": 1,
-        "timestamp_ms": 1770000000000,
-        "uptime_ms": 1000,
-        "tcp_upload_bytes": 0,
-        "tcp_download_bytes": 0,
-        "udp_upload_bytes": 0,
-        "udp_download_bytes": 0,
-        "tls_upload_bytes": 0,
-        "tls_download_bytes": 0,
-        "quic_upload_bytes": 0,
-        "quic_download_bytes": 0,
-        "tls_carriers_active": 0,
-        "quic_carriers_active": 0,
-        "tcp_active": 0,
-        "udp_active": 0,
-        "cpu_percent": null,
-        "rss_bytes": null,
-        "open_fds": null,
-        "egress_online": null,
-        "lifecycle": "READY",
-        "lifecycle_reason": "LISTENING",
-        "lifecycle_timestamp_ms": 1770000000000
-      }
-    },
-    {
-      "type": "hello",
-      "data": {
-        "instance": {
-          "telemetry_protocol": "nowhere.telemetry.3",
-          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "role": "vector",
-          "pid": 43,
-          "version": "3.0.0-dev",
-          "endpoint": "relay.example:2000",
-          "telemetry_interval_ms": 1000
-        }
-      }
-    },
-    {
-      "type": "hello",
-      "data": {
-        "instance": {
-          "telemetry_protocol": "nowhere.telemetry.3",
-          "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "role": "egress",
-          "pid": 44,
-          "version": "3.0.0-dev",
-          "endpoint": "relay.example:2000",
-          "telemetry_interval_ms": 1000
+          "endpoint": "127.0.0.1:2000"
         }
       }
     },
     {
       "type": "snapshot",
       "data": {
-        "sequence": 1,
-        "timestamp_ms": 1770000000000,
-        "uptime_ms": 1000,
         "tcp_upload_bytes": 0,
         "tcp_download_bytes": 0,
         "udp_upload_bytes": 0,
         "udp_download_bytes": 0,
-        "tls_upload_bytes": 0,
-        "tls_download_bytes": 0,
-        "quic_upload_bytes": 0,
-        "quic_download_bytes": 0,
-        "tls_carriers_active": 0,
-        "quic_carriers_active": 0,
         "tcp_active": 0,
-        "udp_active": 0,
-        "cpu_percent": null,
-        "rss_bytes": null,
-        "open_fds": null,
-        "egress_online": false,
-        "lifecycle": "READY",
-        "lifecycle_reason": "LISTENING",
-        "lifecycle_timestamp_ms": 1770000000000
-      }
-    },
-    {
-      "type": "snapshot",
-      "data": {
-        "sequence": 1,
-        "timestamp_ms": 1770000000000,
-        "uptime_ms": 1000,
-        "tcp_upload_bytes": 0,
-        "tcp_download_bytes": 0,
-        "udp_upload_bytes": 0,
-        "udp_download_bytes": 0,
-        "tls_upload_bytes": 0,
-        "tls_download_bytes": 0,
-        "quic_upload_bytes": 0,
-        "quic_download_bytes": 0,
-        "tls_carriers_active": 0,
-        "quic_carriers_active": 1,
-        "tcp_active": 0,
-        "udp_active": 0,
-        "cpu_percent": null,
-        "rss_bytes": null,
-        "open_fds": null,
-        "egress_online": true,
-        "lifecycle": "READY",
-        "lifecycle_reason": "LISTENING",
-        "lifecycle_timestamp_ms": 1770000000000
+        "udp_active": 0
       }
     }
   ],
   "invalid": [
     {
-      "type": "subscribe",
-      "data": {
-        "subscription": "detail"
-      }
-    },
-    {
-      "type": "lifecycle",
-      "data": {
-        "state": "READY",
-        "reason": "LISTENING",
-        "timestamp_ms": 0
-      }
-    },
-    {
       "type": "diagnostic",
+      "data": {}
+    },
+    {
+      "type": "snapshot",
       "data": {
-        "sequence": 1,
-        "timestamp_ms": 0,
-        "context": "socks_handshake",
-        "reason": "secret password"
+        "tcp_upload_bytes": 0,
+        "tcp_download_bytes": 0,
+        "udp_upload_bytes": 0,
+        "udp_download_bytes": 0,
+        "tcp_active": 0,
+        "udp_active": 0,
+        "sequence": 1
       }
     },
     {
-      "type": "access_finish",
+      "type": "hello",
       "data": {
-        "sequence": 1,
-        "id": 1,
-        "timestamp_ms": 0,
-        "result": "success",
-        "upload_bytes": 1
+        "instance": {
+          "telemetry_protocol": "nowhere.telemetry.3",
+          "id": "0123456789abcdef0123456789abcdef",
+          "role": "portal",
+          "pid": 42,
+          "version": "3.0.0-dev",
+          "endpoint": "127.0.0.1:2000",
+          "telemetry_interval_ms": 1000
+        }
       }
     }
   ]

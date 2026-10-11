@@ -4,7 +4,7 @@
 //! Egress registration ordering, target dialing barriers, and online lifecycle tests.
 
 use super::*;
-use crate::common::{LogLevel, Logger};
+use crate::common::Logger;
 use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, Credentials};
 use url::Url;
 
@@ -15,7 +15,7 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     let (_, tls, mut quic) = crate::common::new_server_configs_with_reload_interval(
         &url,
         std::time::Duration::from_secs(3600),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
     let pin = crate::tls_test_support::server_certificate_pin(&tls);
@@ -29,11 +29,9 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     let address = endpoint.local_addr().unwrap();
     let egress = Egress::new(
         Url::parse(&format!("egress://{KEY}@{address}?pin={pin}")).unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
-    let telemetry = egress.forward.telemetry.clone();
-    let mut events = telemetry.event_receiver();
     let task = tokio::spawn(async move { egress.registered_connection().await });
     let connection = endpoint.accept().await.unwrap().await.unwrap();
     let (mut auth_send, mut auth_recv) = connection.accept_bi().await.unwrap();
@@ -66,10 +64,6 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
             .await
             .is_err()
     );
-    assert_eq!(
-        telemetry.snapshot_receiver().borrow().egress_online,
-        Some(false)
-    );
     auth_send.write_all(&[0]).await.unwrap();
     auth_send.finish().unwrap();
     let (_target, _) = tokio::time::timeout(std::time::Duration::from_secs(2), target.accept())
@@ -82,21 +76,7 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
         ),
         crate::protocol::SetupResult::Ready
     );
-    assert_eq!(
-        telemetry.snapshot_receiver().borrow().egress_online,
-        Some(true)
-    );
     connection.close(0u32.into(), b"test");
     task.await.unwrap().unwrap();
-    assert_eq!(
-        telemetry.snapshot_receiver().borrow().egress_online,
-        Some(false)
-    );
     endpoint.wait_idle().await;
-    while let Ok(event) = events.try_recv() {
-        assert!(
-            !matches!(event, crate::telemetry::Event::Diagnostic(_)),
-            "normal connection lifecycle emitted a diagnostic"
-        );
-    }
 }

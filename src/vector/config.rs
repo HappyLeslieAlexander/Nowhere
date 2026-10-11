@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fmt;
 use url::Url;
 
-const VECTOR_QUERY_KEYS: &[&str] = &["in", "net", "sni", "pin", "rate", "etar", "morph", "log"];
+const VECTOR_QUERY_KEYS: &[&str] = &["in", "net", "sni", "pin", "rate", "etar", "morph"];
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CarrierMode {
     Tcp,
@@ -192,7 +192,6 @@ pub(crate) struct VectorConfig {
     pub(super) rate_mbps: i32,
     pub(super) etar_mbps: i32,
     pub(super) socks: SocksListenConfig,
-    pub(super) log: String,
 }
 impl std::ops::Deref for VectorConfig {
     type Target = PortalClientConfig;
@@ -209,18 +208,14 @@ impl VectorConfig {
             rate_mbps: parse_rate(query.get("rate").map(String::as_str), "rate")?,
             etar_mbps: parse_rate(query.get("etar").map(String::as_str), "etar")?,
             socks: SocksListenConfig::from_url(url)?,
-            log: query.get("log").cloned().unwrap_or_else(|| "info".into()),
         })
     }
     pub(crate) fn portal_client_config(&self) -> PortalClientConfig {
         self.portal.clone()
     }
-    pub(super) fn portal_endpoint(&self) -> String {
-        self.endpoint()
-    }
     pub(super) fn effective_url(&self) -> String {
         format!(
-            "vector://{}?in={}&net={}&sni={}&pin={}&morph={}&rate={}&etar={}&log={}",
+            "vector://{}?in={}&net={}&sni={}&pin={}&morph={}&rate={}&etar={}",
             self.endpoint(),
             self.socks.endpoint(),
             self.net,
@@ -229,17 +224,10 @@ impl VectorConfig {
             u8::from(self.morph),
             self.rate_mbps,
             self.etar_mbps,
-            self.log
         )
     }
 }
 fn validate_options(query: &HashMap<String, String>) -> Result<()> {
-    if query
-        .get("log")
-        .is_some_and(|s| !matches!(s.as_str(), "none" | "debug" | "info" | "warn" | "error"))
-    {
-        bail!("invalid log level");
-    }
     parse_rate(query.get("rate").map(String::as_str), "rate")?;
     parse_rate(query.get("etar").map(String::as_str), "etar")?;
     Ok(())

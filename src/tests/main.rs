@@ -74,7 +74,7 @@ async fn fingerprint_rejects_invalid_raw_share_links_before_network_access() {
         .await
         .expect("invalid share link attempted network access")
         .unwrap_err();
-        let message = format_start_error(&error);
+        let message = format!("{error:#}");
         assert!(message.contains("invalid Nowhere share link"), "{message}");
         assert!(!message.contains("secret"), "{message}");
     }
@@ -124,7 +124,7 @@ async fn toolbox_errors_do_not_expose_configuration_values() {
         ])
         .await
         .unwrap_err();
-        let message = format_start_error(&error);
+        let message = format!("{error:#}");
         assert!(message.contains(expected), "{message}");
         assert!(!message.contains("secret"), "{message}");
     }
@@ -142,16 +142,8 @@ fn parse_command_url_keeps_vector_remote_host() {
 }
 
 #[test]
-fn logger_rejects_unknown_or_empty_levels() {
-    assert!(init_logger(Some("verbose")).is_err());
-    assert!(init_logger(Some("")).is_err());
-    assert!(init_logger(None).is_ok());
-    assert!(init_logger(Some("event")).is_err());
-}
-
-#[test]
 fn parse_command_url_normalizes_legacy_empty_listen_host() {
-    let parsed = parse_command_url("portal://secret@:2000?log=none&dial=::1").unwrap();
+    let parsed = parse_command_url("portal://secret@:2000?dial=::1").unwrap();
 
     assert_eq!(parsed.scheme(), "portal");
     assert_eq!(parsed.username(), "secret");
@@ -238,7 +230,7 @@ async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors
         .await
         .expect("invalid config started service")
         .unwrap_err();
-        let message = format_start_error(&error);
+        let message = format!("{error:#}");
         assert!(message.contains(expected), "{message}");
         assert!(!message.contains(KEY));
     }
@@ -259,9 +251,8 @@ async fn service_key_rejections_identify_the_role_without_starting_a_service() {
                 "a".repeat(33),
                 "a".repeat(64),
             ] {
-                let raw = format!(
-                    "{role}://{key}@unresolvable.invalid:2000?log=none&morph={morph}{ingress}"
-                );
+                let raw =
+                    format!("{role}://{key}@unresolvable.invalid:2000?morph={morph}{ingress}");
                 let error = tokio::time::timeout(
                     std::time::Duration::from_secs(1),
                     start(vec!["nowhere".into(), raw]),
@@ -269,7 +260,7 @@ async fn service_key_rejections_identify_the_role_without_starting_a_service() {
                 .await
                 .expect("invalid key attempted service startup")
                 .unwrap_err();
-                let message = format_start_error(&error);
+                let message = format!("{error:#}");
                 assert!(message.contains(context));
                 assert!(message.contains("exactly 32 lowercase hexadecimal characters"));
                 assert!(message.contains("nowhere generate-key"));

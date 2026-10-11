@@ -1,9 +1,8 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Safe endpoints and targets, and random instance identifiers.
+//! Safe endpoints and random instance identifiers.
 
-use crate::protocol::Target;
 use anyhow::Result;
 
 pub(crate) fn endpoint(value: &str) -> String {
@@ -36,12 +35,6 @@ pub(super) fn random_id() -> Result<String> {
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-pub(super) fn target(value: &str) -> String {
-    value
-        .parse::<Target>()
-        .map(|target| target.to_string())
-        .unwrap_or_else(|_| "<redacted>".to_owned())
 }
 
 #[cfg(test)]

@@ -24,4 +24,3 @@ pub(crate) use owned_io::{
 pub(crate) use quic::transport_flow_control;
 pub(crate) use rate::RateLimiter;
 pub use stats::Stats;
-pub(crate) use stats::TrafficDirection;

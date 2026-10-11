@@ -14,7 +14,6 @@ use crate::protocol::{
 use crate::transport::{QuicConnection, Stats};
 use anyhow::{Context, Result, anyhow, bail};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{Instant, timeout};
@@ -43,18 +42,6 @@ impl Drop for ConnectionAttempt {
         if let Some(q) = &self.0 {
             q.close();
         }
-    }
-}
-pub(crate) struct TlsCarrierGuard(Arc<Stats>);
-impl TlsCarrierGuard {
-    pub(crate) fn new(stats: Arc<Stats>) -> Self {
-        stats.tls_carriers_active.fetch_add(1, Ordering::Relaxed);
-        Self(stats)
-    }
-}
-impl Drop for TlsCarrierGuard {
-    fn drop(&mut self) {
-        self.0.tls_carriers_active.fetch_sub(1, Ordering::Relaxed);
     }
 }
 impl PortalClient {
@@ -95,10 +82,7 @@ impl PortalClient {
             (
                 Box::pin(flow.recv) as BoxReader,
                 Box::pin(flow.send) as BoxWriter,
-                TcpTunnelGuard {
-                    _carrier: None,
-                    _flow: None,
-                },
+                TcpTunnelGuard { _flow: None },
             )
         };
         if self.account_stats {
@@ -125,7 +109,6 @@ impl PortalClient {
                 endpoint.family,
             )
             .await?;
-        let guard = TlsCarrierGuard::new(self.stats.clone());
         let (reader, mut writer) = tokio::io::split(stream);
         writer
             .write_all(&encode_auth_frame(
@@ -137,10 +120,7 @@ impl PortalClient {
         Ok((
             Box::pin(reader),
             Box::pin(writer),
-            TcpTunnelGuard {
-                _carrier: Some(guard),
-                _flow: None,
-            },
+            TcpTunnelGuard { _flow: None },
         ))
     }
     pub(crate) async fn open_quic_flow(
@@ -148,7 +128,7 @@ impl PortalClient {
         kind: FlowKind,
         target: &Target,
     ) -> std::result::Result<QuicFlow, OpenFlowError> {
-        let state = tokio::select! {_=self.shutdown.cancelled()=>return Err(OpenFlowError::Transport(crate::telemetry::ResultCode::Cancelled.into())),state=self.quic.lock()=>state};
+        let state = tokio::select! {_=self.shutdown.cancelled()=>return Err(OpenFlowError::Cancelled),state=self.quic.lock()=>state};
         let existing = state
             .as_ref()
             .filter(|(_, q)| {
@@ -177,7 +157,7 @@ impl PortalClient {
                 AuthTransport::Quic,
                 &exporter,
             ));
-            let q = QuicConnection::new(connection, false, self.stats.clone());
+            let q = QuicConnection::new(connection, false);
             attempt = Some(ConnectionAttempt(Some(q.clone())));
             endpoint = Some(ep);
             q
@@ -208,7 +188,7 @@ impl PortalClient {
             .await
             .map_err(|e| OpenFlowError::Transport(e.into()))?;
         let result=tokio::select! {
-            _=self.shutdown.cancelled()=>return Err(OpenFlowError::Transport(crate::telemetry::ResultCode::Cancelled.into())),
+            _=self.shutdown.cancelled()=>return Err(OpenFlowError::Cancelled),
             result=timeout(crate::common::flow_setup_timeout(),crate::protocol::read_flow_result(&mut recv))=>result,
         }.map_err(|error|OpenFlowError::Transport(error.into()))?.map_err(OpenFlowError::Protocol)?;
         if let Some(endpoint) = endpoint {

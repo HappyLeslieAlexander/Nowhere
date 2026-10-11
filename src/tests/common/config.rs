@@ -8,15 +8,15 @@ use url::Url;
 
 #[test]
 fn query_first_ignores_unknown_parameters_and_keeps_first_duplicate() {
-    let parsed = Url::parse("portal://key@localhost:2000?log=debug&label=now%2F1").unwrap();
-    let values = query_first(&parsed, &["log", "label"]).unwrap();
-    assert_eq!(values["log"], "debug");
+    let parsed = Url::parse("portal://key@localhost:2000?mode=first&label=now%2F1").unwrap();
+    let values = query_first(&parsed, &["mode", "label"]).unwrap();
+    assert_eq!(values["mode"], "first");
     assert_eq!(values["label"], "now/1");
 
-    let duplicate = Url::parse("portal://key@localhost:2000?log=debug&log=error").unwrap();
-    assert_eq!(query_first(&duplicate, &["log"]).unwrap()["log"], "debug");
+    let duplicate = Url::parse("portal://key@localhost:2000?mode=first&mode=second").unwrap();
+    assert_eq!(query_first(&duplicate, &["mode"]).unwrap()["mode"], "first");
     let unknown = Url::parse("portal://key@localhost:2000?typo=value&%FF=value").unwrap();
-    assert!(query_first(&unknown, &["log"]).unwrap().is_empty());
+    assert!(query_first(&unknown, &["mode"]).unwrap().is_empty());
 }
 
 #[test]
@@ -60,19 +60,4 @@ fn flow_setup_timeout_defaults_and_accepts_override() {
     unsafe { std::env::set_var("NOW_FLOW_SETUP_TIMEOUT", "750ms") };
     assert_eq!(flow_setup_timeout(), Duration::from_millis(750));
     unsafe { std::env::remove_var("NOW_FLOW_SETUP_TIMEOUT") };
-}
-
-#[test]
-fn telemetry_interval_is_strictly_bounded() {
-    assert_eq!(
-        parse_telemetry_interval(None).unwrap(),
-        Duration::from_secs(1)
-    );
-    assert_eq!(
-        parse_telemetry_interval(Some("250ms")).unwrap(),
-        Duration::from_millis(250)
-    );
-    assert!(parse_telemetry_interval(Some("249ms")).is_err());
-    assert!(parse_telemetry_interval(Some("61s")).is_err());
-    assert!(parse_telemetry_interval(Some("soon")).is_err());
 }

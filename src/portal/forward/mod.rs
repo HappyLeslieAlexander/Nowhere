@@ -10,7 +10,6 @@ mod udp;
 use crate::common::{Logger, OutboundDialer};
 use crate::portal::egress::EgressSlot;
 use crate::protocol::{FlowKind, SetupResult};
-use crate::telemetry::{AccessStart, TelemetryHub, TrafficProtocol};
 use crate::transport::{Buffers, RateLimiter, Stats};
 pub(crate) use incoming::Incoming;
 use std::sync::Arc;
@@ -25,7 +24,6 @@ pub(crate) struct Forwarder {
     pub(crate) outbound: Outlet,
     pub(crate) runtime: crate::portal::config::PortalRuntimeConfig,
     pub(crate) logger: Logger,
-    pub(crate) telemetry: Arc<TelemetryHub>,
     pub(crate) stats: Arc<Stats>,
     pub(crate) buffers: Buffers,
     pub(crate) rate: Option<Arc<RateLimiter>>,
@@ -53,7 +51,6 @@ impl Forwarder {
         mut incoming: Incoming,
         connection_cancel: CancellationToken,
     ) {
-        let carrier = incoming.carrier();
         let request = tokio::select! {
             _=connection_cancel.cancelled()=>return,
             _=self.shutdown.cancelled()=>return,
@@ -69,43 +66,35 @@ impl Forwarder {
                 let _ = incoming.result(SetupResult::InvalidRequest).await;
                 return;
             }
-            _ => {
+            failed => {
                 let _ = incoming.result(SetupResult::InvalidRequest).await;
+                match failed {
+                    Ok(Err(error)) if !crate::common::normal_close(&error) => {
+                        self.logger.error(format_args!("Flow request: {error:#}"))
+                    }
+                    Err(error) => self
+                        .logger
+                        .error(format_args!("Flow request timed out: {error}")),
+                    _ => {}
+                }
                 return;
             }
         };
-        let access = self.telemetry.start_access(|| AccessStart {
-            protocol: if kind == FlowKind::Tcp {
-                TrafficProtocol::Tcp
-            } else {
-                TrafficProtocol::Udp
-            },
-            target: target.to_string(),
-            carrier,
-        });
         let Ok(_permit) = self.flows.clone().try_acquire_owned() else {
             let _ = incoming.result(SetupResult::FlowLimit).await;
-            access.finish(crate::telemetry::ResultCode::ResourceLimit);
+            self.logger
+                .error(format_args!("Flow resource limit reached"));
             return;
         };
         let result = match kind {
-            FlowKind::Tcp => {
-                self.tcp(incoming, &target, carrier, connection_cancel)
-                    .await
-            }
+            FlowKind::Tcp => self.tcp(incoming, &target, connection_cancel).await,
             FlowKind::Udp => self.udp(incoming, &target, connection_cancel).await,
         };
-        match result {
-            Ok(result) => access.finish(result),
-            Err(error) => {
-                let reason = error
-                    .downcast_ref::<crate::vector::OpenFlowError>()
-                    .map_or_else(
-                        || crate::telemetry::error_reason(&error),
-                        |error| error.diagnostic_reason(),
-                    );
-                access.finish(reason);
-            }
+
+        if let Err(error) = result
+            && !crate::common::normal_close(&error)
+        {
+            self.logger.error(format_args!("Flow {target}: {error:#}"));
         }
     }
 }

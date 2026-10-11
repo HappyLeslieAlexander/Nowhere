@@ -13,28 +13,18 @@ pub(crate) struct EgressSlot {
     owner: Mutex<Option<Arc<QuicConnection>>>,
 }
 impl EgressSlot {
-    pub(crate) fn claim(
-        &self,
-        connection: Arc<QuicConnection>,
-        telemetry: &crate::telemetry::TelemetryHub,
-    ) -> bool {
+    pub(crate) fn claim(&self, connection: Arc<QuicConnection>) -> bool {
         let mut slot = self.owner.lock().unwrap();
         if slot.is_some() {
             return false;
         }
         *slot = Some(connection);
-        telemetry.set_egress_online(Some(true));
         true
     }
-    pub(crate) fn release(
-        &self,
-        connection: &Arc<QuicConnection>,
-        telemetry: &crate::telemetry::TelemetryHub,
-    ) -> bool {
+    pub(crate) fn release(&self, connection: &Arc<QuicConnection>) -> bool {
         let mut slot = self.owner.lock().unwrap();
         if slot.as_ref().is_some_and(|q| Arc::ptr_eq(q, connection)) {
             *slot = None;
-            telemetry.set_egress_online(Some(false));
             true
         } else {
             false
@@ -56,10 +46,7 @@ pub(crate) async fn open_tcp(q: Arc<QuicConnection>, target: &Target) -> Result<
         Box::pin(recv),
         Box::pin(send),
         Carrier::Quic,
-        TcpTunnelGuard {
-            _carrier: None,
-            _flow: None,
-        },
+        TcpTunnelGuard { _flow: None },
     ))
 }
 pub(crate) async fn open_udp(

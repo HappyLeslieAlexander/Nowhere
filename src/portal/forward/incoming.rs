@@ -3,7 +3,7 @@
 
 //! Incoming flow headers, setup results, and transport-specific tunnel handles.
 
-use crate::protocol::{Carrier, FlowKind, FlowResult, SetupResult, Target};
+use crate::protocol::{FlowKind, FlowResult, SetupResult, Target};
 use crate::transport::{QuicConnection, Stats};
 use crate::vector::{BoxReader, BoxWriter, TcpTunnelGuard, UdpTunnel};
 use anyhow::{Context, Result};
@@ -23,12 +23,6 @@ pub(crate) enum Incoming {
     },
 }
 impl Incoming {
-    pub(super) fn carrier(&self) -> Carrier {
-        match self {
-            Self::Tls { .. } => Carrier::TlsTcp,
-            Self::Quic { .. } => Carrier::Quic,
-        }
-    }
     pub(super) async fn request(&mut self) -> Result<Option<(FlowKind, Target)>> {
         match self {
             Self::Tls { reader, .. } => {
@@ -92,10 +86,7 @@ impl Incoming {
             Self::Quic { recv, send, .. } => (
                 Box::pin(recv),
                 Box::pin(send),
-                TcpTunnelGuard {
-                    _carrier: None,
-                    _flow: None,
-                },
+                TcpTunnelGuard { _flow: None },
             ),
         }
     }
@@ -107,7 +98,7 @@ impl Incoming {
             tokio::sync::mpsc::Receiver<crate::common::BudgetedDatagram>,
         )>,
     ) -> Result<UdpTunnel> {
-        let mut tunnel = match self {
+        let tunnel = match self {
             Self::Tls {
                 reader,
                 writer,
@@ -126,7 +117,6 @@ impl Incoming {
                 UdpTunnel::quic(route, datagrams, send, recv, stats, false)
             }
         };
-        tunnel.reverse_direction();
         Ok(tunnel)
     }
 }

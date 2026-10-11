@@ -21,9 +21,8 @@ pub(crate) use self::tls_cert::certificate_sha256;
 use self::tls_cert::{ReloadingCertResolver, new_self_signed_cert};
 use super::{Logger, query_first};
 
-const PORTAL_QUERY_PARAMETERS: &[&str] = &[
-    "log", "net", "tls", "crt", "key", "rate", "etar", "dial", "socks",
-];
+const PORTAL_QUERY_PARAMETERS: &[&str] =
+    &["net", "tls", "crt", "key", "rate", "etar", "dial", "socks"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TLSMode {
@@ -79,14 +78,9 @@ pub(crate) fn new_server_configs_with_reload_interval(
         TLSMode::CATrusted => {
             let crt_file = query.get("crt").cloned().unwrap_or_default();
             let key_file = query.get("key").cloned().unwrap_or_default();
-            let (resolver, cert_sha256) = ReloadingCertResolver::new(
-                crt_file,
-                key_file,
-                provider,
-                reload_interval,
-                logger.clone(),
-            )
-            .context("common::tls::new_server_configs: failed to load certificate")?;
+            let (resolver, cert_sha256) =
+                ReloadingCertResolver::new(crt_file, key_file, provider, reload_interval, logger)
+                    .context("common::tls::new_server_configs: failed to load certificate")?;
             (
                 server_builder.with_cert_resolver(Arc::new(resolver)),
                 cert_sha256,

@@ -5,15 +5,16 @@
 
 use super::*;
 use crate::telemetry::ipc::TelemetryServer;
-use crate::telemetry::{InstanceDescriptor, InstanceRole, TELEMETRY_PROTOCOL, TelemetryHub};
-use std::time::Duration;
+use crate::telemetry::{InstanceRole, TELEMETRY_PROTOCOL};
 
 #[tokio::test]
 async fn registry_round_trips_and_endpoint_is_local() {
-    let descriptor =
-        InstanceDescriptor::current(InstanceRole::Portal, "secret", Duration::from_secs(1))
-            .unwrap();
-    let server = TelemetryServer::bind(TelemetryHub::new(descriptor)).unwrap();
+    let server = TelemetryServer::bind(
+        InstanceRole::Portal,
+        "secret",
+        std::sync::Arc::new(crate::transport::Stats::default()),
+    )
+    .unwrap();
     let value: serde_json::Value =
         serde_json::from_slice(&local::read_registry(&server.registry_path).unwrap()).unwrap();
     let decoded: RegistryEntry = serde_json::from_value(value.clone()).unwrap();
@@ -50,9 +51,12 @@ async fn registry_round_trips_and_endpoint_is_local() {
 
 #[tokio::test]
 async fn namespace_mismatch_is_ignored_without_deletion() {
-    let descriptor =
-        InstanceDescriptor::current(InstanceRole::Portal, "local", Duration::from_secs(1)).unwrap();
-    let server = TelemetryServer::bind(TelemetryHub::new(descriptor)).unwrap();
+    let server = TelemetryServer::bind(
+        InstanceRole::Portal,
+        "local",
+        std::sync::Arc::new(crate::transport::Stats::default()),
+    )
+    .unwrap();
     let mut value: serde_json::Value =
         serde_json::from_slice(&local::read_registry(&server.registry_path).unwrap()).unwrap();
     value["namespace"] = serde_json::json!("different namespace");
@@ -62,7 +66,7 @@ async fn namespace_mismatch_is_ignored_without_deletion() {
         !discover_instances()
             .unwrap()
             .iter()
-            .any(|i| i.registry_name == server.hub.descriptor().registry_name())
+            .any(|i| i.registry_name == server.registry_path.file_stem().unwrap().to_str().unwrap())
     );
     assert!(server.registry_path.exists());
     #[cfg(unix)]
@@ -72,9 +76,12 @@ async fn namespace_mismatch_is_ignored_without_deletion() {
 #[cfg(unix)]
 #[tokio::test]
 async fn symlink_registry_is_rejected_without_following_it() {
-    let descriptor =
-        InstanceDescriptor::current(InstanceRole::Portal, "local", Duration::from_secs(1)).unwrap();
-    let server = TelemetryServer::bind(TelemetryHub::new(descriptor)).unwrap();
+    let server = TelemetryServer::bind(
+        InstanceRole::Portal,
+        "local",
+        std::sync::Arc::new(crate::transport::Stats::default()),
+    )
+    .unwrap();
     let link = server.registry_path.with_extension("link");
     std::os::unix::fs::symlink(&server.registry_path, &link).unwrap();
     assert!(local::read_registry(&link).is_err());

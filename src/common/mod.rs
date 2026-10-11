@@ -15,10 +15,9 @@ mod tls;
 
 pub(crate) use config::first_raw_query_value;
 pub use config::{
-    DEFAULT_RATE_LIMIT, DEFAULT_TELEMETRY_INTERVAL, MAX_TELEMETRY_INTERVAL, MIN_TELEMETRY_INTERVAL,
-    env_int, flow_setup_timeout, handshake_timeout, query_first, rate_limit_bytes_per_second,
-    service_cooldown, shutdown_timeout, tcp_data_buf_size, tcp_read_timeout, telemetry_interval,
-    udp_data_buf_size, udp_idle_timeout,
+    DEFAULT_RATE_LIMIT, env_int, flow_setup_timeout, handshake_timeout, query_first,
+    rate_limit_bytes_per_second, service_cooldown, shutdown_timeout, tcp_data_buf_size,
+    tcp_read_timeout, udp_data_buf_size, udp_idle_timeout,
 };
 pub(crate) use datagram::{
     BudgetedDatagram, UdpDatagramSend, reserve_udp_budget, send_quic_udp_packet,
@@ -26,11 +25,12 @@ pub(crate) use datagram::{
 pub(crate) use dial::DialPolicy;
 pub use endpoint::validate_endpoint_url_input;
 pub(crate) use endpoint::{AddressFamily, CarrierEndpoint, ServiceEndpoint};
-pub(crate) use lifecycle::{LifeReason, LifeState, ShutdownSignals};
-pub use logger::{LogLevel, Logger};
+pub(crate) use lifecycle::ShutdownSignals;
+pub use logger::Logger;
 pub use network::bind_udp_addrs;
 pub(crate) use network::{
-    dial_tcp_with_policy, dial_udp_with_policy, filter_addrs_for_family, resolve_bind_addrs,
+    dial_tcp_with_policy, dial_udp_with_policy, filter_addrs_for_family, normal_close,
+    resolve_bind_addrs,
 };
 pub(crate) use socks::{
     COMMAND_BIND, COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, OutboundDialer, OutboundUdpSocket,

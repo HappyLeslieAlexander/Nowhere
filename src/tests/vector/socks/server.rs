@@ -4,7 +4,7 @@
 //! SOCKS5 client admission, listener shutdown, and CONNECT setup cancellation tests.
 
 use super::*;
-use crate::common::{LogLevel, Logger};
+use crate::common::Logger;
 use crate::vector::ForwardVector as Vector;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -17,7 +17,7 @@ fn socks_client_resource_admission_is_process_wide_and_reusable() {
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
         )
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
     let limit = vector.inner.socks_client_admission.available_permits();
@@ -37,7 +37,7 @@ async fn listener_shutdown_interrupts_idle_socks_handshake() {
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:9?net=tcp&in=127.0.0.1:1080",
         )
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -84,7 +84,7 @@ async fn client_shutdown_interrupts_pending_connect_setup() {
             "vector://0123456789abcdef0123456789abcdef@{portal_addr}?net=tcp&in=127.0.0.1:1080"
         ))
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
     let controls = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -129,10 +129,9 @@ async fn invalid_tcp_target_does_not_publish_access() {
             "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?net=tcp&in=127.0.0.1:1080",
         )
         .unwrap(),
-        Logger::new(LogLevel::None, false),
+        Logger,
     )
     .unwrap();
-    let mut events = vector.inner.telemetry.event_receiver();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut client = TcpStream::connect(listener.local_addr().unwrap())
@@ -160,8 +159,4 @@ async fn invalid_tcp_target_does_not_publish_access() {
             .unwrap()
             .is_err()
     );
-    assert!(matches!(
-        events.try_recv(),
-        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
-    ));
 }

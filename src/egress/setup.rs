@@ -7,7 +7,6 @@ use super::Egress;
 use crate::common::{DialPolicy, Logger, OutboundDialer, query_first};
 use crate::portal::forward::{Forwarder, Outlet};
 use crate::protocol::Credentials;
-use crate::telemetry::{InstanceRole, TelemetryHub};
 use crate::transport::{Buffers, RateLimiter, Stats};
 use crate::vector::{PortalClientConfig, tls::ClientTls};
 use anyhow::{Context, Result, bail};
@@ -24,15 +23,9 @@ impl Egress {
         let query = query_first(
             &url,
             &[
-                "sni", "pin", "morph", "dial", "dial4", "dial6", "rate", "etar", "log",
+                "sni", "pin", "morph", "dial", "dial4", "dial6", "rate", "etar",
             ],
         )?;
-        if query
-            .get("log")
-            .is_some_and(|s| !matches!(s.as_str(), "none" | "debug" | "info" | "warn" | "error"))
-        {
-            bail!("invalid log level");
-        }
         let config =
             PortalClientConfig::parse(&url, &query, crate::vector::config::CarrierMode::Udp)?;
         let credentials = Credentials::new(&url)?;
@@ -49,26 +42,18 @@ impl Egress {
         let upload = rate("rate")?;
         let download = rate("etar")?;
         let effective = format!(
-            "egress://{}?sni={}&pin={}&{}&morph={}&rate={upload}&etar={download}&log={}",
+            "egress://{}?sni={}&pin={}&{}&morph={}&rate={upload}&etar={download}",
             config.endpoint(),
             config.sni.as_deref().unwrap_or(config.host()),
             config.pin.as_deref().unwrap_or("none"),
             dial.to_string().replace(' ', "&"),
-            u8::from(config.morph),
-            query.get("log").map(String::as_str).unwrap_or("info")
+            u8::from(config.morph)
         );
-        let telemetry = TelemetryHub::for_current_process(
-            InstanceRole::Egress,
-            config.endpoint(),
-            crate::common::telemetry_interval()?,
-        );
-        telemetry.set_egress_online(Some(false));
         let runtime = crate::portal::config::PortalRuntimeConfig::from_env()?;
         let forward = Arc::new(Forwarder {
             runtime,
             outbound: Outlet::Network(Arc::new(OutboundDialer::new(dial, None))),
             logger,
-            telemetry,
             stats: Arc::new(Stats::default()),
             buffers: Buffers::new(
                 crate::common::tcp_data_buf_size(),

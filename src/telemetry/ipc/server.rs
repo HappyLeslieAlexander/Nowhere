@@ -6,31 +6,33 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use tokio::io::AsyncReadExt;
-use tokio::sync::{Semaphore, broadcast};
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use super::MAX_CLIENTS;
 use super::frame::write_frame;
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path};
 use crate::telemetry::local::{self, Listener, Stream};
-use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL, TelemetryHub};
+use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL};
 
 pub(crate) struct TelemetryServer {
     listener: Listener,
     pub(super) endpoint: String,
-    pub(super) hub: Arc<TelemetryHub>,
+    descriptor: Arc<crate::telemetry::wire::InstanceDescriptor>,
+    stats: Arc<crate::transport::Stats>,
     clients: Arc<Semaphore>,
     pub(super) registry_path: PathBuf,
 }
 
 impl TelemetryServer {
-    pub(crate) fn bind(hub: Arc<TelemetryHub>) -> Result<Self> {
-        if let Some(reason) = hub.unavailable_reason() {
-            bail!("telemetry process identity is unavailable: {reason}");
-        }
-        let descriptor = hub.descriptor();
+    pub(crate) fn bind(
+        role: crate::telemetry::InstanceRole,
+        endpoint: impl Into<String>,
+        stats: Arc<crate::transport::Stats>,
+    ) -> Result<Self> {
+        let descriptor = crate::telemetry::wire::InstanceDescriptor::current(role, endpoint)?;
         let name = descriptor.registry_name();
         local::prepare_directory()?;
         let endpoint = local::endpoint(&descriptor.id);
@@ -62,12 +64,23 @@ impl TelemetryServer {
         Ok(Self {
             listener,
             endpoint,
-            hub,
+            descriptor: Arc::new(descriptor),
+            stats,
             clients: Arc::new(Semaphore::new(MAX_CLIENTS)),
             registry_path,
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn discovered(&self) -> DiscoveredInstance {
+        let descriptor = &self.descriptor;
+        DiscoveredInstance {
+            registry_name: descriptor.registry_name(),
+            uid: descriptor.uid,
+            pid: descriptor.pid,
+            incarnation: descriptor.incarnation,
+        }
+    }
     pub(crate) async fn run(mut self, shutdown: CancellationToken) {
         let mut tasks = tokio::task::JoinSet::new();
         loop {
@@ -87,11 +100,12 @@ impl TelemetryServer {
                 drop(stream);
                 continue;
             };
-            let hub = Arc::clone(&self.hub);
+            let descriptor = Arc::clone(&self.descriptor);
+            let stats = Arc::clone(&self.stats);
             let connection_shutdown = shutdown.clone();
             tasks.spawn(async move {
                 let _permit = permit;
-                let _ = serve_client(stream, hub, connection_shutdown).await;
+                let _ = serve_client(stream, descriptor, stats, connection_shutdown).await;
             });
         }
         tasks.abort_all();
@@ -101,48 +115,27 @@ impl TelemetryServer {
 
 async fn serve_client(
     stream: Stream,
-    hub: Arc<TelemetryHub>,
+    descriptor: Arc<crate::telemetry::wire::InstanceDescriptor>,
+    stats: Arc<crate::transport::Stats>,
     shutdown: CancellationToken,
 ) -> Result<()> {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let mut events = hub.event_receiver();
-    let mut snapshots = hub.snapshot_receiver();
-    let mut extra = [0u8; 1];
     write_frame(
         &mut writer,
         &ServerMessage::Hello(Hello {
-            instance: hub.descriptor().clone(),
+            instance: (*descriptor).clone(),
         }),
     )
     .await?;
-    let initial_snapshot = snapshots.borrow_and_update().clone();
-    write_frame(&mut writer, &ServerMessage::Snapshot(initial_snapshot)).await?;
+    let mut ticks = tokio::time::interval(std::time::Duration::from_secs(1));
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut discard = [0u8; 1024];
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => return Ok(()),
-
-            _ = reader.read(&mut extra) => return Ok(()),
-            changed = snapshots.changed() => {
-                changed.context("telemetry snapshot source closed")?;
-                let snapshot = snapshots.borrow_and_update().clone();
-                write_frame(
-                    &mut writer,
-                    &ServerMessage::Snapshot(snapshot),
-                ).await?;
-            }
-            event = events.recv() => {
-                match event {
-                    Ok(event) => {
-                        write_frame(&mut writer, &ServerMessage::from(event)).await?;
-                    }
-                    Err(broadcast::error::RecvError::Lagged(missed)) => {
-                        write_frame(
-                            &mut writer,
-                            &ServerMessage::Gap { missed },
-                        ).await?;
-                    }
-                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
-                }
+            read = reader.read(&mut discard) => { if read? == 0 { return Ok(()); } },
+            _ = ticks.tick() => {
+                write_frame(&mut writer, &ServerMessage::Snapshot(stats.snapshot())).await?;
             }
         }
     }

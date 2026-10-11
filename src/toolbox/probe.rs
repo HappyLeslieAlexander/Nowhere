@@ -9,7 +9,7 @@ use crate::common::{flow_setup_timeout, handshake_timeout, shutdown_timeout};
 use crate::protocol::{Carrier, Credentials, SetupResult, Target};
 use crate::transport::Stats;
 use crate::vector::{PortalClient, PortalClientConfig};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -140,13 +140,6 @@ fn setup_name(result: SetupResult) -> String {
 }
 
 fn parse_client(url: &Url) -> Result<ToolboxClient> {
-    let query = crate::query_first(url, &["log"]).context("invalid configuration query")?;
-    if !matches!(
-        query.get("log").map(String::as_str),
-        None | Some("none" | "debug" | "info" | "warn" | "error")
-    ) {
-        bail!("log must be none, debug, info, warn, or error");
-    }
     ToolboxClient::parse(url).context("invalid Vector configuration")
 }
 

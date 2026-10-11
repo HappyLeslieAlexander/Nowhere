@@ -8,8 +8,8 @@ use std::{error, fmt};
 
 use anyhow::{Context, Result, bail};
 use nowhere::{
-    Egress, LogLevel, Logger, Portal, Vector, generate_key, query_first, run_fingerprint,
-    run_probe, run_status, validate_endpoint_url_input,
+    Egress, Logger, Portal, Vector, generate_key, run_fingerprint, run_probe, run_status,
+    validate_endpoint_url_input,
 };
 use url::{ParseError, Url};
 
@@ -61,7 +61,6 @@ Options:
   morph=0|1           Keyed wire masking; default 0, both peers must agree.
   rate=<mbps>         Vector-to-target limit; default 0 disables it.
   etar=<mbps>         Target-to-Vector limit; default 0 disables it.
-  log=<level>         none, debug, info, warn, error; default info.
 
 Endpoint syntax:
   host:port                   Portal TCP and UDP on the same port.
@@ -83,7 +82,7 @@ Documentation:
 async fn main() {
     if let Err(err) = start(env::args().collect()).await {
         if should_print_start_error(&err) {
-            eprintln!("{}", format_start_error(&err));
+            Logger.error(format_args!("{err:#}"));
         }
         std::process::exit(1);
     }
@@ -91,10 +90,6 @@ async fn main() {
 
 fn should_print_start_error(error: &anyhow::Error) -> bool {
     !error.is::<ProbeFailed>()
-}
-
-fn format_start_error(error: &anyhow::Error) -> String {
-    format!("error: {error:#}")
 }
 
 async fn start(args: Vec<String>) -> Result<()> {
@@ -156,9 +151,7 @@ async fn start(args: Vec<String>) -> Result<()> {
             "invalid configuration URL: scheme must be portal, vector or egress, found {scheme:?}"
         );
     }
-    let query =
-        query_first(&command_url, &["log"]).with_context(|| "invalid configuration URL query")?;
-    let logger = init_logger(query.get("log").map(String::as_str))?;
+    let logger = Logger;
 
     match scheme.as_str() {
         "portal" => {
@@ -247,30 +240,6 @@ fn normalize_legacy_empty_portal_host(raw: &str) -> Option<String> {
     normalized.push_str(host_port);
     normalized.push_str(suffix);
     Some(normalized)
-}
-
-fn init_logger(level: Option<&str>) -> Result<Logger> {
-    let logger = Logger::new(LogLevel::Info, true);
-    match level {
-        None | Some("info") => {}
-        Some("none") => logger.set_log_level(LogLevel::None),
-        Some("debug") => {
-            logger.set_log_level(LogLevel::Debug);
-            logger.debug(format_args!("main::init_logger: log level set to DEBUG"));
-        }
-        Some("warn") => {
-            logger.set_log_level(LogLevel::Warn);
-            logger.warn(format_args!("main::init_logger: log level set to WARN"));
-        }
-        Some("error") => {
-            logger.set_log_level(LogLevel::Error);
-            logger.error(format_args!("main::init_logger: log level set to ERROR"));
-        }
-        Some(value) => {
-            bail!("log must be none, debug, info, warn, or error; found {value:?}")
-        }
-    }
-    Ok(logger)
 }
 
 #[cfg(test)]

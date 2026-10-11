@@ -21,7 +21,7 @@ impl Portal {
                 addr,
                 self.inner.morph_keys.clone(),
             ),
-            |addr, error| self.inner.forward.logger.warn(format_args!(
+            |addr, error| self.inner.forward.logger.error(format_args!(
                 "portal::listen_endpoints: UDP address family unavailable for {addr}; continuing: {error:#}"
             )),
         ).context("portal::listen_endpoints: failed to open UDP listeners")
@@ -35,7 +35,7 @@ impl Portal {
             &self.inner.tcp_bind_addrs,
             self.inner.allow_tcp_family_degrade,
             listen_tcp,
-            |addr, error| self.inner.forward.logger.warn(format_args!(
+            |addr, error| self.inner.forward.logger.error(format_args!(
                 "portal::listen_tcp_listeners: TCP address family unavailable for {addr}; continuing: {error:#}"
             )),
         ).context("portal::listen_tcp_listeners: failed to open TCP listeners")

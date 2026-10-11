@@ -4,7 +4,6 @@
 //! Exporter-bound Egress authentication and the ACCEPTED registration barrier.
 
 use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, encode_auth_frame};
-use crate::telemetry::ResultCode;
 use anyhow::{Context, Result};
 
 pub(super) async fn register(connection: &quinn::Connection, key: [u8; 32]) -> Result<()> {
@@ -43,8 +42,8 @@ pub(super) async fn register(connection: &quinn::Connection, key: [u8; 32]) -> R
     .context("registration timeout")??;
     match accepted {
         0 => {}
-        1 => return Err(ResultCode::ResourceLimit.into()),
-        _ => return Err(ResultCode::Protocol.into()),
+        1 => anyhow::bail!("Egress registration rejected: slot occupied"),
+        _ => anyhow::bail!("invalid Egress registration reply"),
     }
     Ok(())
 }

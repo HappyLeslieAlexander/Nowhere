@@ -4,7 +4,7 @@
 //! Bounded local IPC snapshot collection and deterministic one-shot status output.
 
 use super::diagnostic::connection_failure_reason;
-use super::format::{bytes, duration_ms, panel};
+use super::format::{bytes, panel};
 use crate::telemetry::{
     Hello, InstanceRole, ServerMessage, TelemetryClient, TelemetrySnapshot, discover_instances,
 };
@@ -101,65 +101,19 @@ fn status_item(hello: Hello, snapshot: TelemetrySnapshot) -> StatusItem {
 }
 
 fn status_panel(item: &StatusItem) -> String {
-    let upload = item
-        .snapshot
-        .tcp_upload_bytes
-        .saturating_add(item.snapshot.udp_upload_bytes);
-    let download = item
-        .snapshot
-        .tcp_download_bytes
-        .saturating_add(item.snapshot.udp_download_bytes);
-    let mut rows = vec![
-        ("Status", item.snapshot.lifecycle.to_string()),
-        ("Endpoint", item.endpoint.clone()),
-        ("Uptime", duration_ms(item.snapshot.uptime_ms)),
-        (
-            "Flows",
-            format!(
-                "TCP {} · UDP {}",
-                item.snapshot.tcp_active, item.snapshot.udp_active
-            ),
-        ),
-        (
-            "Carriers",
-            format!(
-                "TLS {} · QUIC {}",
-                item.snapshot.tls_carriers_active, item.snapshot.quic_carriers_active
-            ),
-        ),
-        (
-            "Traffic",
-            format!("↑ {} · ↓ {}", bytes(upload), bytes(download)),
-        ),
-        (
-            "CPU",
-            item.snapshot
-                .cpu_percent
-                .map_or_else(|| "—".to_owned(), |value| format!("{value:.1}%")),
-        ),
-        (
-            "Memory",
-            item.snapshot
-                .rss_bytes
-                .map_or_else(|| "—".to_owned(), bytes),
-        ),
-        (
-            "FDs",
-            item.snapshot
-                .open_fds
-                .map_or_else(|| "—".to_owned(), |value| value.to_string()),
-        ),
-    ];
-    if let Some(online) = item.snapshot.egress_online {
-        rows.insert(
-            1,
-            (
-                "Egress",
-                if online { "ONLINE" } else { "OFFLINE" }.to_owned(),
-            ),
-        );
-    }
-    panel(&format!("{} · PID {}", item.role, item.pid), &rows)
+    panel(
+        &format!("{} · PID {}", item.role, item.pid),
+        &[
+            ("Instance", item.id.clone()),
+            ("Endpoint", item.endpoint.clone()),
+            ("TCP upload", bytes(item.snapshot.tcp_upload_bytes)),
+            ("TCP download", bytes(item.snapshot.tcp_download_bytes)),
+            ("UDP upload", bytes(item.snapshot.udp_upload_bytes)),
+            ("UDP download", bytes(item.snapshot.udp_download_bytes)),
+            ("TCP flows", item.snapshot.tcp_active.to_string()),
+            ("UDP flows", item.snapshot.udp_active.to_string()),
+        ],
+    )
 }
 
 #[cfg(test)]
