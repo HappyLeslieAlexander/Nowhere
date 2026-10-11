@@ -94,5 +94,4 @@ Egress itself. Public snapshots expose the same state as `egress_online`.
 | Vector or another Portal output | Not applicable; `egress_online` is `null` |
 
 An idle accepted Egress counts one Carrier and zero business Flows. Carrier
-counts do not establish online state. Registration changes update snapshots
-and emit Runtime events. See [Telemetry](telemetry.md#egress-registration-state).
+counts do not establish online state. Registration changes update snapshots. See [Telemetry](telemetry.md#egress-registration-state).

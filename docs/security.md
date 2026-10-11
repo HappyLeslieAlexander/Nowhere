@@ -97,13 +97,14 @@ bounded events and Gap notifications isolate slow subscribers. See
 
 ## Metadata and diagnostics
 
-Startup INFO and public metadata omit Shared Key and SOCKS credentials.
-Private key contents are never logged. Public metadata also omits certificate
-paths and raw configuration URLs; authorized collectors can see effective
-service addresses, SNI and validated target addresses.
+Startup INFO omits Shared Key and SOCKS credentials. Private key contents are
+never logged. IPC metadata exposes validated service endpoints and destination
+addresses to authorized collectors; it includes no configuration summary,
+client address or transport peer identity.
 
-Client and path-peer identities use separate instance-local pseudonyms.
-Runtime and access errors publish sanitized templates and classified causes.
-Raw error chains and authentication material are not forwarded through IPC.
-Subscriber access is read-only. See [Telemetry privacy](telemetry.md#privacy-and-trust)
-for the publisher's policy and the collector's trust boundary.
+Flow results and independent diagnostics use fixed codes. Known errors are
+classified by type; unknown details become `unknown`. Raw errors, credentials
+and dynamic diagnostic text are not sent through IPC.
+
+See [Telemetry privacy](telemetry.md#privacy-and-trust) for the publisher's policy
+and the collector's trust boundary.

@@ -129,7 +129,7 @@ def main():
             assert snapshot["lifecycle"] in ("STARTING", "READY")
             assert "config_summary" not in hello["instance"]
             assert "lifecycle" not in hello
-            # Reconnection receives the same instance identity and current state.
+
             ipc.close()
             ipc = socket.socket(socket.AF_UNIX)
             ipc.settimeout(DEADLINE)
@@ -216,7 +216,19 @@ def main():
                 assert observed["tcp_upload_bytes"] == len(payload), observed
                 assert observed["tcp_download_bytes"] == len(payload)
                 assert observed["egress_online"] is None
-            # Any input closes the connection, even a partial frame.
+
+                with socket.create_connection(("127.0.0.1", ingress), timeout=DEADLINE) as invalid:
+                    invalid.sendall(b"\x04\x01\x00")
+                    invalid.shutdown(socket.SHUT_WR)
+                    try:
+                        invalid.recv(1024)
+                    except ConnectionResetError:
+                        pass
+                diagnostic = next_kind(observer, "diagnostic")
+                assert diagnostic["context"] == "socks_handshake"
+                assert set(diagnostic) == {"sequence", "timestamp_ms", "context", "reason"}
+                assert isinstance(diagnostic["reason"], str)
+
             ipc.sendall(b"\x00")
             while ipc.recv(65536):
                 pass
@@ -254,6 +266,7 @@ def main():
             assert "IDLE" in idle
             print(json.dumps({"headless": "passed", "passive_reconnection": "passed",
                               "extra_input_disconnect": "passed",
+                              "structured_diagnostic": "passed",
                               "known_logical_bytes_each_direction": len(payload),
                               "namespace_isolation": "passed" if legacy is not None else "not run", "cleanup": "passed"}))
         finally:

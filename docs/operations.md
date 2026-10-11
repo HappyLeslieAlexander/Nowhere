@@ -30,7 +30,7 @@ remain visible when another instance fails; partial failures are reported.
 | Egress | ONLINE or OFFLINE where registration applies |
 | Traffic | Logical upload/download in the Vector-to-Target direction |
 | Flows and Carriers | Active business Flows and transport ownership |
-| RTT, CPU, Memory and FDs | Resource samples; unavailable values display as a dash |
+| CPU, Memory and FDs | Resource samples; unavailable values display as a dash |
 
 Each process maintains Telemetry without subscribers or stdout logging.
 Collectors use [public JSON IPC](telemetry.md); status text is a human interface.

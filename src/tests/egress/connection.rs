@@ -33,6 +33,7 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     )
     .unwrap();
     let telemetry = egress.forward.telemetry.clone();
+    let mut events = telemetry.event_receiver();
     let task = tokio::spawn(async move { egress.registered_connection().await });
     let connection = endpoint.accept().await.unwrap().await.unwrap();
     let (mut auth_send, mut auth_recv) = connection.accept_bi().await.unwrap();
@@ -92,4 +93,10 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
         Some(false)
     );
     endpoint.wait_idle().await;
+    while let Ok(event) = events.try_recv() {
+        assert!(
+            !matches!(event, crate::telemetry::Event::Diagnostic(_)),
+            "normal connection lifecycle emitted a diagnostic"
+        );
+    }
 }

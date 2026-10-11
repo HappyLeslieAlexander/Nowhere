@@ -191,7 +191,7 @@ nowhere "vector://<generated-key>@portal.example:2000?net=tcp&in=127.0.0.1:1080"
 | [Security](docs/security.md) | Trust and resource boundaries |
 | [Operations](docs/operations.md) | Service lifecycle and diagnostics |
 | [Platforms](docs/platforms.md) | Native targets and containers |
-| [Telemetry](docs/telemetry.md) | Discovery, schemas and subscriptions |
+| [Telemetry](docs/telemetry.md) | Discovery, schemas and messages |
 
 Explore the complete [documentation index](docs/README.md).
 

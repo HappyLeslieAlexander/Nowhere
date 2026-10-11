@@ -182,7 +182,12 @@ async fn handle_client(
                             &mut stream,
                             reply,
                             &unspecified,
-                        ) => result?,
+                        ) => {
+                            if let Err(error) = result {
+                                access.finish(error_reason(&error));
+                                return Err(error);
+                            }
+                        },
                     }
                     tokio::select! {
                         result = relay_tcp(vector, stream, tunnel, peer, &request.address, access) => result,

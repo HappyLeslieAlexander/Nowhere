@@ -45,3 +45,31 @@ fn untyped_error_text_is_never_used_to_guess_a_code() {
         assert_eq!(error_reason(&anyhow::anyhow!(message)), ResultCode::Unknown);
     }
 }
+
+#[tokio::test]
+async fn timeout_types_survive_context_and_quic_io_wrappers() {
+    let elapsed = tokio::time::timeout(
+        std::time::Duration::from_millis(1),
+        std::future::pending::<()>(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error_reason(&anyhow::Error::new(elapsed).context("opaque setup failure")),
+        ResultCode::Timeout
+    );
+    let read = quinn::ReadError::ConnectionLost(quinn::ConnectionError::TimedOut);
+    assert_eq!(
+        error_reason(&std::io::Error::from(read).into()),
+        ResultCode::Timeout
+    );
+    let write = quinn::WriteError::ConnectionLost(quinn::ConnectionError::LocallyClosed);
+    assert_eq!(
+        error_reason(&std::io::Error::from(write).into()),
+        ResultCode::Cancelled
+    );
+    assert_eq!(
+        error_reason(&ResultCode::ResourceLimit.into()),
+        ResultCode::ResourceLimit
+    );
+}

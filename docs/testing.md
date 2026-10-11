@@ -118,7 +118,7 @@ When wire bytes change, update the specification, vectors and codec tests togeth
 | Lifetime | Half-close, setup cancellation, idle timeout, UDP control FIN/reset/stop, late DATAGRAMs and bounded drain |
 | Egress | ACCEPTED ordering, BUSY, immediate offline failure, reconnect and stale-owner cleanup |
 | Configuration | First duplicates, ignored unknowns, percent decoding, conflicts, effective configuration and explicit bind failure |
-| Telemetry | Known-byte counters, ownership counts, ordered snapshots/events, subscriptions, Gap and slow-client isolation |
+| Telemetry | Known-byte counters, ownership counts, ordered snapshots/events, passive connections, Gap and slow-client isolation |
 | IPC | Frame/client limits, permissions, identity/incarnation checks, PID reuse and namespace isolation |
 
 A change to a resource owner must cover failure and cancellation as well as
@@ -137,7 +137,7 @@ python3 src/tests/telemetry/headless.py ./target/release/nowhere
 
 The script launches Portal and Vector with redirected standard streams. Using
 only Python's standard library and the public length-prefixed JSON interface,
-it checks discovery, identity, Summary/Detail reconnection, known logical byte
+it checks discovery, identity, passive reconnection, known instance logical byte
 counts, one-shot status and shutdown cleanup. It requires neither a terminal nor
 Rust module access. The optional `--isolation-peer` argument exercises namespace
 isolation against a separately supplied executable; see the script's `--help`.
@@ -164,7 +164,7 @@ distributions rather than a single best value:
 | TCP throughput | Payload size, concurrency, direction and elapsed interval |
 | UDP PPS/loss | Packet size, offered rate, fragmentation, delivery interval and receive timeout |
 | Resources | CPU, idle/peak RSS, tasks, descriptors and values after cleanup |
-| Observation overhead | No subscribers, Summary, Detail, multiple subscribers and slow readers |
+| Observation overhead | No collectors, one collector, multiple collectors and slow readers |
 | UDP control cost | Incremental resources relative to a warmed connection without UDP Flows |
 
 ### Account for resources and loss

@@ -249,3 +249,37 @@ async fn failed_publication_rolls_back_only_owned_resources() {
     std::fs::remove_file(pending).unwrap();
     std::fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn events_are_collected_before_the_initial_snapshot_is_read() {
+    let (hub, _, shutdown, task) = start_service();
+    let stream = local::connect(&local::endpoint(&hub.descriptor().id), std::process::id())
+        .await
+        .unwrap();
+    let (reader, _writer) = tokio::io::split(stream);
+    let mut reader = TelemetryReader {
+        inner: FrameReader::new(reader),
+    };
+    assert!(matches!(
+        reader.next_message().await.unwrap(),
+        ServerMessage::Hello(_)
+    ));
+    assert_eq!(hub.events_receiver_count_for_test(), 1);
+    let span = hub.start_access(|| crate::telemetry::AccessStart {
+        protocol: crate::telemetry::TrafficProtocol::Tcp,
+        target: "example.com:443".to_owned(),
+        carrier: crate::protocol::Carrier::TlsTcp,
+    });
+    span.finish(ResultCode::Success);
+    initial_snapshot(&mut reader).await;
+    let ServerMessage::AccessStart(start) = reader.next_message().await.unwrap() else {
+        panic!("start")
+    };
+    let ServerMessage::AccessFinish(finish) = reader.next_message().await.unwrap() else {
+        panic!("finish")
+    };
+    assert_eq!(start.id, finish.id);
+    assert_eq!(finish.result, ResultCode::Success);
+    shutdown.cancel();
+    task.await.unwrap();
+}

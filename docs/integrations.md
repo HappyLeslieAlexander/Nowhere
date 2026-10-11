@@ -59,18 +59,19 @@ of Rust private modules and status text.
 
 1. Discover an instance in the local per-user registry.
 2. Validate permissions, endpoint namespace, peer and process identity.
-3. Connect, validate Hello against discovery and send `subscribe`.
-4. Read the initial Snapshot and Lifecycle, then consume Summary or Detail messages.
-   Each connection selects its mode once; switch by disconnecting and reconnecting.
-5. On disconnect, rediscover and subscribe again.
+3. Connect and validate Hello against discovery; send no data.
+4. Read the initial Snapshot, then consume state updates, diagnostics, Flow events and Gap.
+5. On disconnect, rediscover and reconnect.
 
-Summary delivers Snapshot and Lifecycle. Detail additionally delivers Runtime,
-Access and Gap messages. Delivery has no historical replay guarantee. Collectors
-must preserve counter precision, tolerate unavailable values and avoid treating
-per-process totals as unique end-to-end traffic.
+All connections receive the same stream, without historical replay. Snapshot
+contains current lifecycle and registration state. Flow finishes carry only ID,
+time and result; collectors correlate available starts and tolerate missing ones.
+Diagnostics use context and reason codes. Preserve counter precision, tolerate
+unavailable samples and avoid treating per-process totals as unique end-to-end
+traffic.
 
 The [independent client](../src/tests/telemetry/headless.py) demonstrates Unix
-framing, identity checks, subscriptions and snapshots using Python's standard
+framing, identity checks, passive streaming and snapshots using Python's standard
 library. See [Testing](testing.md#headless-ipc-check) for running it.
 
 ## Deployment boundaries

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Telemetry frame limits, cancellation-safe reads, write timeouts, and command deadlines tests.
+//! Telemetry frame limits, cancellation-safe reads, write timeouts, and partial-frame deadline tests.
 
 use super::*;
 use crate::telemetry::{MAX_FRAME_SIZE, ServerMessage};

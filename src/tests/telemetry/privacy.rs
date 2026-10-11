@@ -1,5 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
+//! Endpoint/target validation and random instance identity regressions.
+
 use super::*;
 #[test]
 fn endpoints_and_targets_reject_credentials_controls_and_invalid_addresses() {

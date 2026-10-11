@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Local telemetry listener lifecycle and client subscription handling.
+//! Protected local listener lifecycle and passive telemetry delivery.
 
 use std::path::PathBuf;
 use std::sync::Arc;
