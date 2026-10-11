@@ -125,7 +125,7 @@ def main():
             ipc.settimeout(DEADLINE)
             ipc.connect(record["endpoint"])
             hello = next_kind(ipc, "hello")
-            assert hello["instance"]["telemetry_protocol"] == record["protocol"]
+            assert hello["instance"]["contract"] == record["protocol"]
             assert hello["instance"]["pid"] == portal.pid
             assert hello["instance"]["role"] == "portal"
             assert KEY not in json.dumps(hello)

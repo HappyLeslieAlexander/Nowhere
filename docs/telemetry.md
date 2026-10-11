@@ -108,7 +108,7 @@ EOF or an I/O error closes the connection and releases its connection slot.
 An idle read-only client remains connected. Reconnection begins with a new Hello
 and the latest statistics.
 
-Hello contains `instance`: `telemetry_protocol`, random `id`, `role`, `pid`,
+Hello contains `instance`: `contract`, random `id`, `role`, `pid`,
 `version` and validated `endpoint`. Identity checks precede trusting statistics.
 
 ```json
@@ -116,7 +116,7 @@ Hello contains `instance`: `telemetry_protocol`, random `id`, `role`, `pid`,
   "type": "hello",
   "data": {
     "instance": {
-      "telemetry_protocol": "nowhere.telemetry.3",
+      "contract": "nowhere.telemetry.3",
       "id": "0123456789abcdef0123456789abcdef",
       "role": "portal",
       "pid": 42,
@@ -251,7 +251,7 @@ It can be copied directly into a JSON Schema validator.
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "telemetry_protocol",
+                "contract",
                 "id",
                 "role",
                 "pid",
@@ -259,7 +259,7 @@ It can be copied directly into a JSON Schema validator.
                 "endpoint"
               ],
               "properties": {
-                "telemetry_protocol": {
+                "contract": {
                   "const": "nowhere.telemetry.3"
                 },
                 "id": {

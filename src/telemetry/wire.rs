@@ -22,7 +22,7 @@ pub(crate) enum InstanceRole {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct InstanceDescriptor {
-    pub(crate) telemetry_protocol: String,
+    pub(crate) contract: String,
     pub(crate) id: String,
     pub(crate) role: InstanceRole,
     pub(crate) pid: u32,
@@ -41,7 +41,7 @@ impl InstanceDescriptor {
         let uid = process_uid();
         let incarnation = process_incarnation(pid)?;
         Ok(Self {
-            telemetry_protocol: TELEMETRY_PROTOCOL.to_owned(),
+            contract: TELEMETRY_PROTOCOL.to_owned(),
             id: super::privacy::random_id()?,
             role,
             pid,

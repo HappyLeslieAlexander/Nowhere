@@ -71,7 +71,7 @@ impl TelemetryClient {
 
 fn validate_hello(hello: &Hello, discovered: &DiscoveredInstance) -> Result<()> {
     let instance = &hello.instance;
-    if instance.telemetry_protocol != TELEMETRY_PROTOCOL
+    if instance.contract != TELEMETRY_PROTOCOL
         || instance.pid != discovered.pid
         || instance.registry_name() != discovered.registry_name
     {
