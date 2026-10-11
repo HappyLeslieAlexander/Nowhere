@@ -66,15 +66,13 @@ impl PortalClientConfig {
                 CarrierMode::Udp
             }
             "nowhere" => match query.get("net").map(String::as_str) {
-                Some("tcp") => CarrierMode::Tcp,
+                None | Some("tcp") => CarrierMode::Tcp,
                 Some("udp") => CarrierMode::Udp,
-                None => bail!("share link net is required"),
                 Some(_) => bail!("share link net must be tcp or udp"),
             },
             _ => bail!("unsupported client URL scheme"),
         };
         let morph = match query.get("morph").map(String::as_str) {
-            None if url.scheme() == "nowhere" => bail!("share link morph is required"),
             None | Some("0") => false,
             Some("1") => true,
             Some(_) => bail!("{context}: morph must be 0 or 1"),
@@ -140,7 +138,11 @@ impl PortalClientConfig {
         }
         let mut clean = url.clone();
         clean.set_fragment(None);
-        Self::parse(&clean, &query_first(&clean, &["net", "morph", "sni"])?)
+        let query = query_first(&clean, &["net", "morph", "sni"])?;
+        if !query.contains_key("morph") {
+            bail!("fingerprint requires morph=0 or morph=1");
+        }
+        Self::parse(&clean, &query)
     }
     pub(crate) fn endpoint(&self) -> String {
         self.remote.canonical()

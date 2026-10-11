@@ -36,14 +36,14 @@ Usage:
   nowhere fingerprint <nowhere-url>    Read the TLS certificate SHA-256 fingerprint
   nowhere probe <vector-url> <target>  Test one real TCP Flow
   nowhere status                       Read one local telemetry snapshot
-  nowhere -h | --help                  Show this help
+  nowhere -h | --help                  Show this help message
   nowhere -v | --version               Show version information
 
 URL forms:
   portal://<key>@<endpoint>[?<options>]
   vector://<key>@<endpoint>?in=[user:pass@]host:port[&<options>]
   egress://<key>@<endpoint>[?<options>]
-  nowhere://<key>@<host>:<port>?net=tcp&morph=0#<name>
+  nowhere://<key>@<host>:<port>[?<options>][#<name>]
 
 Service options:
   out=<exit>          Portal direct (default), egress, or SOCKS5 address.
@@ -64,17 +64,16 @@ Endpoint syntax:
   host:port                   Portal TLS+QUIC; Vector TLS; Egress QUIC.
   host/tcp:port               One TLS carrier for Portal or Vector.
   host/udp:port               One QUIC carrier for any role.
-  host/tcp:port/udp:port       Two carriers for Portal only.
+  host/tcp:port/udp:port      Two carriers for Portal only.
   tcp4, udp4 / tcp6, udp6     Restrict a carrier to IPv4 or IPv6.
-  *                           Portal wildcard; clients require a concrete host.
+  *                           Portal wildcard; others require a concrete host.
 
 Constraints:
   Vector paths declare one carrier; Egress paths declare only a QUIC carrier.
   out=egress requires a QUIC listener and rejects dial, dial4 and dial6.
   Shared keys require exactly 32 lowercase hex text characters.
   Unknown parameters are ignored; first recognized duplicate wins.
-  Share links require net=tcp|udp and morph=0|1; a display name is recommended.
-  fingerprint accepts links with or without a display name.
+  fingerprint requires morph=0|1; net defaults to tcp.
   probe sends no target payload. fingerprint queries TCP/TLS only.
 
 Documentation:

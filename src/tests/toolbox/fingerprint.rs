@@ -108,12 +108,11 @@ fn fingerprint_share_links_decode_keys_and_ignore_display_names_and_flow_options
 }
 
 #[test]
-fn fingerprint_requires_explicit_carrier_and_morph_values() {
+fn fingerprint_defaults_carrier_and_requires_morph() {
     for (query, expected) in [
-        ("", "net is required"),
-        ("morph=0", "net is required"),
-        ("net=tcp", "morph is required"),
-        ("net=udp", "morph is required"),
+        ("", "fingerprint requires morph=0 or morph=1"),
+        ("net=tcp", "fingerprint requires morph=0 or morph=1"),
+        ("net=udp", "fingerprint requires morph=0 or morph=1"),
         ("net=&morph=0", "net must be tcp or udp"),
         ("net=invalid&net=tcp&morph=0", "net must be tcp or udp"),
         ("net=tcp&morph=", "morph must be 0 or 1"),
@@ -125,6 +124,21 @@ fn fingerprint_requires_explicit_carrier_and_morph_values() {
         assert!(message.contains(expected), "{message}");
         assert!(!message.contains("secret"), "{message}");
         assert!(!message.contains("localhost"), "{message}");
+    }
+    for (query, net, morph) in [("?morph=0", "tcp", false), ("?morph=1", "tcp", true)] {
+        for name in ["", "#NAME"] {
+            let url = Url::parse(&format!("nowhere://secret@localhost:2000{query}{name}")).unwrap();
+            let config = PortalClientConfig::from_fingerprint_url(&url).unwrap();
+            assert_eq!(
+                config.net,
+                if net == "tcp" {
+                    crate::vector::config::CarrierMode::Tcp
+                } else {
+                    crate::vector::config::CarrierMode::Udp
+                }
+            );
+            assert_eq!(config.morph, morph);
+        }
     }
     for net in ["tcp", "udp"] {
         for morph in [0, 1] {

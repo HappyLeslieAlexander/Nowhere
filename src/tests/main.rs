@@ -57,9 +57,11 @@ async fn fingerprint_requires_exactly_one_share_link() {
 #[tokio::test]
 async fn fingerprint_rejects_invalid_raw_share_links_before_network_access() {
     for raw in [
-        "nowhere://secret@localhost:2000#NAME",
+        "nowhere://secret@localhost:2000",
         "nowhere://secret@localhost:2000?net=tcp#NAME",
-        "nowhere://secret@localhost:2000?morph=0#NAME",
+        "nowhere://secret@localhost:2000?net=&morph=0#NAME",
+        "nowhere://secret@localhost:2000?net=invalid&morph=0#NAME",
+        "nowhere://secret@localhost:2000?morph=invalid#NAME",
         "nowhere://secret@localhost/tcp:2006/../udp:2017",
         "nowhere://secret@localhost/tcp:2006/%2e%2e/udp:2017#Name",
         "nowhere://secret@localhost/tcp:secret",
