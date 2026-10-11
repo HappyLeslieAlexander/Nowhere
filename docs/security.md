@@ -38,7 +38,7 @@ exporter, using the [role KDF](protocol.md#authentication). Tags are compared in
 constant time. They cannot authenticate another connection, resumed connection,
 transport or role.
 
-Shared Key is percent-decoded once and used as text bytes. Vector, Portal and
+Shared Key is percent-decoded once and used as text bytes. Portal, Vector and
 Egress require exactly 32 lowercase hexadecimal text characters.
 `nowhere generate-key` encodes 16 cryptographically random bytes as text,
 providing 128 bits of entropy. Key derivation does not increase that entropy.

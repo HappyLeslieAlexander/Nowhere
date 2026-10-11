@@ -34,7 +34,7 @@ listener. Target dialing and DNS resolution belong to Egress.
 
 ## Configure the peers
 
-Use a Shared Key from `nowhere generate-key` on Portal, Egress and Vector.
+Use a Shared Key from `nowhere generate-key` on Portal, Vector and Egress.
 Start Portal with a QUIC listener and the Egress output:
 
 ```sh
@@ -52,7 +52,7 @@ instead of a pin. Vector connects to Portal as described in [Quick start](quick-
 
 For target source selection, set Egress `dial` or `dial4`/`dial6`. These options
 apply to Egress-to-Target work and do not bind the Portal connection. Portal
-`out=egress` conflicts with every explicit `dial*` parameter, including `auto`.
+`out=egress` conflicts with explicit `dial`, `dial4` or `dial6`, including `auto`.
 See [Configuration](configuration.md) for option defaults and binding rules.
 
 ## Registration and ownership

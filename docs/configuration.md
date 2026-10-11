@@ -1,162 +1,238 @@
 # Configuration
 
-Configure roles, transports and a fixed exit with service URLs.
+Configure listeners, transport selection and a fixed exit with service URLs.
 
 ## Contents
 
 - [Role URLs](#role-urls)
 - [Endpoints](#endpoints)
-- [Vector URL](#vector-url)
+- [Share links](#share-links)
 - [Portal URL](#portal-url)
+- [Vector URL](#vector-url)
 - [Egress URL](#egress-url)
-- [Parsing and effective configuration](#parsing-and-effective-configuration)
+- [Parsing configuration](#parsing-configuration)
+- [Parameter overview](#parameter-overview)
 - [Runtime environment](#runtime-environment)
 
 ## Role URLs
 
-| Role | URL | Primary settings |
+| Role | URL | Purpose |
 |---|---|---|
-| Vector | `vector://KEY@HOST:PORT` | SOCKS ingress `in`; transport `net` |
-| Portal | `portal://KEY@HOST:PORT` | Listeners; fixed exit `out` |
-| Egress | `egress://KEY@HOST:PORT` | QUIC registration; target source selection `dial*` |
+| Portal | `portal://KEY@ENDPOINT` | TLS/QUIC listeners and one fixed exit |
+| Vector | `vector://KEY@ENDPOINT?in=HOST:PORT` | Local SOCKS5 ingress and one connection carrier to Portal |
+| Egress | `egress://KEY@ENDPOINT` | QUIC registration and target access |
 
-Shared Key is percent-decoded once and used as text bytes. Vector, Portal and
-Egress require exactly 32 lowercase hexadecimal text characters. Generate a valid
-key with `nowhere generate-key` and use the same value on the peers. Service
-URLs do not accept a password component or display-name fragment.
+`KEY` is percent-decoded once and used as text bytes. All three roles require
+exactly 32 lowercase hexadecimal characters. Generate a key with
+`nowhere generate-key` and use the same value on the peers. Service URLs do not
+accept a password component or display-name fragment.
+
+`ENDPOINT` selects the host, port and transport. Query parameters follow `?`
+and are separated by `&`.
 
 ## Endpoints
 
-Declare a common port or separate carrier ports:
+All roles use the same endpoint grammar, with different carrier limits:
+
+| ENDPOINT form | Portal | Vector | Egress |
+|---|---|---|---|
+| `HOST:PORT` | TLS and QUIC on the same port | TLS | QUIC |
+| `HOST/tcp:PORT` | TLS listener | TLS connection | Unsupported |
+| `HOST/udp:PORT` | QUIC listener | QUIC connection | QUIC connection |
+| `HOST/tcp:PORT/udp:PORT` | Separate TLS and QUIC listener ports | Unsupported | Unsupported |
+
+Portal paths declare one or two carriers. Vector paths declare exactly one
+carrier; Egress paths declare exactly one QUIC carrier. Both TLS and QUIC carry
+TCP and UDP business Flows.
+
+Each carrier may specify an address family:
+
+| Carrier | Transport | Address family |
+|---|---|---|
+| `tcp` | TLS | IPv4 or IPv6 |
+| `tcp4` | TLS | IPv4 only |
+| `tcp6` | TLS | IPv6 only |
+| `udp` | QUIC | IPv4 or IPv6 |
+| `udp4` | QUIC | IPv4 only |
+| `udp6` | QUIC | IPv6 only |
+
+Use a DNS name, IPv4 address or bracketed IPv6 address for `HOST`. Portal also
+accepts `*` for wildcard listeners. Vector and Egress require a concrete host.
+A concrete IP must match the carrier's address family.
+Ports are decimal integers in `1..=65535`.
+
+Do not combine an authority port with a carrier path. Paths do not accept empty
+segments, dot segments or a trailing slash. Portal's two carriers may appear in
+either order, but TCP and UDP may each be declared only once, including their
+family-specific forms.
+
+Examples:
 
 ```text
-portal://KEY@HOST:PORT
-portal://KEY@HOST/tcp:PORT/udp:PORT
-vector://KEY@HOST:PORT?in=127.0.0.1:1080&net=tcp
-egress://KEY@HOST:PORT
+portal://KEY@*:2000
+portal://KEY@*/tcp4:2000/udp6:2001
+vector://KEY@relay.example/tcp:2000?in=127.0.0.1:1080
+vector://KEY@relay.example/udp:2001?in=127.0.0.1:1080
+egress://KEY@[2001:db8::1]/udp6:2001
 ```
 
-Portal uses one common host with TCP and UDP ports declared independently.
-A compact Portal endpoint enables both transports. Explicit paths may declare
-one or both carriers, once each.
-
-| Carrier declaration | Transport | Address family |
-|---|---|---|
-| `tcp` | Dedicated TLS | IPv4 or IPv6 |
-| `udp` | QUIC | IPv4 or IPv6 |
-| `tcp4`, `udp4` | TLS or QUIC respectively | IPv4 only |
-| `tcp6`, `udp6` | TLS or QUIC respectively | IPv6 only |
-
-Client hosts must be concrete. Portal accepts `*` or an empty listen host.
-Unrestricted wildcard listeners may omit an unavailable family with a diagnostic on stderr;
-explicit families and concrete binds fail on errors. See
+Unrestricted wildcard Portal listeners may omit an unavailable family with a
+diagnostic on stderr. Explicit families and concrete binds fail on errors. See
 [network exposure](platforms.md#network-exposure) for socket and firewall rules.
 
-Vector selects one carrier with `net=tcp|udp`, default `tcp`. Both carriers
-forward TCP and UDP business Flows. Egress always selects QUIC. A compact
-client endpoint supplies the selected carrier's port; an explicit path must
-include that carrier.
+## Share links
 
-## Vector URL
+Client sharing uses a compact host and port with query-based transport selection:
 
-| Parameter | Meaning | Default |
-|---|---|---|
-| `in` | SOCKS ingress `[USER:PASS@]HOST:PORT` | Required for a service; optional for probe |
-| `net` | `tcp` for dedicated TLS; `udp` for QUIC | `tcp` |
-| `sni` | Verified DNS server name | Endpoint host |
-| `pin` | Exact certificate SHA-256 | System CA and hostname verification |
-| `morph` | `0` or `1`; peers share the key and setting | `0` |
-| `rate`, `etar` | Upload/download Mbps; `0` disables the limit | `0` |
+```text
+nowhere://KEY@HOST:PORT?net=tcp&morph=0#NAME
+```
 
-A pin is exactly 64 lowercase hexadecimal characters. A missing, empty or
-`none` pin uses normal certificate verification. An empty or `none` SNI uses
-the endpoint host. Obtain a fingerprint with `nowhere fingerprint` and compare
-it through a trusted channel before configuring it. See
-[certificate trust](security.md#certificate-trust).
+Examples:
 
-Upload and download follow the Vector-to-Target business direction, regardless
-of which transport peer establishes the connection.
+```text
+nowhere://KEY@relay.example:2000?net=tcp&morph=0#NAME
+nowhere://KEY@relay.example:2001?net=udp&morph=1#NAME
+```
+
+Share links do not accept carrier paths. Use a concrete DNS name, IPv4 address
+or bracketed IPv6 address. `net` and `morph` are required; a display name as
+`#NAME` is recommended. Percent-encode spaces and reserved characters in names.
+
+| Parameter | Accepted value | Requirement | Purpose |
+|---|---|---|---|
+| `net` | `tcp` or `udp` | Required | Client carrier: TLS or QUIC |
+| `morph` | `0` or `1` | Required | Shared-key wire masking; peers must agree |
+
+`fingerprint` accepts the same link with or without `#NAME`. For certificate
+inspection with optional `sni`, see
+[Operations](operations.md#diagnose-target-setup). Client import guides describe
+any additional share-link fields.
 
 ## Portal URL
 
-| Parameter | Meaning | Default |
-|---|---|---|
-| `out` | `direct`, `egress`, or `[USER:PASS@]HOST:PORT` SOCKS5 exit | `direct` |
-| `tls` | `1` generated certificate; `2` supplied PEM certificate/key | `1` |
-| `crt`, `key` | PEM paths; required exactly when `tls=2` | Absent |
-| `dial` | Source IP/single-family policy, or `auto` | Automatic |
-| `dial4`, `dial6` | Family-specific source IP, or `auto` | Automatic |
-| `morph`, `rate`, `etar` | Same meaning as Vector | `0`, `0`, `0` |
+```text
+portal://KEY@ENDPOINT[?out=EXIT]
+```
 
-`out=egress` requires a QUIC listener and conflicts with every explicit `dial*`
-parameter, including `auto`. The first registered Egress owns the Slot; another
-connection receives BUSY. An offline Egress fails new Flows immediately without
-waiting, queuing or falling back to direct access. See [Egress](egress.md).
+Portal listens on `ENDPOINT` and uses one fixed `out` for all Flows.
+
+| Parameter | Accepted value | Default | Purpose |
+|---|---|---|---|
+| `out` | `direct`, `egress` or `[USER:PASS@]HOST:PORT` | `direct` | Direct target access, registered Egress or a SOCKS5 upstream |
+| `tls` | `1` or `2` | `1` | Generated certificate (`1`) or supplied PEM files (`2`) for TLS and QUIC |
+| `crt` | Certificate-chain PEM path | Absent | Required exactly when `tls=2` |
+| `key` | Private-key PEM path | Absent | Required exactly when `tls=2` |
+| `dial` | IP literal or `auto` | `auto` | Outbound source binding; an IP restricts connections to its address family |
+| `dial4` | IPv4 literal or `auto` | `auto` | IPv4 outbound source binding |
+| `dial6` | IPv6 literal or `auto` | `auto` | IPv6 outbound source binding; IPv4-mapped addresses are invalid |
+| `morph` | `0` or `1` | `0` | Shared-key wire masking; peers must agree |
+| `rate` | `0..=2147483647` Mbps | `0` | Vector-to-Target upload limit; `0` disables it |
+| `etar` | `0..=2147483647` Mbps | `0` | Target-to-Vector download limit; `0` disables it |
+
+`out=egress` requires a QUIC listener and conflicts with explicit `dial`, `dial4`
+or `dial6`, including `auto`. See [Egress](egress.md) for registration and offline
+behavior.
 
 ### Target source selection
 
-`dial` is mutually exclusive with `dial4` and `dial6`. Explicit source binding
-errors fail the dial; they do not trigger an unbound retry.
+`dial` is mutually exclusive with `dial4` and `dial6`. In the family-specific
+form, an omitted family uses `auto`. Explicit source binding errors fail the
+dial; they do not trigger an unbound retry. Portal applies these settings to
+its own outbound work, including connections to a SOCKS5 upstream.
 
 ### SOCKS credentials
 
-Credentials are split at raw delimiters before each component is decoded once.
-Percent-encode reserved credential characters. For example:
+Portal's SOCKS5 `out` and Vector's `in` split credentials at raw delimiters
+before decoding each component once. Percent-encode reserved credential
+characters. For example:
 
 ```text
 out=a%3Ab:p%40ss@127.0.0.1:1080
 ```
 
-The decoded username is `a:b` and the password is `p@ss`. Vector's `in` uses
-the same credential parsing rules.
+The decoded username is `a:b` and the password is `p@ss`. Both components must
+contain between 1 and 255 UTF-8 bytes.
+
+## Vector URL
+
+```text
+vector://KEY@ENDPOINT?in=[USER:PASS@]HOST:PORT
+```
+
+Vector connects to Portal over the carrier selected by `ENDPOINT`.
+
+| Parameter | Accepted value | Default | Purpose |
+|---|---|---|---|
+| `in` | `[USER:PASS@]HOST:PORT` | Required for a service; optional for probe | Local SOCKS5 listener, with optional authentication |
+| `sni` | ASCII DNS name, empty or `none` | Endpoint host | Verified server name; empty or `none` uses the host |
+| `pin` | 64 lowercase hexadecimal characters, empty or `none` | System CA and hostname verification | Exact certificate SHA-256; empty or `none` uses normal verification |
+| `morph` | `0` or `1` | `0` | Shared-key wire masking; peers must agree |
+| `rate` | `0..=2147483647` Mbps | `0` | Vector-to-Target upload limit; `0` disables it |
+| `etar` | `0..=2147483647` Mbps | `0` | Target-to-Vector download limit; `0` disables it |
+
+Obtain a fingerprint with `nowhere fingerprint` and compare it through a trusted
+channel before setting `pin`. See [certificate trust](security.md#certificate-trust).
+Upload and download follow the Vector-to-Target business direction, regardless
+of which transport peer establishes the connection.
 
 ## Egress URL
 
-Egress accepts `sni`, `pin`, `morph`, `rate`, `etar` and target `dial*`.
-Connection options have the same defaults as Vector. Transport is fixed to QUIC.
+```text
+egress://KEY@ENDPOINT
+```
 
-| Connection | Source selection |
-|---|---|
-| Egress to Portal | Ordinary automatic source selection |
-| Egress to Target | `dial`, or `dial4`/`dial6`, if configured |
+Egress connects to Portal over QUIC and provides target access.
 
-Target `dial*` also applies to Egress's target DNS work. Egress waits for ACCEPTED
-before target dialing, even if a business Stream arrives first. A reconnect
-creates a new connection and does not recover previous Flows.
+| Parameter | Accepted value | Default | Purpose |
+|---|---|---|---|
+| `sni` | ASCII DNS name, empty or `none` | Endpoint host | Verified server name; empty or `none` uses the host |
+| `pin` | 64 lowercase hexadecimal characters, empty or `none` | System CA and hostname verification | Exact certificate SHA-256; empty or `none` uses normal verification |
+| `dial` | IP literal or `auto` | `auto` | Target source binding; an IP restricts target connections to its address family |
+| `dial4` | IPv4 literal or `auto` | `auto` | IPv4 target source binding |
+| `dial6` | IPv6 literal or `auto` | `auto` | IPv6 target source binding; IPv4-mapped addresses are invalid |
+| `morph` | `0` or `1` | `0` | Shared-key wire masking; peers must agree |
+| `rate` | `0..=2147483647` Mbps | `0` | Vector-to-Target upload limit; `0` disables it |
+| `etar` | `0..=2147483647` Mbps | `0` | Target-to-Vector download limit; `0` disables it |
 
-## Parsing and effective configuration
+Egress's `dial`, `dial4` and `dial6` follow the same mutual-exclusion and
+explicit-bind rules as Portal. They apply to target DNS and outbound work;
+Egress-to-Portal connections use automatic source selection.
+
+## Parsing configuration
 
 Unknown parameters and their values are ignored. For recognized parameters,
-the first duplicate wins; an invalid first value is an error. Portal defaults
-to `out=direct` when `out` is absent. Unknown parameters do not change that default.
+the first duplicate wins; an invalid first value is an error.
 
 | Query | Result |
 |---|---|
-| `net=tcp&net=udp` | Vector selects TLS |
-| `net=invalid&net=tcp` | Configuration error |
-| An unknown parameter with no `out` | Portal keeps its default direct output |
+| `morph=1&morph=0` | Morph is enabled |
+| `morph=invalid&morph=1` | Configuration error |
 
-Startup output uses `vector starting:`, `portal starting:` or `egress starting:`
-followed by a redacted role URL. Query fields use `&` and have a fixed order:
+Startup logs show role URLs with explicit defaults. Shared Key, SOCKS
+credentials, `crt`, `key` and unknown options are omitted. Portal with
+`out=egress` also omits source-binding parameters. These redacted URLs are
+diagnostic views, not complete launch configurations.
 
-| Role | Field order |
-|---|---|
-| Vector | `in`, `net`, `sni`, `pin`, `morph`, `rate`, `etar` |
-| Portal | `out`, `tls`, applicable `dial*`, `morph`, `rate`, `etar` |
-| Egress | `sni`, `pin`, `dial*`, `morph`, `rate`, `etar` |
+## Parameter overview
 
-The order groups ingress or output selection, transport and certificate
-verification, target dialing, Morph, traffic limits and logging. Defaults are explicit.
-`dial*` is either `dial` or `dial4` followed by `dial6`; omitted family bindings
-appear as `auto`. Portal with `out=egress` omits `dial*`. Egress omits `net`
-because its Portal connection always uses QUIC.
+A dash means that the role does not recognize the parameter.
 
-Shared Key and SOCKS credentials are absent. Portal omits `crt` and `key`,
-including when `tls=2`; certificate loading and validation still apply.
-Unknown and inapplicable options are omitted. Environment-based runtime budgets
-and timeouts are documented separately below. The URL is a diagnostic view;
-credentials and certificate files must be supplied separately to launch a service.
-IPC Hello contains the validated endpoint and does not contain configuration settings.
+| Parameter | Accepted value | Default | Portal | Vector | Egress |
+|---|---|---|:---:|:---:|:---:|
+| `in` | `[USER:PASS@]HOST:PORT` | Required for Vector service | — | Yes | — |
+| `out` | `direct`, `egress`, `[USER:PASS@]HOST:PORT` | `direct` | Yes | — | — |
+| `tls` | `1`, `2` | `1` | Yes | — | — |
+| `crt` | Certificate-chain PEM path | Absent | Yes | — | — |
+| `key` | Private-key PEM path | Absent | Yes | — | — |
+| `sni` | ASCII DNS name, empty, `none` | Endpoint host | — | Yes | Yes |
+| `pin` | 64 lowercase hex characters, empty, `none` | System CA and hostname verification | — | Yes | Yes |
+| `dial` | IP literal, `auto` | `auto` | Yes | — | Yes |
+| `dial4` | IPv4 literal, `auto` | `auto` | Yes | — | Yes |
+| `dial6` | IPv6 literal, `auto` | `auto` | Yes | — | Yes |
+| `morph` | `0`, `1` | `0` | Yes | Yes | Yes |
+| `rate` | `0..=2147483647` Mbps | `0` | Yes | Yes | Yes |
+| `etar` | `0..=2147483647` Mbps | `0` | Yes | Yes | Yes |
 
 ## Runtime environment
 
@@ -190,6 +266,3 @@ values; duration settings use values such as `5s` or `250ms`.
 Portal uses a 64 KiB connection receive window before authentication and raises
 it after success. Transport windows are separate from UDP application budgets
 and do not represent total process memory.
-
-Atomic traffic totals and active Flow ownership counts continue without IPC
-clients. Each connected collector receives the current values once per second. See [Telemetry](telemetry.md) for the observation contract.

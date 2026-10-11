@@ -2,7 +2,7 @@
 name = "nowhere"
 version = "3.0.0-dev"
 edition = "2024"
-description = "Encrypted TCP and UDP relay"
+description = "TCP and UDP relay over TLS and QUIC"
 license = "GPL-3.0-only"
 repository = "https://github.com/NodePassProject/Nowhere"
 readme = "README.md"

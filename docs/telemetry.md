@@ -83,7 +83,7 @@ Services remove their registry record and socket on normal exit. If permissions,
 identity, entropy or path length cannot be guaranteed, local IPC initialization
 fails closed and forwarding continues with an error on stderr. There is no fallback.
 
-Hello includes an instance descriptor with role `vector`, `portal` or `egress`,
+Hello includes an instance descriptor with role `portal`, `vector` or `egress`,
 release version and endpoint.
 See [Privacy and trust](#privacy-and-trust) for visible metadata.
 

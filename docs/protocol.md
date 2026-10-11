@@ -1,6 +1,6 @@
 # Nowhere Wire Protocol
 
-Authenticated TCP and UDP forwarding between Vector, Portal and Egress.
+Authenticated TCP and UDP forwarding between Portal, Vector and Egress.
 
 | Protocol | Value |
 |---|---|
@@ -92,7 +92,7 @@ TLS exporter, never the early exporter.
 
 Percent-decode the URL username once to obtain Shared Key. Its text
 bytes enter the KDF directly; hexadecimal-looking text is not hex-decoded.
-Vector, Portal and Egress service URLs require exactly 32 lowercase hexadecimal
+Portal, Vector and Egress service URLs require exactly 32 lowercase hexadecimal
 text characters after decoding and no password component. Malformed percent
 escapes are invalid. All three roles apply the same input validation.
 

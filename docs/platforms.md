@@ -95,7 +95,7 @@ docker run -d --rm --name nowhere-portal \
   -p 2000:2000/tcp \
   -p 2000:2000/udp \
   nowhere:local \
-  "portal://<generated-key>@:2000"
+  "portal://<generated-key>@*:2000"
 ```
 
 Publish separate carrier ports when the endpoint uses an explicit path:
@@ -124,7 +124,7 @@ docker run -d --rm --name nowhere-portal \
   -v /path/fullchain.pem:/cert.pem:ro \
   -v /path/private-key.pem:/key.pem:ro \
   nowhere:local \
-  "portal://<generated-key>@:2000?tls=2&crt=/cert.pem&key=/key.pem"
+  "portal://<generated-key>@*:2000?tls=2&crt=/cert.pem&key=/key.pem"
 ```
 
 `crt` is the full certificate chain and `key` is its private key. A Vector
@@ -158,7 +158,7 @@ docker run -d --rm --name nowhere-portal \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777 \
   -p 2000:2000/tcp -p 2000:2000/udp \
   nowhere:local \
-  "portal://<generated-key>@:2000"
+  "portal://<generated-key>@*:2000"
 docker exec --user 10001:10001 nowhere-portal /nowhere status
 ```
 
@@ -178,7 +178,7 @@ spec:
   containers:
     - name: nowhere
       image: nowhere:local
-      args: ["portal://<generated-key>@:2000"]
+      args: ["portal://<generated-key>@*:2000"]
       securityContext:
         readOnlyRootFilesystem: true
         allowPrivilegeEscalation: false
@@ -209,13 +209,13 @@ For a generated Portal certificate, set `pin` to a fingerprint verified through
 a trusted channel:
 
 ```sh
-nowhere "vector://KEY@portal.example:2000?net=udp&in=127.0.0.1:1080&pin=TRUSTED_SHA256"
+nowhere "vector://KEY@portal.example/udp:2000?in=127.0.0.1:1080&pin=TRUSTED_SHA256"
 ```
 
 On Windows, use the executable's `.exe` name:
 
 ```powershell
-nowhere.exe "vector://KEY@portal.example:2000?net=udp&in=127.0.0.1:1080&pin=TRUSTED_SHA256"
+nowhere.exe "vector://KEY@portal.example/udp:2000?in=127.0.0.1:1080&pin=TRUSTED_SHA256"
 ```
 
 A CA-issued certificate with a matching hostname can use normal trust without

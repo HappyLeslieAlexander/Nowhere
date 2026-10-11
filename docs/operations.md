@@ -50,32 +50,32 @@ in the [wire specification](protocol.md#setup-results).
 Read a presented certificate over TCP/TLS:
 
 ```sh
-nowhere fingerprint "nowhere://KEY@relay.example:2000"
+nowhere fingerprint "nowhere://KEY@relay.example:2000?net=tcp&morph=0"
 ```
 
-Compare the result through a trusted channel before configuring a pin.
-Fingerprint inspection accepts `nowhere://` links. It queries TCP/TLS only;
-see [Security](security.md#certificate-trust).
+Fingerprint inspection requires explicit `net` and `morph`; `#NAME` and an `sni`
+DNS name are optional. It reads the certificate over TCP/TLS, including when
+`net=udp`, so the shared host and port must expose TLS. Compare the result through
+a trusted channel before configuring a pin. See [Security](security.md#certificate-trust).
 
 Running `nowhere` without arguments displays help and exits normally.
 
 ## Check deployment settings
 
 Expose the declared Portal carrier ports and the intended SOCKS ingress.
-Confirm certificate trust, Morph agreement, `in`, `net` and `out`. Startup output
-shows the effective role URL with explicit defaults and redacted credentials.
+Confirm certificate trust, Morph agreement, the endpoint carrier, `in` and `out`.
+Startup output shows the effective role URL with explicit defaults and redacted
+credentials.
 
-Unknown URL parameters are ignored. The first recognized duplicate wins, and
-an invalid first value is an error. Portal uses `out=direct` when `out` is absent.
-See [Configuration](configuration.md#parsing-and-effective-configuration) for
+See [Configuration](configuration.md#parsing-configuration) for
 parsing and redaction rules, and [Platforms](platforms.md#network-exposure) for
 firewall and container exposure.
 
 ## Monitor Egress
 
 Portal's `out` is fixed for its lifetime. `out=egress` requires a QUIC listener
-and cannot specify target `dial*`. New Flows fail immediately while Egress is
-offline; a second registrant receives BUSY.
+and cannot specify `dial`, `dial4` or `dial6`. New Flows fail immediately while
+Egress is offline; a second registrant receives BUSY.
 
 Registration ownership remains internal to forwarding. An idle registered
 Egress has no business Flow. Diagnostic stderr reports registration, reconnection

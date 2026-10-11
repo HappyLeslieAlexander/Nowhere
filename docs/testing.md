@@ -117,7 +117,7 @@ When wire bytes change, update the specification, vectors and codec tests togeth
 | Forwarding | TLS/QUIC × direct/SOCKS5/Egress × TCP/UDP, IPv4/IPv6, Morph and concurrent Vectors |
 | Lifetime | Half-close, handshake/authentication/registration cancellation, setup cancellation, idle timeout, UDP control FIN/reset/stop, late DATAGRAMs and bounded drain |
 | Egress | ACCEPTED ordering, BUSY, immediate offline failure, reconnect and stale-owner cleanup |
-| Configuration | First duplicates, ignored unknowns, percent decoding, conflicts, effective configuration and explicit bind failure |
+| Configuration | Role-specific endpoint carrier counts and families, first duplicates, ignored unknowns, percent decoding, conflicts, effective configuration and explicit bind failure |
 | Telemetry | Known-byte counters, ownership counts, passive snapshots, ignored input, EOF and write timeout cleanup |
 | IPC | Frame/client limits, permissions, identity/incarnation checks, PID reuse and namespace isolation |
 

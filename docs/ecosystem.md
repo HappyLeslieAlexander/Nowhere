@@ -83,36 +83,35 @@ Client sharing and service configuration have distinct URL schemes:
 | Scheme | Purpose | Consumer |
 |---|---|---|
 | `nowhere://` | Share a Portal connection and display name | Anywhere; CLI `fingerprint` |
-| `vector://` | Configure SOCKS5 ingress | `nowhere` CLI |
 | `portal://` | Configure listeners and the fixed exit | `nowhere` CLI |
+| `vector://` | Configure SOCKS5 ingress | `nowhere` CLI |
 | `egress://` | Register a QUIC exit connection | `nowhere` CLI |
 
-A `nowhere://` link may include a display-name fragment. Service URLs do not
-accept display-name fragments. The external client's import guide defines its
-supported share-link fields.
+Share links use a compact host and port:
+
+```text
+nowhere://KEY@HOST:PORT?net=tcp&morph=0#NAME
+```
+
+`net` and `morph` are required; `#NAME` is recommended as the display name.
+[Configuration](configuration.md#share-links) defines transport selection, Morph
+and endpoint rules. Client import guides describe any additional fields. For
+certificate inspection, see
+[Operations](operations.md#diagnose-target-setup).
 
 ## Service configuration
 
 The CLI runs `portal://`, `vector://` and `egress://` URLs:
 
 ```text
-portal://KEY@HOST/tcp:2000/udp:2001?out=direct
-vector://KEY@HOST/tcp:2000/udp:2001?net=tcp&in=127.0.0.1:1080
+portal://KEY@HOST/tcp:2000/udp:2001?out=egress
+vector://KEY@HOST/tcp:2000?in=127.0.0.1:1080
 egress://KEY@HOST/udp:2001
 ```
 
 Use a key from `nowhere generate-key`. Vector requires `in` for its local
-listener and selects one carrier with `net=tcp|udp`. Egress uses QUIC and
+listener and selects one carrier through its endpoint path. Egress uses QUIC and
 registers only with a Portal configured for `out=egress`.
-
-Vector and Egress verify system CA trust and the server name, or an exact trusted
-certificate pin. The endpoint host is the default verified name; `sni` can
-override it. See [Security](security.md#certificate-trust).
-
-The `fingerprint` command accepts `nowhere://` links, including display-name
-fragments, and reads the certificate over TCP. It uses the endpoint, Shared Key,
-`morph` and `sni`; other query parameters are ignored. See
-[Operations](operations.md#diagnose-target-setup) for inspection and trust.
 
 [Configuration](configuration.md) defines the complete CLI grammar, defaults,
 listener options and environment variables. [Integrations](integrations.md)

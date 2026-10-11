@@ -3,12 +3,11 @@
 </p>
 
 <p align="center">
-  <strong>A clear path through complex networks.</strong>
+  <strong>Secure transport. Flexible exits.</strong>
 </p>
 
 <p align="center">
-  Encrypted TCP and UDP forwarding.<br>
-  Built in Rust. Observable by design.
+  TCP and UDP relay over TLS and QUIC.
 </p>
 
 <p align="center">
@@ -22,7 +21,7 @@
 
 Nowhere gives TCP and UDP traffic a secure path to the exit you choose.
 Run it close to your applications, on a public relay, or at a remote exit.
-One Rust binary provides **Vector**, **Portal** and **Egress**.
+One Rust binary provides **Portal**, **Vector** and **Egress**.
 
 | Capability | What you get |
 |---|---|
@@ -63,7 +62,7 @@ Listen on port `2000`; allow both TCP and UDP through the firewall:
 Compare this fingerprint with Portal's trusted startup log, then set `pin=<sha256>`:
 
 ```bash
-./target/release/nowhere fingerprint "nowhere://<generated-key>@portal.example:2000"
+./target/release/nowhere fingerprint "nowhere://<generated-key>@portal.example:2000?net=tcp&morph=0"
 ```
 
 ### 5. Connect applications
@@ -72,7 +71,7 @@ Run Vector, then point applications at SOCKS5 `127.0.0.1:1080`:
 
 ```bash
 ./target/release/nowhere \
-  "vector://<generated-key>@portal.example:2000?net=tcp&pin=<sha256>&in=127.0.0.1:1080"
+  "vector://<generated-key>@portal.example:2000?pin=<sha256>&in=127.0.0.1:1080"
 ```
 
 ### 6. Read local statistics
@@ -138,8 +137,9 @@ traffic travels in both directions.
 
 ### One endpoint grammar
 
-Configure each role with a URL. Share a port across transports or choose separate
-ports and address families. See [Configuration](docs/configuration.md).
+Configure each role with a URL. Portal declares one or two listener carriers;
+Vector selects one carrier and Egress selects QUIC. Choose ports and address
+families through the endpoint path. See [Configuration](docs/configuration.md).
 
 ### Connection and flow
 
@@ -175,8 +175,8 @@ Vector and Egress verify system CA trust and the server name, or an exact
 certificate pin. Serve a CA-issued certificate for hostname-based trust:
 
 ```bash
-nowhere "portal://<generated-key>@:2000?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem"
-nowhere "vector://<generated-key>@portal.example:2000?net=tcp&in=127.0.0.1:1080"
+nowhere "portal://<generated-key>@*:2000?tls=2&crt=/etc/nowhere/cert.pem&key=/etc/nowhere/key.pem"
+nowhere "vector://<generated-key>@portal.example:2000?in=127.0.0.1:1080"
 ```
 
 ## Reference

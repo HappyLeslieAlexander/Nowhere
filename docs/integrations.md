@@ -11,13 +11,13 @@ Launch Nowhere services and observe them through public process and IPC interfac
 
 ## Service processes
 
-Each Vector, Portal or Egress runs as a service process with local statistics. Configure it with a [role URL](configuration.md), supervise its
+Each Portal, Vector or Egress runs as a service process with local statistics. Configure it with a [role URL](configuration.md), supervise its
 lifetime and allow the bounded shutdown to complete.
 
 | Role | Integration point |
 |---|---|
-| Vector | SOCKS5 ingress through `in`; one transport selected by `net` |
 | Portal | Declared listeners and one fixed `out` |
+| Vector | SOCKS5 ingress through `in`; one carrier selected by `ENDPOINT` |
 | Egress | Outbound QUIC registration; target dialing when selected by Portal |
 
 `nowhere probe` performs a one-shot setup check without an ingress listener.

@@ -53,7 +53,7 @@ fingerprint needed for the next step.
 Read the presented certificate over TCP/TLS:
 
 ```sh
-./target/release/nowhere fingerprint "nowhere://KEY@relay.example/tcp:2000"
+./target/release/nowhere fingerprint "nowhere://KEY@relay.example:2000?net=tcp&morph=0"
 ```
 
 Compare the result with Portal's fingerprint obtained through a trusted channel,
@@ -66,18 +66,18 @@ A CA-issued certificate with a matching hostname can be used instead; see
 Run Vector with a local SOCKS5 listener:
 
 ```sh
-./target/release/nowhere "vector://KEY@relay.example/tcp:2000/udp:2001?in=127.0.0.1:1080&net=tcp&pin=TRUSTED_SHA256"
+./target/release/nowhere "vector://KEY@relay.example/tcp:2000?in=127.0.0.1:1080&pin=TRUSTED_SHA256"
 ```
 
 Point applications at SOCKS5 `127.0.0.1:1080`. The example selects dedicated
-TLS; use `net=udp` to select QUIC on the declared UDP port.
+TLS on TCP `2000`; use `relay.example/udp:2001` to select QUIC.
 
 ## Verify the connection
 
 Perform one TCP Flow setup through the QUIC path:
 
 ```sh
-./target/release/nowhere probe "vector://KEY@relay.example/udp:2001?net=udp&pin=TRUSTED_SHA256" "example.com:443"
+./target/release/nowhere probe "vector://KEY@relay.example/udp:2001?pin=TRUSTED_SHA256" "example.com:443"
 ```
 
 Probe sends no target payload and does not require `in`. Read local instance identity and traffic statistics on either host:
