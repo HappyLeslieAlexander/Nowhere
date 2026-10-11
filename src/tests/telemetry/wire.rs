@@ -36,7 +36,19 @@ fn snapshots_have_only_six_statistics() {
 
 #[test]
 fn published_examples_match_the_wire_contract() {
-    let document = include_str!("../../../docs/telemetry.md");
+    assert_published_examples(include_str!("../../../docs/telemetry.md"));
+}
+
+#[test]
+fn published_examples_accept_crlf_line_endings() {
+    let document = include_str!("../../../docs/telemetry.md")
+        .replace("\r\n", "\n")
+        .replace('\n', "\r\n");
+    assert_published_examples(&document);
+}
+
+fn assert_published_examples(document: &str) {
+    let document = document.replace("\r\n", "\n");
     let mut messages = 0;
     for block in document.split("```json\n").skip(1) {
         let value: serde_json::Value =
