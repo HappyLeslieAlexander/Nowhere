@@ -194,6 +194,8 @@ fingerprints and graceful shutdown information. Service stderr contains original
 exception details and their cause chains; addresses and file paths may appear.
 Errors are constructed without passwords, Shared Keys or complete credential
 URLs. Logs use `2026-10-11T08:30:00.123Z message`, without levels or ANSI colors.
+Outer operation descriptions use lowercase text without source paths or
+addresses. Original error chains retain their text, casing and any addresses.
 Embedded newlines are escaped so each record occupies one line.
 
 Normal Flow starts, successful finishes, normal EOF, active cancellation and

@@ -253,8 +253,10 @@ def main():
                                     (socket.inet_ntoa(reply[4:8]), struct.unpack("!H", reply[8:])[0]))
                     wait_for(lambda: "connection refused" in logs[vector.pid][1].read_text().lower())
             udp_errors = [line for line in logs[vector.pid][1].read_text().splitlines()
-                          if "open_and_relay_udp_target" in line]
+                          if "udp setup failed:" in line]
             assert len(udp_errors) == 1 and "flow transport failed" in udp_errors[0]
+            assert re.match(r"^\S+ udp setup failed: flow transport failed:", udp_errors[0])
+            assert "target 127.0.0.1:53" not in udp_errors[0]
             stop(vector)
             assert portal.returncode == 0 and vector.returncode == 0
             for process, role in [(portal, "Portal"), (vector, "Vector")]:

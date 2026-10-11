@@ -149,7 +149,7 @@ async fn open_and_relay_udp_target(
                 let error = anyhow::Error::new(error);
                 if crate::common::normal_close(&error) { return; }
                 vector.logger.error(format_args!(
-                    "vector::socks::open_and_relay_udp_target: target {target} failed: {error:#}"
+                    "udp setup failed: {error:#}"
                 ));
                 return;
             }
@@ -287,7 +287,7 @@ async fn relay_udp_target(
     {
         vector
             .logger
-            .error(format_args!("UDP target {target}: {error:#}"));
+            .error(format_args!("udp forwarding failed: {error:#}"));
     }
 }
 

@@ -25,7 +25,7 @@ impl Egress {
             Err(error) => {
                 self.forward
                     .logger
-                    .error(format_args!("Local IPC unavailable: {error:#}"));
+                    .error(format_args!("local ipc unavailable: {error:#}"));
                 None
             }
         };

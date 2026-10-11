@@ -22,7 +22,7 @@ impl Egress {
             {
                 self.forward
                     .logger
-                    .error(format_args!("Egress connection failed: {error:#}"));
+                    .error(format_args!("egress connection failed: {error:#}"));
             }
             tokio::select! {
                 _ = self.forward.shutdown.cancelled() => return,

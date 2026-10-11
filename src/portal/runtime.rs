@@ -47,7 +47,7 @@ impl Portal {
             }
             Err(error) => forward
                 .logger
-                .error(format_args!("Local IPC unavailable: {error:#}")),
+                .error(format_args!("local ipc unavailable: {error:#}")),
         }
         forward
             .logger
@@ -104,7 +104,7 @@ pub(super) async fn tcp_loop(
                     tasks.spawn(async move {
                         let _permit = permit;
                         if let Err(error) = conn::tcp(p.clone(), stream, admission).await && !crate::common::normal_close(&error) {
-                            p.forward.logger.error(format_args!("TLS connection failed: {error:#}"));
+                            p.forward.logger.error(format_args!("tls connection failed: {error:#}"));
                         }
                     });
                 }
@@ -140,7 +140,7 @@ pub(super) async fn quic_loop(
                 tasks.spawn(async move {
                     let _permit = permit;
                     if let Err(error) = conn::quic(p.clone(), incoming, admission).await && !crate::common::normal_close(&error) {
-                        p.forward.logger.error(format_args!("QUIC connection failed: {error:#}"));
+                        p.forward.logger.error(format_args!("quic connection failed: {error:#}"));
                     }
                 });
             },

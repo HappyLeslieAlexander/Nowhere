@@ -80,7 +80,7 @@ pub(in crate::vector) async fn serve_listener(
                         let _admission = admission;
                         if let Err(error) = handle_client(vector.clone(), stream, peer, shutdown).await && !crate::common::normal_close(&error) {
                             vector.logger.error(format_args!(
-                                "vector::socks::handle_client: {peer}: {error:#}"
+                                "socks client failed: {error:#}"
                             ));
                         }
                     });
@@ -88,7 +88,7 @@ pub(in crate::vector) async fn serve_listener(
                 Err(error) => {
                     let error: anyhow::Error = error.into();
                     vector.logger.error(format_args!(
-                        "vector::socks::serve_listener: accept failed: {error:#}"
+                        "socks accept failed: {error:#}"
                     ));
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }

@@ -136,7 +136,7 @@ impl ForwardVector {
             Err(error) => self
                 .inner
                 .logger
-                .error(format_args!("Local IPC unavailable: {error:#}")),
+                .error(format_args!("local ipc unavailable: {error:#}")),
         }
         self.inner.logger.info(format_args!(
             "vector starting: {}",
@@ -168,7 +168,7 @@ impl ForwardVector {
             signal = signals.recv() => {
                 if let Err(error) = signal {
                     self.inner.logger.error(format_args!(
-                        "vector::Vector::run: shutdown signal stream failed during cleanup: {error}"
+                        "shutdown signal failed: {error:#}"
                     ));
                 }
                 (false, true)

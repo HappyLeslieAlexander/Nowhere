@@ -94,9 +94,8 @@ impl ResolvesServerCert for ReloadingCertResolver {
                     cached.cert = Arc::new(new_cert);
                 }
                 Err(err) => {
-                    self.logger.error(format_args!(
-                        "common::tls::resolve_server_cert: certificate reload failed: {err:#}"
-                    ));
+                    self.logger
+                        .error(format_args!("certificate reload failed: {err:#}"));
                 }
             }
             cached.last_reload = Instant::now();

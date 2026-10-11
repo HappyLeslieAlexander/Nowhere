@@ -69,12 +69,12 @@ impl Forwarder {
             failed => {
                 let _ = incoming.result(SetupResult::InvalidRequest).await;
                 match failed {
-                    Ok(Err(error)) if !crate::common::normal_close(&error) => {
-                        self.logger.error(format_args!("Flow request: {error:#}"))
-                    }
+                    Ok(Err(error)) if !crate::common::normal_close(&error) => self
+                        .logger
+                        .error(format_args!("flow request failed: {error:#}")),
                     Err(error) => self
                         .logger
-                        .error(format_args!("Flow request timed out: {error}")),
+                        .error(format_args!("flow request timed out: {error:#}")),
                     _ => {}
                 }
                 return;
@@ -83,7 +83,7 @@ impl Forwarder {
         let Ok(_permit) = self.flows.clone().try_acquire_owned() else {
             let _ = incoming.result(SetupResult::FlowLimit).await;
             self.logger
-                .error(format_args!("Flow resource limit reached"));
+                .error(format_args!("flow resource limit reached"));
             return;
         };
         let result = match kind {
@@ -94,7 +94,8 @@ impl Forwarder {
         if let Err(error) = result
             && !crate::common::normal_close(&error)
         {
-            self.logger.error(format_args!("Flow {target}: {error:#}"));
+            self.logger
+                .error(format_args!("flow forwarding failed: {error:#}"));
         }
     }
 }

@@ -16,15 +16,20 @@ impl Portal {
         bind_carrier(
             &self.inner.udp_bind_addrs,
             self.inner.allow_udp_family_degrade,
-            |addr| listen_endpoint(
-                self.inner.quic_server_config.clone(),
-                addr,
-                self.inner.morph_keys.clone(),
-            ),
-            |addr, error| self.inner.forward.logger.error(format_args!(
-                "portal::listen_endpoints: UDP address family unavailable for {addr}; continuing: {error:#}"
-            )),
-        ).context("portal::listen_endpoints: failed to open UDP listeners")
+            |addr| {
+                listen_endpoint(
+                    self.inner.quic_server_config.clone(),
+                    addr,
+                    self.inner.morph_keys.clone(),
+                )
+            },
+            |_addr, error| {
+                self.inner.forward.logger.error(format_args!(
+                    "udp listener unavailable; continuing: {error:#}"
+                ))
+            },
+        )
+        .context("portal::listen_endpoints: failed to open UDP listeners")
     }
 
     pub(in crate::portal) fn listen_tcp_listeners(&self) -> Result<Vec<TcpListener>> {
@@ -35,10 +40,13 @@ impl Portal {
             &self.inner.tcp_bind_addrs,
             self.inner.allow_tcp_family_degrade,
             listen_tcp,
-            |addr, error| self.inner.forward.logger.error(format_args!(
-                "portal::listen_tcp_listeners: TCP address family unavailable for {addr}; continuing: {error:#}"
-            )),
-        ).context("portal::listen_tcp_listeners: failed to open TCP listeners")
+            |_addr, error| {
+                self.inner.forward.logger.error(format_args!(
+                    "tcp listener unavailable; continuing: {error:#}"
+                ))
+            },
+        )
+        .context("portal::listen_tcp_listeners: failed to open TCP listeners")
     }
 }
 
