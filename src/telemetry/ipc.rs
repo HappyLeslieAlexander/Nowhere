@@ -15,4 +15,4 @@ pub(crate) use registry::{DiscoveredInstance, discover_instances};
 pub(crate) use server::TelemetryServer;
 
 const MAX_CLIENTS: usize = 16;
-const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);

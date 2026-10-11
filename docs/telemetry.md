@@ -177,7 +177,7 @@ history, replay, sequence number, sampler timestamp, state or log message.
 The consumer records receive time and derives throughput from differences.
 Active counts may lag by approximately one second.
 
-Writing one frame has a two-second limit. Clients should connect and read complete
+Writing one frame has a five-second limit. Clients should connect and read complete
 messages with a five-second deadline. On timeout or disconnection, reconnect
 and validate a new Hello before reading the latest Snapshot. Active counts are
 stale until a new Snapshot arrives. IPC availability does not establish process
@@ -202,7 +202,7 @@ ordinary UDP idle cleanup produce no access logs.
 ## Resource limits
 
 There are at most 16 IPC connections. Frames are at most 64 KiB and each write
-has a two-second timeout. Input is discarded through a fixed-size buffer.
+has a five-second timeout. Input is discarded through a fixed-size buffer.
 Slow writers, EOF and I/O errors release connection resources. There are no
 subscription timers, event queues or configurable sampling intervals.
 

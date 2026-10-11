@@ -91,7 +91,7 @@ identity. Discovery and cleanup stay inside the documented IPC namespace.
 Administrators and compromised processes running as the same user are outside
 this isolation boundary.
 
-The 64 KiB server frame ceiling, 16-client limit, two-second write deadline,
+The 64 KiB server frame ceiling, 16-client limit, five-second write deadline,
 bounded frame writes disconnect blocked consumers. See
 [Telemetry](telemetry.md) for limits and identity requirements.
 
