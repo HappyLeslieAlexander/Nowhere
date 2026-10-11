@@ -182,9 +182,6 @@ impl SocksListenConfig {
     pub(super) fn endpoint(&self) -> String {
         format_host_port(&self.host, self.port)
     }
-    pub(super) fn authenticated(&self) -> bool {
-        self.credentials.is_some()
-    }
 }
 #[derive(Clone, Debug)]
 pub(crate) struct VectorConfig {

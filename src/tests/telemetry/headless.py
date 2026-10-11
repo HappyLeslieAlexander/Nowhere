@@ -259,12 +259,13 @@ def main():
             assert portal.returncode == 0 and vector.returncode == 0
             for process, role in [(portal, "Portal"), (vector, "Vector")]:
                 stdout, stderr = (path.read_text() for path in logs[process.pid])
-                assert f"{role} starting:" in stdout and f"{role} shutdown complete" in stdout
+                assert f"{role.lower()} starting:" in stdout and f"{role.lower()} shutdown complete" in stdout
                 assert KEY not in stdout + stderr
+                assert "authentication enabled" not in stdout
                 for line in (stdout + stderr).splitlines():
                     assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z ", line), line
                     assert "exchange starting" not in line and "transfer complete" not in line
-            assert "TLS certificate SHA-256 fingerprint:" in logs[portal.pid][0].read_text()
+            assert "tls certificate fingerprint:" in logs[portal.pid][0].read_text()
             assert "socks" in logs[vector.pid][1].read_text().lower()
             assert not list(nw3_directory.glob("*.json"))
             assert not list(nw3_directory.glob("*.sock"))

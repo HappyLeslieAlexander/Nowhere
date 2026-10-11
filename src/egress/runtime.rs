@@ -14,7 +14,7 @@ impl Egress {
         let mut signals = ShutdownSignals::new()?;
         self.forward
             .logger
-            .info(format_args!("Egress starting: {}", self.effective));
+            .info(format_args!("egress starting: {}", self.effective));
         let stop = CancellationToken::new();
         let observation = match TelemetryServer::bind(
             InstanceRole::Egress,
@@ -50,7 +50,7 @@ impl Egress {
         }
         self.forward
             .logger
-            .info(format_args!("Egress shutdown complete"));
+            .info(format_args!("egress shutdown complete"));
         if let Some(error) = failure {
             return Err(error);
         }

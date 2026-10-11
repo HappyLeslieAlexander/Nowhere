@@ -51,7 +51,7 @@ impl Portal {
         }
         forward
             .logger
-            .info(format_args!("Portal starting: {}", self.inner.effective));
+            .info(format_args!("portal starting: {}", self.inner.effective));
         let failure = tokio::select! {
             signal = signals.recv() => signal.err(),
             exit = listeners.join_next() => Some(match exit {
@@ -76,7 +76,7 @@ impl Portal {
         while observation.join_next().await.is_some() {}
         forward
             .logger
-            .info(format_args!("Portal shutdown complete"));
+            .info(format_args!("portal shutdown complete"));
         forward.logger.flush();
         if let Some(error) = failure {
             return Err(error);

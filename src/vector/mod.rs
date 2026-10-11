@@ -139,14 +139,9 @@ impl ForwardVector {
                 .error(format_args!("Local IPC unavailable: {error:#}")),
         }
         self.inner.logger.info(format_args!(
-            "Vector starting: {}",
+            "vector starting: {}",
             self.inner.config.effective_url()
         ));
-        if self.inner.config.socks.authenticated() {
-            self.inner.logger.info(format_args!(
-                "vector::Vector::run: local SOCKS5 RFC1929 authentication enabled"
-            ));
-        }
 
         let mut listener_tasks = JoinSet::new();
         for listener in listeners {
@@ -194,9 +189,9 @@ impl ForwardVector {
         }
         telemetry_shutdown.cancel();
         while telemetry_tasks.join_next().await.is_some() {}
-        self.inner.logger.info(format_args!(
-            "vector::Vector::run: Vector shutdown complete"
-        ));
+        self.inner
+            .logger
+            .info(format_args!("vector shutdown complete"));
         self.inner.logger.flush();
         match failure {
             Some(error) => Err(error),

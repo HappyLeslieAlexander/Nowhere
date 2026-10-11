@@ -136,7 +136,7 @@ to `out=direct` when `out` is absent. Unknown parameters do not change that defa
 | `net=invalid&net=tcp` | Configuration error |
 | An unknown parameter with no `out` | Portal keeps its default direct output |
 
-Startup output uses `Vector starting:`, `Portal starting:` or `Egress starting:`
+Startup output uses `vector starting:`, `portal starting:` or `egress starting:`
 followed by a redacted role URL. Query fields use `&` and have a fixed order:
 
 | Role | Field order |
