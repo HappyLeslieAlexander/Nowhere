@@ -239,18 +239,10 @@ See the [telemetry contract](telemetry.md).
 
 ## Telemetry
 
-All roles publish lifecycle, traffic and active Flow/Carrier counts. Local IPC
-and optional process samples depend on the host:
-
-| Host | IPC | CPU, RSS and file descriptors |
-|---|---|---|
-| Linux | Unix domain sockets | Best-effort samples from `/proc` |
-| macOS | Unix domain sockets | `null` |
-| Windows | Local named pipes | `null` |
-
-Unavailable samples remain `null` in JSON and display as a dash in status.
-Forwarding continues independently of resource sampling. Permissions, peer
-identity and discovery are defined by the [Telemetry contract](telemetry.md).
+All roles publish six logical traffic and active Flow statistics over Unix sockets
+on Linux/macOS or local Windows named pipes. stdout and stderr carry service logs.
+IPC permissions, discovery, process identity and namespace validation are defined
+by the [Telemetry contract](telemetry.md).
 
 The [native CI workflow](../.github/workflows/ci.yml) runs on Linux, macOS and
-Windows. Use [Testing](testing.md) to record coverage and validation results.
+Windows. Record validation results using [Testing](testing.md).

@@ -88,7 +88,7 @@ production component they exercise.
 | `src/tests/portal/` | Listener admission and configuration; connection security, Egress ownership and forwarding matrices |
 | `src/tests/egress/` | Service construction and registered connection ordering |
 | `src/tests/transport/` | QUIC ownership, Morph, flow control, buffering and statistics |
-| `src/tests/telemetry/` | Wire contract, events and privacy; nested IPC framing, registry and subscriber lifetimes |
+| `src/tests/telemetry/` | Minimal statistics contract and endpoint privacy; nested IPC framing, registry and subscriber lifetimes |
 | `src/tests/toolbox/` | Key generation, certificate inspection, probe, status, formatting and diagnostics |
 | `src/tests/main.rs` | CLI parsing and command behavior |
 
@@ -118,7 +118,7 @@ When wire bytes change, update the specification, vectors and codec tests togeth
 | Lifetime | Half-close, setup cancellation, idle timeout, UDP control FIN/reset/stop, late DATAGRAMs and bounded drain |
 | Egress | ACCEPTED ordering, BUSY, immediate offline failure, reconnect and stale-owner cleanup |
 | Configuration | First duplicates, ignored unknowns, percent decoding, conflicts, effective configuration and explicit bind failure |
-| Telemetry | Known-byte counters, ownership counts, ordered snapshots/events, passive connections, Gap and slow-client isolation |
+| Telemetry | Known-byte counters, ownership counts, passive snapshots, ignored input, EOF and write timeout cleanup |
 | IPC | Frame/client limits, permissions, identity/incarnation checks, PID reuse and namespace isolation |
 
 A change to a resource owner must cover failure and cancellation as well as

@@ -26,15 +26,14 @@ remain visible when another instance fails; partial failures are reported.
 
 | Display | Meaning |
 |---|---|
-| Status, role, endpoint and uptime | Process identity and lifecycle |
-| Egress | ONLINE or OFFLINE where registration applies |
-| Traffic | Logical upload/download in the Vector-to-Target direction |
-| Flows and Carriers | Active business Flows and transport ownership |
-| CPU, Memory and FDs | Resource samples; unavailable values display as a dash |
+| Role, PID, instance ID and endpoint | Process identity |
+| TCP/UDP upload and download | Per-process cumulative logical payload |
+| TCP/UDP Flows | Active business Flow owners |
 
-Each process maintains Telemetry without subscribers or stdout logging.
-Collectors use [public JSON IPC](telemetry.md); status text is a human interface.
-Do not add different processes' traffic totals as unique end-to-end bytes.
+Counters continue without clients. [JSON IPC](telemetry.md) carries statistics;
+stdout carries startup, TLS fingerprint and graceful shutdown logs, while stderr
+carries raw errors. Collectors must not add different processes' totals as unique
+end-to-end bytes.
 
 ## Diagnose target setup
 
@@ -63,7 +62,7 @@ Running `nowhere` without arguments displays help and exits normally.
 ## Check deployment settings
 
 Expose the declared Portal carrier ports and the intended SOCKS ingress.
-Confirm certificate trust, Morph agreement, `in`, `net` and `out`. Startup INFO
+Confirm certificate trust, Morph agreement, `in`, `net` and `out`. Startup output
 shows the effective role URL with explicit defaults and redacted credentials.
 
 Unknown URL parameters are ignored. The first recognized duplicate wins, and
@@ -78,9 +77,11 @@ Portal's `out` is fixed for its lifetime. `out=egress` requires a QUIC listener
 and cannot specify target `dial*`. New Flows fail immediately while Egress is
 offline; a second registrant receives BUSY.
 
-ONLINE means registration ownership is valid. An idle Egress adds one Carrier
-and no business Flow. Watch Runtime registration events and snapshots for
-changes; Carrier totals do not infer ONLINE. See [Egress](egress.md).
+Registration ownership remains internal to forwarding. An idle registered
+Egress has no business Flow. Diagnostic stderr reports registration, reconnection
+and target failures. Use `nowhere probe` to test a real target setup; process
+`running` means the process is alive, not that every target is reachable.
+See [Egress](egress.md).
 
 ## Understand failure boundaries
 

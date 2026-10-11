@@ -92,19 +92,19 @@ Administrators and compromised processes running as the same user are outside
 this isolation boundary.
 
 The 64 KiB server frame ceiling, 16-client limit, two-second write deadline,
-bounded events and Gap notifications isolate slow subscribers. See
+bounded frame writes disconnect blocked consumers. See
 [Telemetry](telemetry.md) for limits and identity requirements.
 
 ## Metadata and diagnostics
 
-Startup INFO omits Shared Key and SOCKS credentials. Private key contents are
-never logged. IPC metadata exposes validated service endpoints and destination
-addresses to authorized collectors; it includes no configuration summary,
+Startup output omits Shared Key and SOCKS credentials. Private key contents are
+never logged. IPC metadata exposes validated service endpoints
+to authorized collectors; it includes no configuration summary,
 client address or transport peer identity.
 
-Flow results and independent diagnostics use fixed codes. Known errors are
-classified by type; unknown details become `unknown`. Raw errors, credentials
-and dynamic diagnostic text are not sent through IPC.
+IPC carries instance identity and six statistics. It contains no Flow events,
+error messages or logs.
 
-See [Telemetry privacy](telemetry.md#privacy-and-trust) for the publisher's policy
-and the collector's trust boundary.
+Service errors preserve their original cause chains and can contain addresses
+or paths. Error construction excludes passwords, Shared Keys and complete
+credential URLs. See [Telemetry privacy](telemetry.md#privacy-and-trust).

@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import socket
@@ -87,27 +88,31 @@ def main():
     processes = []
     ipc = None
     with tempfile.TemporaryDirectory(prefix="n3-", dir="/tmp") as tmp:
-        env = dict(os.environ, TMPDIR=tmp, NOW_TELEMETRY_INTERVAL="250ms",
-                   TOKIO_WORKER_THREADS="2")
+        env = dict(os.environ, TMPDIR=tmp, TOKIO_WORKER_THREADS="2")
         nw2_directory = Path(tmp) / f"nowhere-telemetry-{os.getuid()}"
         nw3_directory = Path(tmp) / f"nowhere-telemetry-nw3-{os.getuid()}"
         try:
+            logs = {}
+
             def spawn(binary, url):
-                process = subprocess.Popen([binary, url], env=env,
-                                           stdin=subprocess.DEVNULL,
-                                           stdout=subprocess.DEVNULL,
-                                           stderr=subprocess.DEVNULL)
+                index = len(processes)
+                stdout = Path(tmp) / f"stdout-{index}"
+                stderr = Path(tmp) / f"stderr-{index}"
+                with stdout.open("wb") as output, stderr.open("wb") as errors:
+                    process = subprocess.Popen([binary, url], env=env, stdin=subprocess.DEVNULL,
+                                               stdout=output, stderr=errors)
+                logs[process.pid] = (stdout, stderr)
                 processes.append(process)
                 return process
 
             legacy = None
             if baseline:
-                legacy = spawn(baseline, f"portal://{KEY}@127.0.0.1:{reserve_port()}?log=none")
+                legacy = spawn(baseline, f"portal://{KEY}@127.0.0.1:{reserve_port()}")
                 legacy_records = wait_for(lambda: list(nw2_directory.glob("*.json")))
                 legacy_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                  for p in legacy_records}
             port = reserve_port()
-            portal = spawn(current, f"portal://{KEY}@127.0.0.1:{port}?log=none")
+            portal = spawn(current, f"portal://{KEY}@127.0.0.1:{port}")
             records = wait_for(lambda: list(nw3_directory.glob("*.json")))
             assert nw3_directory.stat().st_mode & 0o777 == 0o700
             record = json.loads(records[0].read_text())
@@ -125,8 +130,7 @@ def main():
             assert hello["instance"]["role"] == "portal"
             assert KEY not in json.dumps(hello)
             snapshot = next_kind(ipc, "snapshot")
-            assert snapshot["egress_online"] is None
-            assert snapshot["lifecycle"] in ("STARTING", "READY")
+            assert set(snapshot) == {"tcp_upload_bytes", "tcp_download_bytes", "udp_upload_bytes", "udp_download_bytes", "tcp_active", "udp_active"}
             assert "config_summary" not in hello["instance"]
             assert "lifecycle" not in hello
 
@@ -143,7 +147,7 @@ def main():
             assert len(pin) == 64
             ingress = reserve_port()
             vector = spawn(current, f"vector://{KEY}@127.0.0.1:{port}"
-                           f"?net=tcp&in=127.0.0.1:{ingress}&pin={pin}&log=none")
+                           f"?net=tcp&in=127.0.0.1:{ingress}&pin={pin}")
             wait_for(lambda: len(list(nw3_directory.glob("*.json"))) == 2)
             target = socket.socket()
             target.bind(("127.0.0.1", 0))
@@ -182,15 +186,6 @@ def main():
             worker.join(DEADLINE)
             target.close()
             assert not worker.is_alive() and not echo_errors
-            started = next_kind(ipc, "access_start")
-            finished = next_kind(ipc, "access_finish")
-            assert finished["sequence"] > started["sequence"]
-            assert finished["id"] == started["id"]
-            assert finished["result"] == "success"
-            assert started["carrier"] == "tls"
-            assert set(started) == {"sequence", "id", "timestamp_ms", "protocol", "target", "carrier"}
-            assert set(finished) == {"sequence", "id", "timestamp_ms", "result"}
-            assert KEY not in json.dumps([started, finished])
             deadline = time.monotonic() + DEADLINE
             while time.monotonic() < deadline:
                 snapshot = next_kind(ipc, "snapshot")
@@ -199,8 +194,6 @@ def main():
             assert snapshot["tcp_active"] == 0
             assert snapshot["tcp_upload_bytes"] == len(payload)
             assert snapshot["tcp_download_bytes"] == len(payload)
-            assert snapshot["tls_upload_bytes"] == len(payload)
-            assert snapshot["tls_download_bytes"] == len(payload)
             assert not any(key.endswith(("_up", "_down")) for key in snapshot)
             vector_record = next(json.loads(p.read_text()) for p in nw3_directory.glob("*.json")
                                  if json.loads(p.read_text())["instance"]["pid"] == vector.pid)
@@ -215,7 +208,6 @@ def main():
                         break
                 assert observed["tcp_upload_bytes"] == len(payload), observed
                 assert observed["tcp_download_bytes"] == len(payload)
-                assert observed["egress_online"] is None
 
                 with socket.create_connection(("127.0.0.1", ingress), timeout=DEADLINE) as invalid:
                     invalid.sendall(b"\x04\x01\x00")
@@ -224,14 +216,8 @@ def main():
                         invalid.recv(1024)
                     except ConnectionResetError:
                         pass
-                diagnostic = next_kind(observer, "diagnostic")
-                assert diagnostic["context"] == "socks_handshake"
-                assert set(diagnostic) == {"sequence", "timestamp_ms", "context", "reason"}
-                assert isinstance(diagnostic["reason"], str)
-
-            ipc.sendall(b"\x00")
-            while ipc.recv(65536):
-                pass
+            ipc.sendall(b"ignored client input")
+            assert read_message(ipc)["type"] == "snapshot"
             ipc.close()
             ipc = socket.socket(socket.AF_UNIX)
             ipc.settimeout(DEADLINE)
@@ -256,6 +242,16 @@ def main():
             ipc = None
             stop(vector)
             stop(portal)
+            assert portal.returncode == 0 and vector.returncode == 0
+            for process, role in [(portal, "Portal"), (vector, "Vector")]:
+                stdout, stderr = (path.read_text() for path in logs[process.pid])
+                assert f"{role} starting:" in stdout and f"{role} shutdown complete" in stdout
+                assert KEY not in stdout + stderr
+                for line in (stdout + stderr).splitlines():
+                    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z ", line), line
+                    assert "exchange starting" not in line and "transfer complete" not in line
+            assert "TLS certificate SHA-256 fingerprint:" in logs[portal.pid][0].read_text()
+            assert "socks" in logs[vector.pid][1].read_text().lower()
             assert not list(nw3_directory.glob("*.json"))
             assert not list(nw3_directory.glob("*.sock"))
             if legacy is not None:
@@ -265,8 +261,8 @@ def main():
             idle = subprocess.check_output([current, "status"], env=env, timeout=DEADLINE).decode()
             assert "IDLE" in idle
             print(json.dumps({"headless": "passed", "passive_reconnection": "passed",
-                              "extra_input_disconnect": "passed",
-                              "structured_diagnostic": "passed",
+                              "extra_input_ignored": "passed",
+                              "raw_stderr_and_stdout": "passed",
                               "known_logical_bytes_each_direction": len(payload),
                               "namespace_isolation": "passed" if legacy is not None else "not run", "cleanup": "passed"}))
         finally:

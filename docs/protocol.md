@@ -624,6 +624,7 @@ own references:
 | [Testing](testing.md) | Reference vectors, regression coverage and validation |
 
 Traffic accounting follows Vector-to-Target direction. Portal bridges count
-logical bytes once; carrier counters count payload handled by each transport.
+logical bytes once. IPC exposes only per-process TCP/UDP logical payload totals
+and active Flow ownership counts.
 Active counts follow resource ownership and decrement once. Per-process totals
 cannot be added as unique end-to-end traffic.

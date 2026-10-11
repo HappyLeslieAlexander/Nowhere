@@ -84,14 +84,8 @@ Previous Flows stay closed; Flow identity and target state are not restored.
 
 ## Observe registration
 
-`nowhere status` shows ONLINE or OFFLINE for Portal's Egress output and for
-Egress itself. Public snapshots expose the same state as `egress_online`.
-
-| Instance | Online condition |
-|---|---|
-| Portal with `out=egress` | Its Slot owns a valid registered QUIC connection |
-| Egress | ACCEPTED was received and that connection remains valid |
-| Vector or another Portal output | Not applicable; `egress_online` is `null` |
-
-An idle accepted Egress counts one Carrier and zero business Flows. Carrier
-counts do not establish online state. Registration changes update snapshots. See [Telemetry](telemetry.md#egress-registration-state).
+The Slot's registration ownership is internal. IPC reports only logical TCP/UDP
+traffic and active business Flows; an idle registration does not add a Flow.
+Egress connection or registration failures are emitted to stderr as raw errors.
+The service retries while running. `nowhere probe` checks target setup through
+the configured Portal output. See [Telemetry](telemetry.md) and [Operations](operations.md).

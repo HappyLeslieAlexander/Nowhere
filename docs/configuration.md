@@ -67,7 +67,6 @@ include that carrier.
 | `pin` | Exact certificate SHA-256 | System CA and hostname verification |
 | `morph` | `0` or `1`; peers share the key and setting | `0` |
 | `rate`, `etar` | Upload/download Mbps; `0` disables the limit | `0` |
-| `log` | `none`, `debug`, `info`, `warn`, `error` | `info` |
 
 A pin is exactly 64 lowercase hexadecimal characters. A missing, empty or
 `none` pin uses normal certificate verification. An empty or `none` SNI uses
@@ -87,7 +86,7 @@ of which transport peer establishes the connection.
 | `crt`, `key` | PEM paths; required exactly when `tls=2` | Absent |
 | `dial` | Source IP/single-family policy, or `auto` | Automatic |
 | `dial4`, `dial6` | Family-specific source IP, or `auto` | Automatic |
-| `morph`, `rate`, `etar`, `log` | Same meaning as Vector | `0`, `0`, `0`, `info` |
+| `morph`, `rate`, `etar` | Same meaning as Vector | `0`, `0`, `0` |
 
 `out=egress` requires a QUIC listener and conflicts with every explicit `dial*`
 parameter, including `auto`. The first registered Egress owns the Slot; another
@@ -113,7 +112,7 @@ the same credential parsing rules.
 
 ## Egress URL
 
-Egress accepts `sni`, `pin`, `morph`, `rate`, `etar`, `log` and target `dial*`.
+Egress accepts `sni`, `pin`, `morph`, `rate`, `etar` and target `dial*`.
 Connection options have the same defaults as Vector. Transport is fixed to QUIC.
 
 | Connection | Source selection |
@@ -137,14 +136,14 @@ to `out=direct` when `out` is absent. Unknown parameters do not change that defa
 | `net=invalid&net=tcp` | Configuration error |
 | An unknown parameter with no `out` | Portal keeps its default direct output |
 
-Startup INFO uses `Vector starting:`, `Portal starting:` or `Egress starting:`
+Startup output uses `Vector starting:`, `Portal starting:` or `Egress starting:`
 followed by a redacted role URL. Query fields use `&` and have a fixed order:
 
 | Role | Field order |
 |---|---|
-| Vector | `in`, `net`, `sni`, `pin`, `morph`, `rate`, `etar`, `log` |
-| Portal | `out`, `tls`, applicable `dial*`, `morph`, `rate`, `etar`, `log` |
-| Egress | `sni`, `pin`, `dial*`, `morph`, `rate`, `etar`, `log` |
+| Vector | `in`, `net`, `sni`, `pin`, `morph`, `rate`, `etar` |
+| Portal | `out`, `tls`, applicable `dial*`, `morph`, `rate`, `etar` |
+| Egress | `sni`, `pin`, `dial*`, `morph`, `rate`, `etar` |
 
 The order groups ingress or output selection, transport and certificate
 verification, target dialing, Morph, traffic limits and logging. Defaults are explicit.
@@ -157,7 +156,7 @@ including when `tls=2`; certificate loading and validation still apply.
 Unknown and inapplicable options are omitted. Environment-based runtime budgets
 and timeouts are documented separately below. The URL is a diagnostic view;
 credentials and certificate files must be supplied separately to launch a service.
-[Telemetry metadata](telemetry.md#privacy-and-trust) reports only pin presence.
+IPC Hello contains the validated endpoint and does not contain configuration settings.
 
 ## Runtime environment
 
@@ -175,7 +174,6 @@ values; duration settings use values such as `5s` or `250ms`.
 | `NOW_UDP_IDLE_TIMEOUT` | `120s` | UDP Flow/QUIC idle limit |
 | `NOW_QUIC_UDP_QUEUE_BYTES` | `4194304` | Connection-wide queue/reassembly reservation |
 | `NOW_SHUTDOWN_TIMEOUT` | `5s` | Bounded drain |
-| `NOW_TELEMETRY_INTERVAL` | `1s` | Sampling interval; allowed `250ms`–`60s` |
 | `NOW_RELOAD_INTERVAL` | `1h` | Supplied certificate reload |
 | `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect backoff |
 | `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
@@ -193,5 +191,5 @@ Portal uses a 64 KiB connection receive window before authentication and raises
 it after success. Transport windows are separate from UDP application budgets
 and do not represent total process memory.
 
-Telemetry samples inside every service process, even without IPC subscribers
-or stdout logging. See [Telemetry](telemetry.md) for the observation contract.
+Atomic traffic totals and active Flow ownership counts continue without IPC
+clients. Each connected collector receives the current values once per second. See [Telemetry](telemetry.md) for the observation contract.
