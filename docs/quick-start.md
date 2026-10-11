@@ -80,8 +80,7 @@ Perform one TCP Flow setup through the QUIC path:
 ./target/release/nowhere probe "vector://KEY@relay.example/udp:2001?net=udp&pin=TRUSTED_SHA256" "example.com:443"
 ```
 
-Probe sends no target payload and does not require `in`. Read local process
-state on either host:
+Probe sends no target payload and does not require `in`. Read local instance identity and traffic statistics on either host:
 
 ```sh
 ./target/release/nowhere status

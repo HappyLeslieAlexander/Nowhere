@@ -49,7 +49,7 @@ and all test targets on Linux, macOS and Windows. Start it manually with
 
 | Host | Native boundaries |
 |---|---|
-| Linux | Sockets, Unix IPC, namespace identity, permissions and `/proc` sampling |
+| Linux | Sockets, Unix IPC, namespace identity, permissions and `/proc` process identity |
 | macOS | Sockets, Unix IPC, permissions and process shutdown |
 | Windows | Sockets, named pipes, ACLs, peer identity and console shutdown |
 
@@ -60,8 +60,8 @@ record the conditionally compiled test names and the boundaries they cover.
 
 ### Linux checks on macOS
 
-[The Linux check script](../scripts/check-linux.sh) runs formatting, Clippy,
-tests and a release build in Apple Container. It supplies IPv6 `localhost`
+[The Linux check script](../scripts/check-linux.sh) runs formatting, Clippy
+and tests in Apple Container. It supplies IPv6 `localhost`
 resolution for the container's network tests:
 
 ```sh
@@ -72,8 +72,8 @@ resolution for the container's network tests:
 
 All tests, fixtures and helper programs live under `src/tests/`. Production
 modules mount private test modules with `#[cfg(test)]` and `#[path]`. Test
-helpers stay private; regression cases exercise production codecs, connection
-paths and resource owners.
+helpers are compiled only for tests; regression cases exercise production codecs,
+connection paths and resource owners.
 
 Test files mirror the module path below `src/`. For example,
 `src/vector/socks/udp.rs` mounts `src/tests/vector/socks/udp.rs`, and
@@ -169,8 +169,8 @@ distributions rather than a single best value:
 
 ### Account for resources and loss
 
-Check known logical and carrier byte counts alongside measurements. Report
-retained RSS separately from live Flow/task/descriptor counts. Unpaced fragmented
+Check known logical byte counts alongside measurements. Measure carrier traffic
+with external instrumentation when needed. Report retained RSS separately from live Flow/task/descriptor counts. Unpaced fragmented
 bursts can overflow bounded socket and application queues; end-to-end loss alone
 does not identify the dropping layer. Explain profiling overhead and distinguish
 instrumented results from normal release builds.

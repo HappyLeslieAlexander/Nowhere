@@ -16,7 +16,7 @@ Build and deploy Nowhere on native hosts and in containers.
 
 Linux, macOS and Windows share one configuration model and the same Vector,
 Portal and Egress connection semantics. Platform-specific IPC and process
-sampling follow the operating system's facilities.
+identity checks follow the operating system's facilities.
 
 Native validation follows [Testing](testing.md#native-validation). A successful
 cross-build does not replace execution on the target platform.
@@ -61,7 +61,7 @@ An unrestricted `*` carrier opens separate IPv4 and IPv6 wildcard sockets.
 IPv6 sockets use `V6ONLY` on Linux, macOS, and Windows, so an IPv6 firewall
 rule does not replace the corresponding IPv4 rule. If the operating system
 does not support one family, only an unrestricted wildcard carrier may start
-with the available family and a warning. Explicit families and concrete bind
+with the available family and a diagnostic on stderr. Explicit families and concrete bind
 addresses fail startup when unavailable.
 
 A hostname listener resolves once at startup and binds every matching address.
@@ -143,7 +143,7 @@ docker exec nowhere-portal /nowhere status
 The relay and collector must use the same UID and system temporary directory.
 Telemetry uses a private Unix socket, not a published network port. Run third-party
 collectors inside the same container. Host-to-container, sidecar and cross-container
-subscription are outside the supported contract; do not share telemetry directories
+observation are outside the supported contract; do not share telemetry directories
 across PID or user namespaces.
 
 ### Use writable temporary storage
@@ -195,7 +195,7 @@ spec:
 ```
 
 A missing, full or unwritable temporary mount disables local Telemetry IPC
-with a warning; forwarding continues. No TCP fallback, extra capabilities
+with an error on stderr; forwarding continues. No TCP fallback, extra capabilities
 or host networking are needed. Registry files are written once; messages and
 history are not stored in the mount. Process memory and tmpfs count against container resource budgets.
 Normal shutdown removes instance files; forced termination can leave files until

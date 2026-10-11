@@ -67,7 +67,7 @@ It operates Portal directly.
 
 ### Manage
 
-OpenCtrl runs beside the Portal or Vector processes it supervises. It stores
+OpenCtrl runs beside the Portal, Vector or Egress processes it supervises. It stores
 process definitions and exposes lifecycle, logs and telemetry through a
 versioned REST API and Server-Sent Events. The controller and its children
 share a host or container, operating-system user and telemetry namespace.

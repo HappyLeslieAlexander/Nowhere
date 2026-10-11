@@ -21,7 +21,7 @@ Deploy services, inspect their state and understand the trust boundaries.
 | [Platforms](platforms.md) | Native hosts, network exposure and containers |
 | [Operations](operations.md) | Status, diagnostics, capacity and shutdown |
 | [Security](security.md) | Certificate trust, authentication and resource protection |
-| [Telemetry](telemetry.md) | Local discovery, current state, events and statistics |
+| [Telemetry](telemetry.md) | Local discovery, instance identity and logical statistics |
 
 ## Build and integrate
 

@@ -64,8 +64,13 @@ history. Before trusting a record:
 1. Check permissions, object type, endpoint namespace and peer identity.
 2. Check that the filename matches the embedded instance identity.
 3. On Linux, check namespace identity before PID checks or cleanup.
-4. Validate the process incarnation and PID identity.
+4. Check process liveness and validate its incarnation where the platform supports it.
 5. Match Hello's instance ID against discovery after connecting.
+
+Linux compares boot, PID namespace and user namespace identity and checks the
+socket peer PID. Windows checks the named-pipe server PID and user identity.
+macOS checks socket peer UID and registry/Hello identity; it does not compare
+process start times to detect PID reuse.
 
 A failed connection alone does not establish that a record is stale. Remove
 records only after confirming process death or an incarnation mismatch.
@@ -194,7 +199,7 @@ fingerprints and graceful shutdown information. Service stderr contains original
 exception details and their cause chains; addresses and file paths may appear.
 Errors are constructed without passwords, Shared Keys or complete credential
 URLs. Logs use `2026-10-11T08:30:00.123Z message`, without levels or ANSI colors.
-Outer operation descriptions use lowercase text without source paths or
+Error operation descriptions use lowercase text without source paths or
 addresses. Original error chains retain their text, casing and any addresses.
 Embedded newlines are escaped so each record occupies one line.
 
@@ -205,8 +210,8 @@ ordinary UDP idle cleanup produce no access logs.
 
 There are at most 16 IPC connections. Frames are at most 64 KiB and each write
 has a five-second timeout. Input is discarded through a fixed-size buffer.
-Slow writers, EOF and I/O errors release connection resources. There are no
-subscription timers, event queues or configurable sampling intervals.
+Slow writers, EOF and I/O errors release connection resources. Snapshots use a
+fixed one-second interval without an event queue.
 
 ## Containers
 

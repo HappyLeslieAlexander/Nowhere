@@ -48,7 +48,7 @@ one or both carriers, once each.
 | `tcp6`, `udp6` | TLS or QUIC respectively | IPv6 only |
 
 Client hosts must be concrete. Portal accepts `*` or an empty listen host.
-Unrestricted wildcard listeners may omit an unavailable family with a warning;
+Unrestricted wildcard listeners may omit an unavailable family with a diagnostic on stderr;
 explicit families and concrete binds fail on errors. See
 [network exposure](platforms.md#network-exposure) for socket and firewall rules.
 

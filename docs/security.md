@@ -86,8 +86,9 @@ Local observation is restricted to the service's operating-system user. Unix
 permissions and symlink/object checks protect the registry and sockets. Windows
 ACLs and peer checks protect registry files and local named pipes.
 
-Collectors validate process incarnation, registry/Hello consistency and PID
-identity. Discovery and cleanup stay inside the documented IPC namespace.
+Collectors validate registry/Hello consistency, process liveness and platform
+peer identity. Linux and Windows also check process incarnation during discovery.
+Discovery and cleanup stay inside the documented IPC namespace.
 Administrators and compromised processes running as the same user are outside
 this isolation boundary.
 

@@ -75,7 +75,7 @@ Run Vector, then point applications at SOCKS5 `127.0.0.1:1080`:
   "vector://<generated-key>@portal.example:2000?net=tcp&pin=<sha256>&in=127.0.0.1:1080"
 ```
 
-### 6. Read the state
+### 6. Read local statistics
 
 Run on either host to inspect its local instances:
 
@@ -165,7 +165,7 @@ Portal's clients over QUIC. Follow the [Egress guide](docs/egress.md) to set it 
 
 ## Observability
 
-Read local traffic and process state with `nowhere status`. Telemetry runs inside
+Read local instance identity and traffic statistics with `nowhere status`. Telemetry runs inside
 each service, even without a terminal or log output. Build monitoring integrations
 against the public [Telemetry interface](docs/telemetry.md).
 
