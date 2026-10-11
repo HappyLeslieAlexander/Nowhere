@@ -12,7 +12,6 @@ use tokio::io::AsyncWriteExt;
 async fn framing_round_trips_and_rejects_oversize_lengths() {
     let (mut left, mut right) = tokio::io::duplex(MAX_FRAME_SIZE + 16);
     let message = ClientMessage::Subscribe {
-        request_id: 0,
         subscription: Subscription::Detail,
     };
     write_frame(&mut left, &message).await.unwrap();
@@ -30,7 +29,6 @@ async fn framing_round_trips_and_rejects_oversize_lengths() {
 #[tokio::test]
 async fn frame_reader_survives_cancelled_partial_reads() {
     let message = ClientMessage::Subscribe {
-        request_id: 0,
         subscription: Subscription::Detail,
     };
     let payload = serde_json::to_vec(&message).unwrap();

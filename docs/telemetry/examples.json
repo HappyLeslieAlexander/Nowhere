@@ -20,14 +20,6 @@
     {
       "type": "subscribe",
       "data": {
-        "request_id": 1,
-        "subscription": "detail"
-      }
-    },
-    {
-      "type": "subscribed",
-      "data": {
-        "request_id": 1,
         "subscription": "detail"
       }
     },
@@ -43,8 +35,8 @@
         "sequence": 1,
         "timestamp_ms": 1770000000000,
         "level": "warn",
-        "kind": "carrier",
-        "message": "TLS carrier connection failed: connection refused",
+        "kind": "authentication",
+        "message": "SOCKS5 handshake failed: connection refused",
         "client": "C001"
       }
     },
@@ -193,14 +185,12 @@
     {
       "type": "subscribe",
       "data": {
-        "request_id": 1,
         "subscription": "raw"
       }
     },
     {
       "type": "subscribe",
       "data": {
-        "request_id": 1,
         "subscription": "detail",
         "reveal": true
       }
@@ -209,6 +199,13 @@
       "type": "execute",
       "data": {
         "command": "ls"
+      }
+    },
+    {
+      "type": "subscribe",
+      "data": {
+        "subscription": "detail",
+        "request_id": 1
       }
     }
   ]

@@ -77,17 +77,11 @@ struct StatusItem {
 async fn read_status(instance: crate::telemetry::DiscoveredInstance) -> Result<StatusItem> {
     tokio::time::timeout(STATUS_TIMEOUT, async {
         let client = TelemetryClient::connect(&instance, Subscription::Summary).await?;
-        let hello = client.hello().clone();
-        let (_, mut reader, _writer) = client.into_parts();
-        loop {
-            match reader.next_message().await? {
-                ServerMessage::Snapshot(snapshot) => return Ok(status_item(hello, snapshot)),
-                ServerMessage::Error { message } => {
-                    bail!("telemetry rejected status: {message}")
-                }
-                _ => {}
-            }
-        }
+        let (hello, mut reader) = client.into_parts();
+        let ServerMessage::Snapshot(snapshot) = reader.next_message().await? else {
+            bail!("telemetry: subscription did not begin with snapshot");
+        };
+        Ok(status_item(hello, snapshot))
     })
     .await
     .context("telemetry snapshot timed out")?

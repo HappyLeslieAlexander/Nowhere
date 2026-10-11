@@ -14,10 +14,9 @@ mod binding;
 impl Portal {
     pub async fn run(self) -> Result<()> {
         let forward = &self.inner.forward;
-        forward.telemetry.set_lifecycle(
-            LifeState::Starting.to_string(),
-            LifeReason::Startup.to_string(),
-        );
+        forward
+            .telemetry
+            .set_lifecycle(LifeState::Starting, LifeReason::Startup);
         let mut signals = ShutdownSignals::new()?;
         let tcp = self.listen_tcp_listeners()?;
         let endpoints = self.listen_endpoints()?;
@@ -71,14 +70,11 @@ impl Portal {
         forward
             .logger
             .info(format_args!("Portal starting: {}", self.inner.effective));
-        forward.telemetry.set_lifecycle(
-            LifeState::Ready.to_string(),
-            LifeReason::Listening.to_string(),
-        );
-        let reason = tokio::select! {reason=signals.recv()=>reason?,exit=listeners.join_next()=>exit.and_then(Result::ok).unwrap_or(LifeReason::QuicListenerExit)};
         forward
             .telemetry
-            .set_lifecycle(LifeState::Draining.to_string(), reason.to_string());
+            .set_lifecycle(LifeState::Ready, LifeReason::Listening);
+        let reason = tokio::select! {reason=signals.recv()=>reason?,exit=listeners.join_next()=>exit.and_then(Result::ok).unwrap_or(LifeReason::QuicListenerExit)};
+        forward.telemetry.set_lifecycle(LifeState::Draining, reason);
         stop.cancel();
         forward.shutdown.cancel();
         let drained = tokio::time::timeout(self.inner.runtime.shutdown_timeout, async {
@@ -87,10 +83,9 @@ impl Portal {
         .await
         .is_ok();
         if drained {
-            forward.telemetry.set_lifecycle(
-                LifeState::Draining.to_string(),
-                LifeReason::Drained.to_string(),
-            );
+            forward
+                .telemetry
+                .set_lifecycle(LifeState::Draining, LifeReason::Drained);
         }
         listeners.abort_all();
         while listeners.join_next().await.is_some() {}
@@ -98,13 +93,12 @@ impl Portal {
             endpoint.close(0u32.into(), b"shutdown");
         }
         forward.telemetry.set_lifecycle(
-            LifeState::Stopped.to_string(),
+            LifeState::Stopped,
             if drained {
                 LifeReason::CleanupComplete
             } else {
                 LifeReason::Timeout
-            }
-            .to_string(),
+            },
         );
         forward.telemetry.capture_and_publish(&forward.stats, 0);
         telemetry_stop.cancel();

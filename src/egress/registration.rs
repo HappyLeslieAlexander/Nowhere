@@ -48,11 +48,11 @@ pub(super) async fn register(
     match accepted {
         0 => {}
         1 => {
-            telemetry.emit_runtime(crate::telemetry::RuntimeEvent::new(
-                crate::telemetry::RuntimeLevel::Info,
-                crate::telemetry::RuntimeKind::Authentication,
-                "Egress registration busy",
-            ));
+            telemetry.emit_runtime(
+                crate::telemetry::Runtime::EgressRegistrationBusy,
+                None,
+                None,
+            );
             bail!("Egress Slot busy")
         }
         _ => bail!("invalid Egress registration result"),

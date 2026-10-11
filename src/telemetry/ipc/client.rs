@@ -7,15 +7,14 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::frame::{FrameReader, TelemetryReader, TelemetryWriter};
+use super::frame::{FrameReader, TelemetryReader, write_frame};
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path, valid_instance};
 use crate::telemetry::local;
-use crate::telemetry::{Hello, ServerMessage, Subscription, TELEMETRY_PROTOCOL};
+use crate::telemetry::{ClientMessage, Hello, ServerMessage, Subscription, TELEMETRY_PROTOCOL};
 
 pub(crate) struct TelemetryClient {
     hello: Hello,
     reader: TelemetryReader,
-    writer: TelemetryWriter,
 }
 
 impl TelemetryClient {
@@ -50,36 +49,27 @@ impl TelemetryClient {
             local::connect(&entry.endpoint, discovered.pid),
         )
         .await??;
-        let (reader, writer) = tokio::io::split(stream);
+        let (reader, mut writer) = tokio::io::split(stream);
         let mut reader = FrameReader::new(reader);
         let message = tokio::time::timeout(Duration::from_secs(5), reader.next::<ServerMessage>())
             .await
             .context("telemetry: hello timed out")??;
         let mut hello = match message {
             ServerMessage::Hello(hello) => hello,
-            ServerMessage::Error { message } => {
-                bail!("telemetry: service rejected connection: {message}")
-            }
             _ => bail!("telemetry: service did not begin with hello"),
         };
         validate_hello(&hello, discovered)?;
         hello.instance.uid = discovered.uid;
         hello.instance.incarnation = discovered.incarnation;
-        let mut writer = TelemetryWriter { inner: writer };
-        writer.subscribe(subscription).await?;
+        write_frame(&mut writer, &ClientMessage::Subscribe { subscription }).await?;
         Ok(Self {
             hello,
             reader: TelemetryReader { inner: reader },
-            writer,
         })
     }
 
-    pub(crate) fn hello(&self) -> &Hello {
-        &self.hello
-    }
-
-    pub(crate) fn into_parts(self) -> (Hello, TelemetryReader, TelemetryWriter) {
-        (self.hello, self.reader, self.writer)
+    pub(crate) fn into_parts(self) -> (Hello, TelemetryReader) {
+        (self.hello, self.reader)
     }
 }
 

@@ -10,7 +10,6 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Mutex;
 
-use super::wire::{RuntimeKind, RuntimeLevel};
 use crate::protocol::Target;
 
 const ALIAS_CAPACITY: usize = 4_096;
@@ -90,25 +89,6 @@ pub(crate) fn config_summary(value: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-pub(super) fn lifecycle_reason(value: &str) -> &str {
-    match value {
-        "STARTUP"
-        | "LISTENING"
-        | "SIGINT"
-        | "SIGTERM"
-        | "TCP_LISTENER_EXIT"
-        | "QUIC_LISTENER_EXIT"
-        | "SOCKS_LISTENER_EXIT"
-        | "DRAINED"
-        | "CLEANUP_COMPLETE"
-        | "TIMEOUT"
-        | "FORCED"
-        | "START_FAILED"
-        | "STATE_CHANGED" => value,
-        _ => "STATE_CHANGED",
-    }
 }
 
 #[derive(Default)]
@@ -196,29 +176,95 @@ pub(super) fn target(value: &str) -> String {
         .unwrap_or_else(|_| "<redacted>".to_owned())
 }
 
-pub(crate) fn error_reason(value: &str) -> &'static str {
+/// Only classified, fixed diagnostics may leave the process.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DiagnosticReason {
+    CertificateExpired,
+    ApplicationClosed,
+    IdleTimeout,
+    ServiceDraining,
+    TargetConnectionFailed,
+    ResourceLimit,
+    InvalidRequest,
+    InternalError,
+    SetupRejected,
+    DatagramUnavailable,
+    UnknownIssuer,
+    CertificateVerification,
+    ConnectionRefused,
+    Dns,
+    Timeout,
+    NetworkUnreachable,
+    ConnectionReset,
+    BrokenPipe,
+    UnexpectedEof,
+    ConnectionClosed,
+    Authentication,
+    PermissionDenied,
+    Handshake,
+    Protocol,
+    Cancelled,
+    OperationFailed,
+}
+
+impl DiagnosticReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::CertificateExpired => "certificate expired",
+            Self::ApplicationClosed => "application closed",
+            Self::IdleTimeout => "idle timeout",
+            Self::ServiceDraining => "service draining",
+            Self::TargetConnectionFailed => "target connection failed",
+            Self::ResourceLimit => "resource limit reached",
+            Self::InvalidRequest => "invalid request",
+            Self::InternalError => "internal error",
+            Self::SetupRejected => "flow setup rejected",
+            Self::DatagramUnavailable => "datagram route unavailable",
+            Self::UnknownIssuer => "unknown certificate issuer",
+            Self::CertificateVerification => "certificate verification failed",
+            Self::ConnectionRefused => "connection refused",
+            Self::Dns => "DNS lookup failed",
+            Self::Timeout => "connection timed out",
+            Self::NetworkUnreachable => "network unreachable",
+            Self::ConnectionReset => "connection reset by peer",
+            Self::BrokenPipe => "broken pipe",
+            Self::UnexpectedEof => "unexpected EOF",
+            Self::ConnectionClosed => "connection closed",
+            Self::Authentication => "authentication failed",
+            Self::PermissionDenied => "permission denied",
+            Self::Handshake => "handshake failed",
+            Self::Protocol => "protocol error",
+            Self::Cancelled => "operation cancelled",
+            Self::OperationFailed => "operation failed",
+        }
+    }
+}
+
+pub(crate) fn error_reason(value: &str) -> DiagnosticReason {
     let lower = value
         .chars()
         .take(4096)
         .collect::<String>()
         .to_ascii_lowercase();
     if lower.contains("cert") && lower.contains("expired") {
-        return "certificate expired";
+        return DiagnosticReason::CertificateExpired;
     }
     match lower
         .strip_prefix("flow setup rejected: ")
         .unwrap_or(&lower)
     {
-        "application closed" => return "application closed",
-        "idle timeout" => return "idle timeout",
-        "portal draining" | "service draining" => return "service draining",
-        "dial failed" | "target connection failed" => return "target connection failed",
-        "flow limit" => return "resource limit reached",
-        "invalid request" => return "invalid request",
-        "internal error" => return "internal error",
-        "flow setup rejected" => return "flow setup rejected",
+        "application closed" => return DiagnosticReason::ApplicationClosed,
+        "idle timeout" => return DiagnosticReason::IdleTimeout,
+        "portal draining" | "service draining" => return DiagnosticReason::ServiceDraining,
+        "dial failed" | "target connection failed" => {
+            return DiagnosticReason::TargetConnectionFailed;
+        }
+        "flow limit" => return DiagnosticReason::ResourceLimit,
+        "invalid request" => return DiagnosticReason::InvalidRequest,
+        "internal error" => return DiagnosticReason::InternalError,
+        "flow setup rejected" => return DiagnosticReason::SetupRejected,
         "quic datagram route preparation failed" | "datagram route unavailable" => {
-            return "datagram route unavailable";
+            return DiagnosticReason::DatagramUnavailable;
         }
         _ => {}
     }
@@ -230,7 +276,7 @@ pub(crate) fn error_reason(value: &str) -> &'static str {
                 "certificate has expired",
                 "expired certificate",
             ][..],
-            "certificate expired",
+            DiagnosticReason::CertificateExpired,
         ),
         (
             &[
@@ -239,11 +285,11 @@ pub(crate) fn error_reason(value: &str) -> &'static str {
                 "unknown ca",
                 "unknown certificate issuer",
             ][..],
-            "unknown certificate issuer",
+            DiagnosticReason::UnknownIssuer,
         ),
         (
             &["certificate", "invalid peer", "pin mismatch"][..],
-            "certificate verification failed",
+            DiagnosticReason::CertificateVerification,
         ),
         (
             &[
@@ -252,7 +298,7 @@ pub(crate) fn error_reason(value: &str) -> &'static str {
                 "os error 61",
                 "os error 10061",
             ][..],
-            "connection refused",
+            DiagnosticReason::ConnectionRefused,
         ),
         (
             &[
@@ -262,23 +308,26 @@ pub(crate) fn error_reason(value: &str) -> &'static str {
                 "no records",
                 "resolve",
             ][..],
-            "DNS lookup failed",
+            DiagnosticReason::Dns,
         ),
-        (&["timed out", "timeout"][..], "connection timed out"),
+        (&["timed out", "timeout"][..], DiagnosticReason::Timeout),
         (
             &[
                 "network unreachable",
                 "network is unreachable",
                 "no route to host",
             ][..],
-            "network unreachable",
+            DiagnosticReason::NetworkUnreachable,
         ),
         (
             &["connection reset", "reset by peer"][..],
-            "connection reset by peer",
+            DiagnosticReason::ConnectionReset,
         ),
-        (&["broken pipe"][..], "broken pipe"),
-        (&["unexpected eof", "early eof"][..], "unexpected EOF"),
+        (&["broken pipe"][..], DiagnosticReason::BrokenPipe),
+        (
+            &["unexpected eof", "early eof"][..],
+            DiagnosticReason::UnexpectedEof,
+        ),
         (
             &[
                 "connection closed",
@@ -286,82 +335,34 @@ pub(crate) fn error_reason(value: &str) -> &'static str {
                 "application closed",
                 "connection aborted",
             ][..],
-            "connection closed",
+            DiagnosticReason::ConnectionClosed,
         ),
         (
             &["authentication", "unauthorized", "invalid key"][..],
-            "authentication failed",
+            DiagnosticReason::Authentication,
         ),
         (
             &["resource limit", "too many", "limit exceeded"][..],
-            "resource limit reached",
+            DiagnosticReason::ResourceLimit,
         ),
-        (&["permission denied"][..], "permission denied"),
-        (&["handshake"][..], "handshake failed"),
+        (
+            &["permission denied"][..],
+            DiagnosticReason::PermissionDenied,
+        ),
+        (&["handshake"][..], DiagnosticReason::Handshake),
         (
             &["protocol", "invalid frame", "malformed"][..],
-            "protocol error",
+            DiagnosticReason::Protocol,
         ),
-        (&["cancelled", "canceled"][..], "operation cancelled"),
+        (&["cancelled", "canceled"][..], DiagnosticReason::Cancelled),
     ] {
         if patterns.iter().any(|pattern| lower.contains(pattern)) {
             return reason;
         }
     }
-    "operation failed"
+    DiagnosticReason::OperationFailed
 }
 
-pub(super) fn runtime_message(kind: RuntimeKind, level: RuntimeLevel, value: &str) -> String {
-    const MESSAGES: &[&str] = &[
-        "Egress online",
-        "Egress offline",
-        "Egress registration accepted",
-        "Egress registration busy",
-        "Egress connecting",
-        "QUIC carrier connected",
-        "QUIC carrier disconnected",
-        "TLS/TCP carrier connected",
-        "TLS/TCP carrier disconnected",
-        "QUIC unauthenticated connection limit exceeded",
-        "TCP unauthenticated connection limit exceeded",
-        "SOCKS client resource limit reached",
-        "SOCKS5 handshake timed out",
-        "failed to send QUIC Retry",
-        "TCP accept failed",
-        "SOCKS accept failed",
-        "QUIC TLS handshake failed",
-        "QUIC authentication failed",
-        "TLS/TCP authentication failed",
-        "QUIC carrier stream loop closed",
-        "TLS carrier connection failed",
-        "QUIC carrier connection failed",
-        "QUIC carrier stream open failed",
-        "SOCKS5 handshake failed",
-    ];
-    let (template, detail) = value.split_once(": ").unwrap_or((value, ""));
-    if MESSAGES.contains(&template) {
-        return if detail.is_empty() {
-            template.to_owned()
-        } else {
-            format!("{template}: {}", error_reason(detail))
-        };
-    }
-    if kind == RuntimeKind::Lifecycle
-        && matches!(template, "STARTING" | "READY" | "DRAINING" | "STOPPED")
-    {
-        return if detail.is_empty() {
-            template.to_owned()
-        } else {
-            format!("{template}: {}", lifecycle_reason(detail))
-        };
-    }
-    let severity = match level {
-        RuntimeLevel::Info => "update",
-        RuntimeLevel::Warn => "warning",
-        RuntimeLevel::Error => "failed",
-    };
-    format!("{kind:?} {severity}")
-}
 #[cfg(test)]
 #[path = "../tests/telemetry/privacy.rs"]
 mod tests;

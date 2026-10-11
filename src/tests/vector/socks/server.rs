@@ -133,14 +133,14 @@ async fn invalid_tcp_target_does_not_publish_access() {
     )
     .unwrap();
     let mut events = vector.inner.telemetry.event_receiver();
-    let _detail = vector.inner.telemetry.detail_guard();
+
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut client = TcpStream::connect(listener.local_addr().unwrap())
         .await
         .unwrap();
     let (server, peer) = listener.accept().await.unwrap();
     let handling = tokio::spawn(handle_client(
-        vector.inner,
+        vector.inner.clone(),
         server,
         peer,
         CancellationToken::new(),

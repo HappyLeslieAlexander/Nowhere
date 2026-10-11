@@ -61,11 +61,7 @@ impl QuicConnection {
             budget: Arc::new(Semaphore::new(bytes)),
         });
         stats.quic_carriers_active.fetch_add(1, Ordering::Relaxed);
-        telemetry.emit_runtime(crate::telemetry::RuntimeEvent::new(
-            crate::telemetry::RuntimeLevel::Info,
-            crate::telemetry::RuntimeKind::Carrier,
-            "QUIC carrier connected",
-        ));
+        telemetry.emit_runtime(crate::telemetry::Runtime::QuicConnected, None, None);
         let task = this.clone();
         tokio::spawn(async move {
             task.dispatch().await;
@@ -77,11 +73,7 @@ impl QuicConnection {
             state.routes.clear();
             state.reassembly.clear();
             stats.quic_carriers_active.fetch_sub(1, Ordering::Relaxed);
-            telemetry.emit_runtime(crate::telemetry::RuntimeEvent::new(
-                crate::telemetry::RuntimeLevel::Info,
-                crate::telemetry::RuntimeKind::Carrier,
-                "QUIC carrier disconnected",
-            ));
+            telemetry.emit_runtime(crate::telemetry::Runtime::QuicDisconnected, None, None);
         });
         this
     }

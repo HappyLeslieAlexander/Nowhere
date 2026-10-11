@@ -4,7 +4,7 @@
 //! Telemetry wire schema and published examples tests.
 
 use super::*;
-use crate::telemetry::{AccessOutcome, AccessStart, TelemetryHub};
+use crate::telemetry::{AccessOutcome, AccessStart, Runtime, TelemetryHub, error_reason};
 use std::time::Duration;
 
 fn assert_server_round_trip(value: &serde_json::Value) {
@@ -22,7 +22,7 @@ fn public_messages_keep_targets_without_leaking_credentials_or_client_addresses(
     .unwrap();
     let hub = TelemetryHub::new(descriptor);
     let mut events = hub.event_receiver();
-    let _detail = hub.detail_guard();
+
     let span = hub.start_access(|| AccessStart {
         protocol: TrafficProtocol::Tcp,
         client: Some("10.20.30.40:1234".to_owned()),
@@ -32,18 +32,16 @@ fn public_messages_keep_targets_without_leaking_credentials_or_client_addresses(
     });
     span.finish(
         AccessOutcome::Error,
-        Some("connection refused: secret-key error\x1b[31m".to_owned()),
+        Some(error_reason("connection refused: secret-key error\x1b[31m")),
     );
     hub.emit_runtime(
-        RuntimeEvent::new(
-            RuntimeLevel::Error,
-            RuntimeKind::Authentication,
-            "secret-key",
-        )
-        .with_client("10.20.30.40:1234"),
+        Runtime::SocksHandshakeFailed,
+        Some(error_reason("secret-key")),
+        Some("10.20.30.40:1234"),
     );
     let mut previous = 0;
     while let Ok(message) = events.try_recv() {
+        let message = ServerMessage::from(message);
         let value = serde_json::to_value(&message).unwrap();
         assert_server_round_trip(&value);
         let encoded = value.to_string();
@@ -82,21 +80,13 @@ fn public_messages_keep_targets_without_leaking_credentials_or_client_addresses(
             lifecycle: "STARTING".into(),
             lifecycle_reason: "STARTUP".into(),
         }),
-        ServerMessage::Subscribed {
-            request_id: 1,
-            subscription: Subscription::Summary,
-        },
         ServerMessage::Snapshot(TelemetrySnapshot::default()),
         ServerMessage::Lifecycle(LifecycleSnapshot::default()),
         ServerMessage::Gap { missed: 2 },
-        ServerMessage::Error {
-            message: "INVALID_COMMAND".into(),
-        },
     ] {
         assert_server_round_trip(&serde_json::to_value(message).unwrap());
     }
     let command = ClientMessage::Subscribe {
-        request_id: u64::MAX,
         subscription: Subscription::Detail,
     };
     let decoded: ClientMessage =
@@ -114,7 +104,7 @@ fn access_events_use_one_carrier_and_peer_with_the_published_shape() {
                     .unwrap(),
             );
             let mut events = hub.event_receiver();
-            let _detail = hub.detail_guard();
+
             let span = hub.start_access(|| AccessStart {
                 protocol: TrafficProtocol::Udp,
                 client: None,
@@ -126,7 +116,8 @@ fn access_events_use_one_carrier_and_peer_with_the_published_shape() {
             span.add_download(23);
             span.finish(AccessOutcome::Success, None);
             for kind in ["access_start", "access_finish"] {
-                let value = serde_json::to_value(events.try_recv().unwrap()).unwrap();
+                let value =
+                    serde_json::to_value(ServerMessage::from(events.try_recv().unwrap())).unwrap();
                 assert_eq!(value["type"], kind);
                 let data = &value["data"];
                 assert_eq!(data["carrier"], name);
@@ -174,8 +165,8 @@ fn access_events_use_one_carrier_and_peer_with_the_published_shape() {
 fn unknown_commands_and_fields_are_rejected() {
     for command in [
         r#"{"type":"execute","data":{"command":"ls"}}"#,
-        r#"{"type":"subscribe","data":{"request_id":1,"subscription":"raw"}}"#,
-        r#"{"type":"subscribe","data":{"request_id":1,"subscription":"detail","reveal":true}}"#,
+        r#"{"type":"subscribe","data":{"subscription":"raw"}}"#,
+        r#"{"type":"subscribe","data":{"subscription":"detail","reveal":true}}"#,
     ] {
         assert!(serde_json::from_str::<ClientMessage>(command).is_err());
     }
@@ -197,7 +188,11 @@ fn access_error_outcomes_use_the_same_classification_across_roles() {
         ("flow setup rejected: internal error", AccessOutcome::Error),
         ("connection refused", AccessOutcome::Error),
     ] {
-        assert_eq!(AccessOutcome::from_error(error), outcome, "{error}");
+        assert_eq!(
+            AccessOutcome::from_reason(error_reason(error)),
+            outcome,
+            "{error}"
+        );
     }
 }
 

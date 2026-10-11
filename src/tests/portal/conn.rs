@@ -430,7 +430,7 @@ async fn udp_reset_and_stop_sending_reclaim_only_the_owned_flow() {
 async fn quic_udp_without_datagram_capability_rejects_flow() {
     let h = Harness::new("direct", false).await;
     let mut events = h.inner.forward.telemetry.event_receiver();
-    let _detail = h.inner.forward.telemetry.detail_guard();
+
     let (config, _) = PortalClientConfig::from_probe_url(&h.url("vector", "udp", false)).unwrap();
     let tls = crate::vector::tls::ClientTls::new(&config).unwrap();
     let mut client = tls.quic_client_config().unwrap();
@@ -450,9 +450,7 @@ async fn quic_udp_without_datagram_capability_rejects_flow() {
     assert_eq!(result(&mut recv).await, SetupResult::InternalError);
     let finish = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            if let crate::telemetry::ServerMessage::AccessFinish(finish) =
-                events.recv().await.unwrap()
-            {
+            if let crate::telemetry::Event::AccessFinish(finish) = events.recv().await.unwrap() {
                 break finish;
             }
         }

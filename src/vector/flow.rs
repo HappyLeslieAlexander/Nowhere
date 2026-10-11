@@ -70,13 +70,17 @@ impl OpenFlowError {
         }
     }
 
-    pub(super) fn access_outcome(&self) -> AccessOutcome {
+    pub(crate) fn diagnostic_reason(&self) -> crate::telemetry::DiagnosticReason {
+        use crate::telemetry::DiagnosticReason;
         match self {
-            Self::Setup(SetupResult::InvalidRequest | SetupResult::FlowLimit) => {
-                AccessOutcome::Rejected
-            }
-            Self::Setup(_) | Self::Transport(_) | Self::Protocol(_) => {
-                AccessOutcome::from_error(&self.to_string())
+            Self::Setup(result) => match result {
+                SetupResult::InvalidRequest => DiagnosticReason::InvalidRequest,
+                SetupResult::FlowLimit => DiagnosticReason::ResourceLimit,
+                SetupResult::DialFailed => DiagnosticReason::TargetConnectionFailed,
+                SetupResult::Ready | SetupResult::InternalError => DiagnosticReason::InternalError,
+            },
+            Self::Transport(error) | Self::Protocol(error) => {
+                crate::telemetry::error_reason(&format!("{error:#}"))
             }
         }
     }

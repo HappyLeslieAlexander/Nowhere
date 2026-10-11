@@ -55,9 +55,9 @@ def read_message(sock):
     return json.loads(exact(sock, length))
 
 
-def subscribe(sock, mode, request_id):
+def subscribe(sock, mode):
     payload = json.dumps({"type": "subscribe", "data": {
-        "request_id": request_id, "subscription": mode}}).encode()
+        "subscription": mode}}).encode()
     sock.sendall(struct.pack("!I", len(payload)) + payload)
 
 
@@ -130,12 +130,19 @@ def main():
             assert hello["instance"]["pid"] == portal.pid
             assert hello["instance"]["role"] == "portal"
             assert KEY not in json.dumps(hello)
-            subscribe(ipc, "summary", 11)
-            assert next_kind(ipc, "subscribed") == {"request_id": 11, "subscription": "summary"}
+            subscribe(ipc, "summary")
             snapshot = next_kind(ipc, "snapshot")
             assert snapshot["egress_online"] is None
-            subscribe(ipc, "detail", 12)
-            assert next_kind(ipc, "subscribed") == {"request_id": 12, "subscription": "detail"}
+            assert next_kind(ipc, "lifecycle")["state"] in ("STARTING", "READY")
+            # Modes are fixed per connection; detail starts on a new connection.
+            ipc.close()
+            ipc = socket.socket(socket.AF_UNIX)
+            ipc.settimeout(DEADLINE)
+            ipc.connect(record["endpoint"])
+            assert next_kind(ipc, "hello")["instance"]["id"] == hello["instance"]["id"]
+            subscribe(ipc, "detail")
+            assert read_message(ipc)["type"] == "snapshot"
+            assert read_message(ipc)["type"] == "lifecycle"
 
             pin = subprocess.check_output([current, "fingerprint",
                 f"nowhere://{KEY}@127.0.0.1:{port}"], env=env, timeout=DEADLINE,
@@ -210,8 +217,7 @@ def main():
                 observer.settimeout(DEADLINE)
                 observer.connect(vector_record["endpoint"])
                 assert next_kind(observer, "hello")["instance"]["role"] == "vector"
-                subscribe(observer, "summary", 21)
-                next_kind(observer, "subscribed")
+                subscribe(observer, "summary")
                 deadline = time.monotonic() + DEADLINE
                 while time.monotonic() < deadline:
                     observed = next_kind(observer, "snapshot")
@@ -220,8 +226,18 @@ def main():
                 assert observed["tcp_upload_bytes"] == len(payload), observed
                 assert observed["tcp_download_bytes"] == len(payload)
                 assert observed["egress_online"] is None
-            subscribe(ipc, "summary", 13)
-            assert next_kind(ipc, "subscribed") == {"request_id": 13, "subscription": "summary"}
+            # Any post-subscription byte closes the connection, even a partial frame.
+            ipc.sendall(b"\x00")
+            while ipc.recv(65536):
+                pass
+            ipc.close()
+            ipc = socket.socket(socket.AF_UNIX)
+            ipc.settimeout(DEADLINE)
+            ipc.connect(record["endpoint"])
+            next_kind(ipc, "hello")
+            subscribe(ipc, "summary")
+            assert read_message(ipc)["type"] == "snapshot"
+            assert read_message(ipc)["type"] == "lifecycle"
             status = subprocess.check_output([current, "status"], env=env, timeout=DEADLINE,
                                              stderr=subprocess.PIPE).decode()
             assert f"PORTAL · PID {portal.pid}" in status
@@ -248,7 +264,8 @@ def main():
                 assert legacy.poll() is None
             idle = subprocess.check_output([current, "status"], env=env, timeout=DEADLINE).decode()
             assert "IDLE" in idle
-            print(json.dumps({"headless": "passed", "summary_detail_switch": "passed",
+            print(json.dumps({"headless": "passed", "summary_detail_reconnection": "passed",
+                              "extra_input_disconnect": "passed",
                               "known_logical_bytes_each_direction": len(payload),
                               "namespace_isolation": "passed" if legacy is not None else "not run", "cleanup": "passed"}))
         finally:

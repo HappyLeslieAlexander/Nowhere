@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use tokio::io::AsyncReadExt;
 use tokio::sync::{Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
 
@@ -121,51 +122,23 @@ async fn serve_client(
     .await?;
 
     let mut snapshots = hub.snapshot_receiver();
-    let mut events;
     let command = tokio::select! {
         _ = shutdown.cancelled() => return Ok(()),
         result = tokio::time::timeout(Duration::from_secs(5), reader.next_command()) => result??,
     };
-    let ClientMessage::Subscribe {
-        request_id,
-        mut subscription,
-    } = command;
-    events = hub.event_receiver();
-    let mut _detail = (subscription == Subscription::Detail).then(|| hub.detail_guard());
-    write_frame(
-        &mut writer,
-        &ServerMessage::Subscribed {
-            request_id,
-            subscription,
-        },
-    )
-    .await?;
+    let ClientMessage::Subscribe { subscription } = command;
+    let mut events = (subscription == Subscription::Detail).then(|| hub.event_receiver());
+    let mut reader = reader.into_inner();
+    let mut extra = [0u8; 1];
     let initial_snapshot = snapshots.borrow_and_update().clone();
     write_frame(&mut writer, &ServerMessage::Snapshot(initial_snapshot)).await?;
     let initial_lifecycle = lifecycles.borrow_and_update().clone();
     write_frame(&mut writer, &ServerMessage::Lifecycle(initial_lifecycle)).await?;
-    let mut tokens = 7.0f64;
-    let mut command_at = std::time::Instant::now();
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => return Ok(()),
-            command = reader.next_command() => {
-                match command? {
-                    ClientMessage::Subscribe { request_id, subscription: next } => {
-                        let now = std::time::Instant::now();
-                        tokens = (tokens + now.duration_since(command_at).as_secs_f64() * 4.0).min(8.0);
-                        command_at = now;
-                        if tokens < 1.0 { bail!("command rate exceeded"); }
-                        tokens -= 1.0;
-                        if next != subscription {
-                            events = hub.event_receiver();
-                            _detail = (next == Subscription::Detail).then(|| hub.detail_guard());
-                        }
-                        subscription = next;
-                        write_frame(&mut writer, &ServerMessage::Subscribed { request_id, subscription }).await?;
-                    }
-                }
-            }
+            // EOF and any additional input end this fixed subscription.
+            _ = reader.read(&mut extra) => return Ok(()),
             changed = snapshots.changed() => {
                 changed.context("telemetry snapshot source closed")?;
                 let snapshot = snapshots.borrow_and_update().clone();
@@ -182,10 +155,15 @@ async fn serve_client(
                     &ServerMessage::Lifecycle(lifecycle),
                 ).await?;
             }
-            event = events.recv(), if subscription == Subscription::Detail => {
+            event = async {
+                match &mut events {
+                    Some(events) => events.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 match event {
                     Ok(event) => {
-                        write_frame(&mut writer, &event).await?;
+                        write_frame(&mut writer, &ServerMessage::from(event)).await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(missed)) => {
                         write_frame(

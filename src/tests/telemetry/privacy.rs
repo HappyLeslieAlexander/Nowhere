@@ -47,87 +47,33 @@ fn targets_keep_endpoints_but_reject_credentials_and_control_characters() {
 }
 
 #[test]
-fn diagnostic_templates_never_publish_arbitrary_error_text() {
-    let raw = "TLS carrier connection failed: secret-key at /private/key.pem: Connection refused (os error 111)\x1b[31m";
-    let message = runtime_message(RuntimeKind::Carrier, RuntimeLevel::Warn, raw);
-    assert_eq!(message, "TLS carrier connection failed: connection refused");
-    assert_eq!(
-        runtime_message(RuntimeKind::Carrier, RuntimeLevel::Warn, &message),
-        message
-    );
-    assert_eq!(
-        runtime_message(
-            RuntimeKind::Carrier,
-            RuntimeLevel::Warn,
-            "QUIC carrier connected secret-key"
+fn classified_diagnostics_never_publish_arbitrary_error_text() {
+    for (raw, expected) in [
+        (
+            "secret-key at /private/key.pem: Connection refused (os error 111)\x1b[31m",
+            "connection refused",
         ),
-        "Carrier warning"
-    );
-    assert_eq!(
-        error_reason("InvalidCertificate(Expired) secret-key"),
-        "certificate expired"
-    );
-    assert_eq!(
-        error_reason("certificate expired secret-key"),
-        "certificate expired"
-    );
-    assert_eq!(
-        error_reason("DNS lookup failed for secret.example"),
-        "DNS lookup failed"
-    );
-    assert_eq!(error_reason("secret-key"), "operation failed");
-    assert_eq!(error_reason("application closed"), "application closed");
-    assert_eq!(error_reason("idle timeout"), "idle timeout");
-    assert_eq!(error_reason("mux reader failure"), "operation failed");
-    assert_eq!(error_reason("mux writer failure"), "operation failed");
-    assert_eq!(
-        error_reason("flow setup rejected: dial failed"),
-        "target connection failed"
-    );
-    assert_eq!(
-        error_reason("flow setup rejected: flow limit"),
-        "resource limit reached"
-    );
-}
-
-#[test]
-fn removed_route_fallback_messages_are_not_published() {
-    assert_eq!(
-        runtime_message(
-            RuntimeKind::Carrier,
-            RuntimeLevel::Warn,
-            "route failed before commit; retrying alternate carrier: secret-key"
+        (
+            "InvalidCertificate(Expired) secret-key",
+            "certificate expired",
         ),
-        "Carrier warning"
-    );
-    assert_eq!(
-        runtime_message(
-            RuntimeKind::Carrier,
-            RuntimeLevel::Info,
-            "QUIC carrier replaced"
+        ("DNS lookup failed for secret.example", "DNS lookup failed"),
+        ("secret-key", "operation failed"),
+        ("application closed", "application closed"),
+        ("idle timeout", "idle timeout"),
+        ("mux reader failure", "operation failed"),
+        (
+            "flow setup rejected: dial failed",
+            "target connection failed",
         ),
-        "Carrier update"
-    );
-}
-
-#[test]
-fn carrier_close_reasons_survive_runtime_sanitization() {
-    for reason in [
-        "application closed",
-        "idle timeout",
-        "unexpected EOF",
-        "protocol error",
+        ("flow setup rejected: flow limit", "resource limit reached"),
     ] {
-        let message = format!("QUIC carrier disconnected: {reason}");
-        assert_eq!(
-            runtime_message(RuntimeKind::Carrier, RuntimeLevel::Info, &message),
-            message
-        );
+        assert_eq!(error_reason(raw).as_str(), expected);
     }
 }
 
 #[test]
-fn contract_reasons_survive_constructor_and_publisher_sanitization() {
+fn contract_reasons_survive_classification_and_typed_rendering() {
     let schema: serde_json::Value =
         serde_json::from_str(include_str!("../../../docs/telemetry/schema.json")).unwrap();
     for value in schema["$defs"]["access_finish"]["properties"]["error"]["anyOf"][0]["enum"]
@@ -135,11 +81,12 @@ fn contract_reasons_survive_constructor_and_publisher_sanitization() {
         .unwrap()
     {
         let reason = value.as_str().unwrap();
-        assert_eq!(error_reason(reason), reason);
-        let message = format!("TLS carrier connection failed: {reason}");
+        let classified = error_reason(reason);
+        assert_eq!(classified.as_str(), reason);
+        let event = crate::telemetry::Runtime::QuicDisconnected.into_event(Some(classified), None);
         assert_eq!(
-            runtime_message(RuntimeKind::Carrier, RuntimeLevel::Warn, &message),
-            message
+            event.message,
+            format!("QUIC carrier disconnected: {reason}")
         );
     }
 }
@@ -148,36 +95,19 @@ fn contract_reasons_survive_constructor_and_publisher_sanitization() {
 fn nested_transport_causes_are_classified_without_exposing_context() {
     let error = anyhow::anyhow!("Connection refused (os error 111)")
         .context("vector::tls::connect_tcp: failed to dial private.example:443");
-    let raw = format!("TLS carrier connection failed: {error:#}");
     assert_eq!(
-        runtime_message(RuntimeKind::Carrier, RuntimeLevel::Warn, &raw),
-        "TLS carrier connection failed: connection refused"
+        error_reason(&format!("{error:#}")).as_str(),
+        "connection refused"
     );
     assert_eq!(
-        error_reason("vector::tls::connect_tcp: failed to dial private.example:443"),
+        error_reason("vector::tls::connect_tcp: failed to dial private.example:443").as_str(),
         "operation failed"
     );
     let error = anyhow::anyhow!("invalid peer certificate: certificate has expired")
         .context("vector::tls::connect_tcp: TLS handshake failed");
-    assert_eq!(error_reason(&format!("{error:#}")), "certificate expired");
-}
-
-#[test]
-fn lifecycle_reasons_remain_useful_and_safe_across_publication() {
-    for reason in ["START_FAILED", "CLEANUP_COMPLETE", "STATE_CHANGED"] {
-        let message = format!("STOPPED: {reason}");
-        assert_eq!(
-            runtime_message(RuntimeKind::Lifecycle, RuntimeLevel::Info, &message),
-            message
-        );
-    }
     assert_eq!(
-        runtime_message(
-            RuntimeKind::Lifecycle,
-            RuntimeLevel::Info,
-            "STOPPED: secret-key"
-        ),
-        "STOPPED: STATE_CHANGED"
+        error_reason(&format!("{error:#}")).as_str(),
+        "certificate expired"
     );
 }
 

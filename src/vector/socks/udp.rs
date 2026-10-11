@@ -157,7 +157,7 @@ async fn open_and_relay_udp_target(
         result = open_udp(vector.client.clone(), &protocol_target) => match result {
             Ok(tunnel) => tunnel,
             Err(error) => {
-                access.finish(error.access_outcome(), Some(format!("{error:#}")));
+                access.finish_error(error.diagnostic_reason());
                 vector.logger.debug(format_args!(
                     "vector::socks::open_and_relay_udp_target: target {target} failed: {error}"
                 ));
@@ -326,11 +326,13 @@ async fn relay_udp_target(
         UdpCompletion::Success => access.finish(AccessOutcome::Success, None),
         UdpCompletion::Cancelled => access.finish(AccessOutcome::Cancelled, None),
         UdpCompletion::Timeout => {
-            access.finish(AccessOutcome::Timeout, Some("idle timeout".to_owned()));
+            access.finish(
+                AccessOutcome::Timeout,
+                Some(crate::telemetry::DiagnosticReason::IdleTimeout),
+            );
         }
         UdpCompletion::Error(error) => {
-            let outcome = AccessOutcome::from_error(&error);
-            access.finish(outcome, Some(error));
+            access.finish_error(crate::telemetry::error_reason(&error));
         }
     }
 }

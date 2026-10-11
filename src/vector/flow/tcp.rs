@@ -162,19 +162,17 @@ pub(in crate::vector) async fn relay_tcp(
             },
         }
     };
+    let reason = result
+        .as_ref()
+        .err()
+        .map(|error| crate::telemetry::error_reason(&format!("{error:#}")));
     vector.logger.debug(format_args!(
         "vector::flow::relay_tcp: exchange complete: {}",
-        match &result {
-            Ok(()) => "EOF".to_owned(),
-            Err(error) => crate::telemetry::diagnostic_reason(&error.to_string()).to_owned(),
-        }
+        reason.map_or("EOF", crate::telemetry::DiagnosticReason::as_str),
     ));
-    match &result {
-        Ok(()) => access.finish(AccessOutcome::Success, None),
-        Err(error) => {
-            let error = format!("{error:#}");
-            access.finish(AccessOutcome::from_error(&error), Some(error));
-        }
+    match reason {
+        Some(reason) => access.finish_error(reason),
+        None => access.finish(AccessOutcome::Success, None),
     }
     result
 }

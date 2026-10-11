@@ -140,7 +140,7 @@ async fn relay_finish(
     )
     .unwrap();
     let mut events = vector.inner.telemetry.event_receiver();
-    let _detail = vector.inner.telemetry.detail_guard();
+
     let target = SocksAddress::Ip("127.0.0.1:53".parse().unwrap());
     let access = start_access(&vector.inner, TrafficProtocol::Udp, None, &target);
     let (stream, peer) = tokio::io::duplex(1);
@@ -208,7 +208,7 @@ async fn relay_finish(
     assert_eq!(stats.udp_download_bytes.load(Ordering::Relaxed), 0);
     let mut finish = None;
     while let Ok(event) = events.try_recv() {
-        if let crate::telemetry::ServerMessage::AccessFinish(event) = event {
+        if let crate::telemetry::Event::AccessFinish(event) = event {
             assert!(finish.replace(event).is_none(), "duplicate finish");
         }
     }
@@ -253,14 +253,14 @@ async fn invalid_udp_target_does_not_publish_access() {
     )
     .unwrap();
     let mut events = vector.inner.telemetry.event_receiver();
-    let _detail = vector.inner.telemetry.detail_guard();
+
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
     let (_sender, receiver) = mpsc::channel(1);
     let permit = try_admit_udp_target(&vector.inner.socks_udp_target_admission).unwrap();
     tokio::time::timeout(
         Duration::from_secs(1),
         open_and_relay_udp_target(
-            vector.inner,
+            vector.inner.clone(),
             socket,
             Arc::new(StdMutex::new(Some("127.0.0.1:10000".parse().unwrap()))),
             SocksAddress::Domain("-bad".to_owned(), 53),

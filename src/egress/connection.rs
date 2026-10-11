@@ -32,13 +32,11 @@ impl Egress {
         }
     }
     pub(super) async fn registered_connection(&self) -> Result<()> {
-        self.forward
-            .telemetry
-            .emit_runtime(crate::telemetry::RuntimeEvent::new(
-                crate::telemetry::RuntimeLevel::Info,
-                crate::telemetry::RuntimeKind::Reconnect,
-                "Egress connecting",
-            ));
+        self.forward.telemetry.emit_runtime(
+            crate::telemetry::Runtime::EgressConnecting,
+            None,
+            None,
+        );
         let (endpoint, connection) = connect_quic(&self.config, &self.tls).await?;
         super::registration::register(
             &connection,

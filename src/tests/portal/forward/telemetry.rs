@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::portal::forward::{Forwarder, Incoming};
-use crate::telemetry::ServerMessage;
+use crate::telemetry::Event;
 use crate::vector::TcpTunnelGuard;
 use std::sync::atomic::Ordering;
 
@@ -45,9 +45,9 @@ async fn start(
     (client, task)
 }
 
-fn finished(events: &mut tokio::sync::broadcast::Receiver<ServerMessage>) -> serde_json::Value {
+fn finished(events: &mut tokio::sync::broadcast::Receiver<Event>) -> serde_json::Value {
     loop {
-        if let ServerMessage::AccessFinish(finish) = events.try_recv().unwrap() {
+        if let Event::AccessFinish(finish) = events.try_recv().unwrap() {
             return serde_json::to_value(finish).unwrap();
         }
     }
@@ -63,7 +63,7 @@ async fn cancelled_tcp_and_idle_udp_are_not_reported_as_success() {
     ] {
         let forward = forwarder();
         let mut events = forward.telemetry.event_receiver();
-        let _detail = forward.telemetry.detail_guard();
+
         let (mut client, task) = start(forward.clone(), kind, &target).await;
         assert_eq!(
             SetupResult::from(
@@ -113,7 +113,7 @@ async fn flow_limit_and_dial_failure_publish_distinct_outcomes() {
     ] {
         let forward = forwarder();
         let mut events = forward.telemetry.event_receiver();
-        let _detail = forward.telemetry.detail_guard();
+
         let held = if limited {
             Some(
                 forward

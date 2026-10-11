@@ -13,10 +13,9 @@ use tokio_util::sync::CancellationToken;
 impl Egress {
     pub async fn run(self) -> Result<()> {
         let mut signals = ShutdownSignals::new()?;
-        self.forward.telemetry.set_lifecycle(
-            LifeState::Starting.to_string(),
-            LifeReason::Startup.to_string(),
-        );
+        self.forward
+            .telemetry
+            .set_lifecycle(LifeState::Starting, LifeReason::Startup);
         self.forward
             .logger
             .info(format_args!("Egress starting: {}", self.effective));
@@ -45,10 +44,9 @@ impl Egress {
                 }
             }
         });
-        self.forward.telemetry.set_lifecycle(
-            LifeState::Ready.to_string(),
-            LifeReason::Listening.to_string(),
-        );
+        self.forward
+            .telemetry
+            .set_lifecycle(LifeState::Ready, LifeReason::Listening);
         let mut maintenance = Box::pin(self.maintain());
         let (reason, finished) = tokio::select! {
             reason = signals.recv() => (reason?, false),
@@ -56,7 +54,7 @@ impl Egress {
         };
         self.forward
             .telemetry
-            .set_lifecycle(LifeState::Draining.to_string(), reason.to_string());
+            .set_lifecycle(LifeState::Draining, reason);
         self.forward.shutdown.cancel();
         if !finished {
             let _ =
@@ -64,10 +62,9 @@ impl Egress {
         }
         drop(maintenance);
         self.forward.telemetry.set_egress_online(Some(false));
-        self.forward.telemetry.set_lifecycle(
-            LifeState::Stopped.to_string(),
-            LifeReason::CleanupComplete.to_string(),
-        );
+        self.forward
+            .telemetry
+            .set_lifecycle(LifeState::Stopped, LifeReason::CleanupComplete);
         self.forward
             .telemetry
             .capture_and_publish(&self.forward.stats, 0);

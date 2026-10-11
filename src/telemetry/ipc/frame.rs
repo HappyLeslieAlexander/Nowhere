@@ -11,8 +11,8 @@ use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::WRITE_TIMEOUT;
-use crate::telemetry::local::{Reader, Writer};
-use crate::telemetry::{ClientMessage, MAX_FRAME_SIZE, ServerMessage, Subscription};
+use crate::telemetry::local::Reader;
+use crate::telemetry::{ClientMessage, MAX_FRAME_SIZE, ServerMessage};
 
 pub(crate) struct TelemetryReader {
     pub(super) inner: FrameReader<Reader>,
@@ -21,23 +21,6 @@ pub(crate) struct TelemetryReader {
 impl TelemetryReader {
     pub(crate) async fn next_message(&mut self) -> Result<ServerMessage> {
         self.inner.next().await
-    }
-}
-
-pub(crate) struct TelemetryWriter {
-    pub(super) inner: Writer,
-}
-
-impl TelemetryWriter {
-    pub(crate) async fn subscribe(&mut self, subscription: Subscription) -> Result<()> {
-        write_frame(
-            &mut self.inner,
-            &ClientMessage::Subscribe {
-                request_id: 0,
-                subscription,
-            },
-        )
-        .await
     }
 }
 
@@ -107,6 +90,10 @@ where
             payload_read: 0,
             started_at: None,
         }
+    }
+
+    pub(super) fn into_inner(self) -> R {
+        self.inner
     }
 
     fn check_deadline(&self) -> Result<()> {

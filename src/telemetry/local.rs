@@ -11,7 +11,6 @@ mod platform;
 mod platform;
 pub(super) use platform::*;
 pub(super) type Reader = tokio::io::ReadHalf<Stream>;
-pub(super) type Writer = tokio::io::WriteHalf<Stream>;
 
 #[cfg(unix)]
 pub(super) const TRANSPORT: &str = "unix_socket";

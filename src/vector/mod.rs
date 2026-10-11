@@ -133,10 +133,9 @@ impl ForwardVector {
     }
 
     pub async fn run(self) -> Result<()> {
-        self.inner.telemetry.set_lifecycle(
-            LifeState::Starting.to_string(),
-            LifeReason::Startup.to_string(),
-        );
+        self.inner
+            .telemetry
+            .set_lifecycle(LifeState::Starting, LifeReason::Startup);
         let mut signals = match ShutdownSignals::new()
             .context("vector::Vector::run: failed to install shutdown signal handlers")
         {
@@ -183,10 +182,9 @@ impl ForwardVector {
             ));
         }
 
-        self.inner.telemetry.set_lifecycle(
-            LifeState::Ready.to_string(),
-            LifeReason::Listening.to_string(),
-        );
+        self.inner
+            .telemetry
+            .set_lifecycle(LifeState::Ready, LifeReason::Listening);
         let (reason, failure) = tokio::select! {
             signal = signals.recv() => match signal {
                 Ok(reason) => (reason, None),
@@ -204,7 +202,7 @@ impl ForwardVector {
         let deadline = Instant::now() + shutdown_timeout();
         self.inner
             .telemetry
-            .set_lifecycle(LifeState::Draining.to_string(), reason.to_string());
+            .set_lifecycle(LifeState::Draining, reason);
 
         let cleanup = async {
             while listener_tasks.join_next().await.is_some() {}
@@ -240,7 +238,7 @@ impl ForwardVector {
         }
         self.inner
             .telemetry
-            .set_lifecycle(LifeState::Stopped.to_string(), outcome.to_string());
+            .set_lifecycle(LifeState::Stopped, outcome);
         self.inner
             .telemetry
             .capture_and_publish(&self.inner.stats, self.inner.client.ping_ms());
@@ -258,10 +256,9 @@ impl ForwardVector {
     }
 
     fn start_failed(&self, error: anyhow::Error) -> Result<()> {
-        self.inner.telemetry.set_lifecycle(
-            LifeState::Stopped.to_string(),
-            LifeReason::StartFailed.to_string(),
-        );
+        self.inner
+            .telemetry
+            .set_lifecycle(LifeState::Stopped, LifeReason::StartFailed);
         self.inner.logger.flush();
         Err(error)
     }

@@ -8,6 +8,7 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use super::privacy::DiagnosticReason;
 use crate::protocol::Carrier;
 
 use super::process::{now_unix_ms, process_incarnation, process_uid};
@@ -134,11 +135,11 @@ pub(crate) enum AccessOutcome {
 }
 
 impl AccessOutcome {
-    pub(crate) fn from_error(value: &str) -> Self {
-        match super::privacy::error_reason(value) {
-            "resource limit reached" | "invalid request" => Self::Rejected,
-            "connection timed out" | "idle timeout" => Self::Timeout,
-            "operation cancelled" | "service draining" => Self::Cancelled,
+    pub(crate) fn from_reason(reason: DiagnosticReason) -> Self {
+        match reason {
+            DiagnosticReason::ResourceLimit | DiagnosticReason::InvalidRequest => Self::Rejected,
+            DiagnosticReason::Timeout | DiagnosticReason::IdleTimeout => Self::Timeout,
+            DiagnosticReason::Cancelled | DiagnosticReason::ServiceDraining => Self::Cancelled,
             _ => Self::Error,
         }
     }
@@ -210,24 +211,6 @@ pub(crate) struct RuntimeEvent {
     pub(crate) client: Option<String>,
 }
 
-impl RuntimeEvent {
-    pub(crate) fn new(level: RuntimeLevel, kind: RuntimeKind, message: impl Into<String>) -> Self {
-        Self {
-            sequence: 0,
-            timestamp_ms: now_unix_ms(),
-            level,
-            kind,
-            message: super::privacy::runtime_message(kind, level, &message.into()),
-            client: None,
-        }
-    }
-
-    pub(crate) fn with_client(mut self, client: impl Into<String>) -> Self {
-        self.client = Some(client.into());
-        self
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Subscription {
@@ -243,32 +226,47 @@ pub(crate) enum Subscription {
     deny_unknown_fields
 )]
 pub(crate) enum ClientMessage {
-    Subscribe {
-        request_id: u64,
-        subscription: Subscription,
-    },
+    Subscribe { subscription: Subscription },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub(crate) enum ServerMessage {
     Hello(Hello),
-    Subscribed {
-        request_id: u64,
-        subscription: Subscription,
-    },
     Snapshot(TelemetrySnapshot),
     Lifecycle(LifecycleSnapshot),
     RuntimeEvent(RuntimeEvent),
     AccessStart(AccessStarted),
     AccessFinish(AccessFinished),
-    Gap {
-        missed: u64,
-    },
-    Error {
-        #[serde(rename = "code")]
-        message: String,
-    },
+    Gap { missed: u64 },
+}
+
+/// Detailed publications cannot contain snapshots or IPC control messages.
+#[derive(Clone, Debug)]
+pub(crate) enum Event {
+    RuntimeEvent(RuntimeEvent),
+    AccessStart(AccessStarted),
+    AccessFinish(AccessFinished),
+}
+
+impl Event {
+    pub(super) fn set_sequence(&mut self, sequence: u64) {
+        match self {
+            Self::RuntimeEvent(event) => event.sequence = sequence,
+            Self::AccessStart(event) => event.sequence = sequence,
+            Self::AccessFinish(event) => event.sequence = sequence,
+        }
+    }
+}
+
+impl From<Event> for ServerMessage {
+    fn from(event: Event) -> Self {
+        match event {
+            Event::RuntimeEvent(event) => Self::RuntimeEvent(event),
+            Event::AccessStart(event) => Self::AccessStart(event),
+            Event::AccessFinish(event) => Self::AccessFinish(event),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

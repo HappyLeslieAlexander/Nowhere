@@ -61,12 +61,8 @@ pub(super) fn connection_failure_reason(error: &anyhow::Error) -> String {
             "IPC service identity mismatch",
         ),
         (
-            "telemetry: service rejected connection:",
-            "IPC service rejected connection",
-        ),
-        (
-            "telemetry rejected status:",
-            "IPC service rejected status request",
+            "telemetry: connection closed while reading frame",
+            "IPC connection closed",
         ),
         (
             "telemetry: service did not begin with hello",
@@ -75,6 +71,10 @@ pub(super) fn connection_failure_reason(error: &anyhow::Error) -> String {
         (
             "telemetry: failed to decode JSON frame",
             "invalid IPC message",
+        ),
+        (
+            "telemetry: subscription did not begin with snapshot",
+            "invalid IPC initial snapshot",
         ),
         ("telemetry: failed to read frame", "IPC message read failed"),
         (

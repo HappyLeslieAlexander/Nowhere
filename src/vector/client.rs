@@ -57,22 +57,15 @@ pub(crate) struct TlsCarrierGuard(
 impl TlsCarrierGuard {
     pub(crate) fn new(stats: Arc<Stats>, telemetry: Arc<TelemetryHub>) -> Self {
         stats.tls_carriers_active.fetch_add(1, Ordering::Relaxed);
-        telemetry.emit_runtime(crate::telemetry::RuntimeEvent::new(
-            crate::telemetry::RuntimeLevel::Info,
-            crate::telemetry::RuntimeKind::Carrier,
-            "TLS/TCP carrier connected",
-        ));
+        telemetry.emit_runtime(crate::telemetry::Runtime::TlsConnected, None, None);
         Self(stats, None, telemetry)
     }
 }
 impl Drop for TlsCarrierGuard {
     fn drop(&mut self) {
         self.0.tls_carriers_active.fetch_sub(1, Ordering::Relaxed);
-        self.2.emit_runtime(crate::telemetry::RuntimeEvent::new(
-            crate::telemetry::RuntimeLevel::Info,
-            crate::telemetry::RuntimeKind::Carrier,
-            "TLS/TCP carrier disconnected",
-        ));
+        self.2
+            .emit_runtime(crate::telemetry::Runtime::TlsDisconnected, None, None);
     }
 }
 impl PortalClient {

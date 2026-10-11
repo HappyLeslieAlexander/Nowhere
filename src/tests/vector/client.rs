@@ -106,3 +106,44 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
     peer.await.unwrap();
     endpoint.wait_idle().await;
 }
+
+#[test]
+fn setup_failures_and_nested_transport_errors_have_one_safe_reason() {
+    use crate::telemetry::{AccessOutcome, DiagnosticReason};
+    for (setup, reason, outcome) in [
+        (
+            SetupResult::InvalidRequest,
+            DiagnosticReason::InvalidRequest,
+            AccessOutcome::Rejected,
+        ),
+        (
+            SetupResult::FlowLimit,
+            DiagnosticReason::ResourceLimit,
+            AccessOutcome::Rejected,
+        ),
+        (
+            SetupResult::DialFailed,
+            DiagnosticReason::TargetConnectionFailed,
+            AccessOutcome::Error,
+        ),
+        (
+            SetupResult::InternalError,
+            DiagnosticReason::InternalError,
+            AccessOutcome::Error,
+        ),
+    ] {
+        let classified = OpenFlowError::Setup(setup).diagnostic_reason();
+        assert_eq!(classified, reason);
+        assert_eq!(AccessOutcome::from_reason(classified), outcome);
+    }
+    let transport = OpenFlowError::Transport(
+        anyhow::anyhow!("connection timed out").context("TLS setup for secret.example:443"),
+    );
+    let classified = transport.diagnostic_reason();
+    assert_eq!(classified, DiagnosticReason::Timeout);
+    assert_eq!(
+        AccessOutcome::from_reason(classified),
+        AccessOutcome::Timeout
+    );
+    assert!(!classified.as_str().contains("secret"));
+}

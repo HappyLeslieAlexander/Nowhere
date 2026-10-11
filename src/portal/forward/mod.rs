@@ -90,7 +90,7 @@ impl Forwarder {
             let _ = incoming.result(SetupResult::FlowLimit).await;
             access.finish(
                 AccessOutcome::Rejected,
-                Some("resource limit reached".to_owned()),
+                Some(crate::telemetry::DiagnosticReason::ResourceLimit),
             );
             return;
         };
@@ -107,11 +107,17 @@ impl Forwarder {
         match result {
             Ok(outcome) => access.finish(
                 outcome,
-                (outcome == AccessOutcome::Timeout).then(|| "idle timeout".to_owned()),
+                (outcome == AccessOutcome::Timeout)
+                    .then_some(crate::telemetry::DiagnosticReason::IdleTimeout),
             ),
             Err(error) => {
-                let error = format!("{error:#}");
-                access.finish(AccessOutcome::from_error(&error), Some(error));
+                let reason = error
+                    .downcast_ref::<crate::vector::OpenFlowError>()
+                    .map_or_else(
+                        || crate::telemetry::error_reason(&format!("{error:#}")),
+                        |error| error.diagnostic_reason(),
+                    );
+                access.finish_error(reason);
             }
         }
     }

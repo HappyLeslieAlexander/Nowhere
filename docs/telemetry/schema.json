@@ -85,11 +85,6 @@
     "subscribe": {
       "type": "object",
       "properties": {
-        "request_id": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
         "subscription": {
           "enum": [
             "summary",
@@ -98,28 +93,6 @@
         }
       },
       "required": [
-        "request_id",
-        "subscription"
-      ],
-      "additionalProperties": false
-    },
-    "subscribed": {
-      "type": "object",
-      "properties": {
-        "request_id": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 18446744073709551615
-        },
-        "subscription": {
-          "enum": [
-            "summary",
-            "detail"
-          ]
-        }
-      },
-      "required": [
-        "request_id",
         "subscription"
       ],
       "additionalProperties": false
@@ -600,21 +573,6 @@
       ],
       "additionalProperties": false
     },
-    "error": {
-      "type": "object",
-      "properties": {
-        "code": {
-          "enum": [
-            "INVALID_COMMAND",
-            "RATE_LIMITED"
-          ]
-        }
-      },
-      "required": [
-        "code"
-      ],
-      "additionalProperties": false
-    },
     "registry": {
       "type": "object",
       "properties": {
@@ -700,22 +658,6 @@
         },
         "data": {
           "$ref": "#/$defs/subscribe"
-        }
-      },
-      "required": [
-        "type",
-        "data"
-      ],
-      "additionalProperties": false
-    },
-    "subscribed_message": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "subscribed"
-        },
-        "data": {
-          "$ref": "#/$defs/subscribed"
         }
       },
       "required": [
@@ -819,22 +761,6 @@
         "data"
       ],
       "additionalProperties": false
-    },
-    "error_message": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "error"
-        },
-        "data": {
-          "$ref": "#/$defs/error"
-        }
-      },
-      "required": [
-        "type",
-        "data"
-      ],
-      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -846,9 +772,6 @@
     },
     {
       "$ref": "#/$defs/subscribe_message"
-    },
-    {
-      "$ref": "#/$defs/subscribed_message"
     },
     {
       "$ref": "#/$defs/snapshot_message"
@@ -867,9 +790,6 @@
     },
     {
       "$ref": "#/$defs/gap_message"
-    },
-    {
-      "$ref": "#/$defs/error_message"
     }
   ]
 }

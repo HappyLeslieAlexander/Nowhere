@@ -56,12 +56,8 @@ fn connection_diagnostics_keep_stages_and_causes_without_echoing_values() {
         ),
         ("telemetry snapshot timed out", "IPC status read timed out"),
         (
-            "telemetry: service rejected connection: secret",
-            "IPC service rejected connection",
-        ),
-        (
-            "telemetry rejected status: secret",
-            "IPC service rejected status request",
+            "telemetry: connection closed while reading frame payload",
+            "IPC connection closed",
         ),
         ("unknown secret error", "connection or local IPC failed"),
     ] {

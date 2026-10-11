@@ -1,15 +1,16 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Telemetry subscribers, client limits, command floods, and publication rollback tests.
+//! Fixed subscriptions, bounded delivery, disconnects, and publication rollback.
 
 use super::super::{MAX_CLIENTS, frame::TelemetryReader, registry::registry_path};
 use super::*;
 use crate::telemetry::{
-    InstanceDescriptor, InstanceRole, RuntimeEvent, RuntimeKind, RuntimeLevel, ServerMessage,
-    Subscription, TelemetryClient, TelemetryHub,
+    InstanceDescriptor, InstanceRole, Runtime, ServerMessage, Subscription, TelemetryClient,
+    TelemetryHub,
 };
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 async fn next_kind(reader: &mut TelemetryReader, kind: &str) -> ServerMessage {
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -24,8 +25,12 @@ async fn next_kind(reader: &mut TelemetryReader, kind: &str) -> ServerMessage {
     .unwrap()
 }
 
-#[tokio::test]
-async fn multiple_clients_can_read_and_change_subscriptions() {
+fn start_service() -> (
+    Arc<TelemetryHub>,
+    DiscoveredInstance,
+    CancellationToken,
+    tokio::task::JoinHandle<()>,
+) {
     let descriptor = InstanceDescriptor::current(
         InstanceRole::Portal,
         ":2000",
@@ -42,77 +47,225 @@ async fn multiple_clients_can_read_and_change_subscriptions() {
     let hub = TelemetryHub::new(descriptor);
     let shutdown = CancellationToken::new();
     let server = TelemetryServer::bind(hub.clone()).unwrap();
-    let path = server.registry_path.clone();
-    let _endpoint = server.endpoint.clone();
     let task = tokio::spawn(server.run(shutdown.clone()));
+    (hub, discovered, shutdown, task)
+}
+
+async fn initial_messages(reader: &mut TelemetryReader) {
+    assert!(matches!(
+        reader.next_message().await.unwrap(),
+        ServerMessage::Snapshot(_)
+    ));
+    assert!(matches!(
+        reader.next_message().await.unwrap(),
+        ServerMessage::Lifecycle(_)
+    ));
+}
+
+async fn drain_until_closed(reader: &mut TelemetryReader) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while reader.next_message().await.is_ok() {}
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn multiple_clients_read_fixed_modes_and_reconnect_to_switch() {
+    let (hub, discovered, shutdown, task) = start_service();
     let summary = TelemetryClient::connect(&discovered, Subscription::Summary)
         .await
         .unwrap();
     let detail = TelemetryClient::connect(&discovered, Subscription::Detail)
         .await
         .unwrap();
-    let (_, mut sr, mut sw) = summary.into_parts();
-    let (_, mut dr, _) = detail.into_parts();
-    next_kind(&mut sr, "subscribed").await;
-    next_kind(&mut dr, "subscribed").await;
-    next_kind(&mut sr, "snapshot").await;
-    next_kind(&mut sr, "lifecycle").await;
-    next_kind(&mut dr, "snapshot").await;
-    next_kind(&mut dr, "lifecycle").await;
-    hub.emit_runtime(RuntimeEvent::new(
-        RuntimeLevel::Warn,
-        RuntimeKind::Listener,
-        "secret.example:443",
-    ));
-    let event = next_kind(&mut dr, "runtime_event").await;
-    assert!(!serde_json::to_string(&event).unwrap().contains("secret"));
+    let (_, mut sr) = summary.into_parts();
+    let (_, mut dr) = detail.into_parts();
+    initial_messages(&mut sr).await;
+    initial_messages(&mut dr).await;
+    hub.emit_runtime(Runtime::SocksClientLimit, None, None);
+    next_kind(&mut dr, "runtime_event").await;
     assert!(
         tokio::time::timeout(Duration::from_millis(30), sr.next_message())
             .await
             .is_err()
     );
-    sw.subscribe(Subscription::Detail).await.unwrap();
-    next_kind(&mut sr, "subscribed").await;
-    hub.emit_runtime(RuntimeEvent::new(
-        RuntimeLevel::Warn,
-        RuntimeKind::Listener,
-        "private",
-    ));
+    drop(sr);
+    let detail = TelemetryClient::connect(&discovered, Subscription::Detail)
+        .await
+        .unwrap();
+    let (_, mut sr) = detail.into_parts();
+    initial_messages(&mut sr).await;
+    hub.emit_runtime(Runtime::SocksClientLimit, None, None);
     next_kind(&mut sr, "runtime_event").await;
-    sw.subscribe(Subscription::Summary).await.unwrap();
-    next_kind(&mut sr, "subscribed").await;
+    drop(sr);
+    let summary = TelemetryClient::connect(&discovered, Subscription::Summary)
+        .await
+        .unwrap();
+    let (_, mut sr) = summary.into_parts();
+    initial_messages(&mut sr).await;
+    hub.emit_runtime(Runtime::SocksClientLimit, None, None);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), sr.next_message())
+            .await
+            .is_err()
+    );
     shutdown.cancel();
     task.await.unwrap();
-    assert!(!path.exists());
+    assert!(!registry_path(&discovered.registry_name).exists());
     #[cfg(unix)]
-    assert!(!std::path::Path::new(&_endpoint).exists());
+    assert!(!std::path::Path::new(&local::endpoint(&hub.descriptor().id)).exists());
 }
 
 #[tokio::test]
 async fn summary_clients_do_not_enable_access_collection() {
-    let descriptor = InstanceDescriptor::current(
-        InstanceRole::Vector,
-        "private",
-        "secret",
-        Duration::from_secs(1),
-    )
-    .unwrap();
-    let discovered = DiscoveredInstance {
-        registry_name: descriptor.registry_name(),
-        uid: descriptor.uid,
-        pid: descriptor.pid,
-        incarnation: descriptor.incarnation,
-    };
-    let hub = TelemetryHub::new(descriptor);
-    let shutdown = CancellationToken::new();
-    let server = TelemetryServer::bind(hub.clone()).unwrap();
-    let task = tokio::spawn(server.run(shutdown.clone()));
+    let (hub, discovered, shutdown, task) = start_service();
     let client = TelemetryClient::connect(&discovered, Subscription::Summary)
         .await
         .unwrap();
-    let (_, mut reader, _) = client.into_parts();
-    next_kind(&mut reader, "subscribed").await;
+    let (_, mut reader) = client.into_parts();
+    initial_messages(&mut reader).await;
     let _span = hub.start_access(|| panic!("summary must not build access"));
+    shutdown.cancel();
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn additional_input_disconnects_without_waiting_for_a_whole_frame() {
+    for extra in [
+        vec![0],
+        serde_json::to_vec(&ClientMessage::Subscribe {
+            subscription: Subscription::Summary,
+        })
+        .unwrap(),
+    ] {
+        let (hub, _, shutdown, task) = start_service();
+        let stream = local::connect(&local::endpoint(&hub.descriptor().id), std::process::id())
+            .await
+            .unwrap();
+        let (reader, mut writer) = tokio::io::split(stream);
+        let mut reader = TelemetryReader {
+            inner: FrameReader::new(reader),
+        };
+        next_kind(&mut reader, "hello").await;
+        write_frame(
+            &mut writer,
+            &ClientMessage::Subscribe {
+                subscription: Subscription::Detail,
+            },
+        )
+        .await
+        .unwrap();
+        initial_messages(&mut reader).await;
+        writer.write_all(&extra).await.unwrap();
+        drain_until_closed(&mut reader).await;
+        let _span = hub.start_access(|| panic!("disconnected detail receiver leaked"));
+        shutdown.cancel();
+        task.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn idle_detail_disconnect_releases_collection_and_shutdown_releases_clients() {
+    let (hub, discovered, shutdown, task) = start_service();
+    let client = TelemetryClient::connect(&discovered, Subscription::Detail)
+        .await
+        .unwrap();
+    let (_, mut reader) = client.into_parts();
+    initial_messages(&mut reader).await;
+    drop(reader);
+    // The subscriber sends no further commands or receives any new publications.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while hub.events_receiver_count_for_test() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let _span = hub.start_access(|| panic!("EOF must release detail collection"));
+    let client = TelemetryClient::connect(&discovered, Subscription::Detail)
+        .await
+        .unwrap();
+    let (_, mut reader) = client.into_parts();
+    initial_messages(&mut reader).await;
+    shutdown.cancel();
+    task.await.unwrap();
+    drain_until_closed(&mut reader).await;
+    let _span = hub.start_access(|| panic!("shutdown must release detail collection"));
+}
+
+#[tokio::test]
+async fn lagging_detail_receivers_report_gap_and_continue() {
+    let (hub, discovered, shutdown, task) = start_service();
+    let client = TelemetryClient::connect(&discovered, Subscription::Detail)
+        .await
+        .unwrap();
+    let (_, mut reader) = client.into_parts();
+    initial_messages(&mut reader).await;
+    // This current-thread runtime cannot drain the queue during synchronous publication.
+    for _ in 0..2048 {
+        hub.emit_runtime(Runtime::QuicConnected, None, None);
+    }
+    let ServerMessage::Gap { missed } = next_kind(&mut reader, "gap").await else {
+        unreachable!()
+    };
+    assert_eq!(missed, 1024);
+    let ServerMessage::RuntimeEvent(event) = next_kind(&mut reader, "runtime_event").await else {
+        unreachable!()
+    };
+    assert_eq!(event.sequence, 1025);
+    shutdown.cancel();
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn invalid_initial_commands_close_without_enabling_detail() {
+    for command in [
+        serde_json::json!({"type":"subscribe", "data":{"subscription":"detail", "request_id":1}}),
+        serde_json::json!({"type":"subscribe", "data":{"subscription":"raw"}}),
+        serde_json::json!({"type":"execute", "data":{"command":"secret"}}),
+    ] {
+        let (hub, _, shutdown, task) = start_service();
+        let stream = local::connect(&local::endpoint(&hub.descriptor().id), std::process::id())
+            .await
+            .unwrap();
+        let (reader, mut writer) = tokio::io::split(stream);
+        let mut reader = TelemetryReader {
+            inner: FrameReader::new(reader),
+        };
+        next_kind(&mut reader, "hello").await;
+        write_frame(&mut writer, &command).await.unwrap();
+        drain_until_closed(&mut reader).await;
+        let _span = hub.start_access(|| panic!("invalid command must not enable detail"));
+        shutdown.cancel();
+        task.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn no_messages_before_subscription_and_missing_subscription_times_out() {
+    let (hub, _, shutdown, task) = start_service();
+    let stream = local::connect(&local::endpoint(&hub.descriptor().id), std::process::id())
+        .await
+        .unwrap();
+    let (reader, _writer) = tokio::io::split(stream);
+    let mut reader = TelemetryReader {
+        inner: FrameReader::new(reader),
+    };
+    next_kind(&mut reader, "hello").await;
+    hub.capture_and_publish(&crate::transport::Stats::default(), 10);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), reader.next_message())
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(6), reader.next_message())
+            .await
+            .unwrap()
+            .is_err()
+    );
+    let _span = hub.start_access(|| panic!("unsubscribed connection must not collect access"));
     shutdown.cancel();
     task.await.unwrap();
 }
@@ -148,41 +301,6 @@ async fn connection_limit_does_not_spawn_extra_clients() {
     );
     shutdown.cancel();
     task.await.unwrap();
-}
-
-#[tokio::test]
-async fn command_flood_is_disconnected_and_shutdown_reclaims_detail() {
-    let descriptor =
-        InstanceDescriptor::current(InstanceRole::Portal, "local", "", Duration::from_secs(1))
-            .unwrap();
-    let discovered = DiscoveredInstance {
-        registry_name: descriptor.registry_name(),
-        uid: descriptor.uid,
-        pid: descriptor.pid,
-        incarnation: descriptor.incarnation,
-    };
-    let hub = TelemetryHub::new(descriptor);
-    let server = TelemetryServer::bind(hub.clone()).unwrap();
-    let shutdown = CancellationToken::new();
-    let task = tokio::spawn(server.run(shutdown.clone()));
-    let client = TelemetryClient::connect(&discovered, Subscription::Detail)
-        .await
-        .unwrap();
-    let (_, mut reader, mut writer) = client.into_parts();
-    next_kind(&mut reader, "subscribed").await;
-    for _ in 0..20 {
-        if writer.subscribe(Subscription::Detail).await.is_err() {
-            break;
-        }
-    }
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while reader.next_message().await.is_ok() {}
-    })
-    .await
-    .unwrap();
-    shutdown.cancel();
-    task.await.unwrap();
-    let _span = hub.start_access(|| panic!("disconnected detail guard leaked"));
 }
 
 #[tokio::test]

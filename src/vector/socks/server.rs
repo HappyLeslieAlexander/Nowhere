@@ -25,8 +25,7 @@ use crate::common::{
     read_request, udp_idle_timeout, write_reply,
 };
 use crate::telemetry::{
-    AccessOutcome, AccessSpan, AccessStart, RuntimeEvent, RuntimeKind, RuntimeLevel,
-    TrafficProtocol,
+    AccessOutcome, AccessSpan, AccessStart, Runtime, TrafficProtocol, error_reason,
 };
 
 use super::super::VectorInner;
@@ -76,12 +75,9 @@ pub(in crate::vector) async fn serve_listener(
                 Ok((stream, peer)) => {
                     let Some(admission) = try_admit_client(&vector) else {
                         vector.telemetry.emit_runtime(
-                            RuntimeEvent::new(
-                                RuntimeLevel::Warn,
-                                RuntimeKind::Listener,
-                                "SOCKS client resource limit reached",
-                            )
-                            .with_client(peer.to_string()),
+                            Runtime::SocksClientLimit,
+                            None,
+                            Some(&peer.to_string()),
                         );
                         drop(stream);
                         continue;
@@ -98,11 +94,11 @@ pub(in crate::vector) async fn serve_listener(
                     });
                 }
                 Err(error) => {
-                    vector.telemetry.emit_runtime(RuntimeEvent::new(
-                        RuntimeLevel::Error,
-                        RuntimeKind::Listener,
-                        format!("SOCKS accept failed: {error:#}"),
-                    ));
+                    vector.telemetry.emit_runtime(
+                        Runtime::SocksAcceptFailed,
+                        Some(error_reason(&format!("{error:#}"))),
+                        None,
+                    );
                     vector.logger.error(format_args!(
                         "vector::socks::serve_listener: accept failed: {error}"
                     ));
@@ -147,23 +143,17 @@ async fn handle_client(
         Ok(Ok(request)) => request,
         Ok(Err(error)) => {
             vector.telemetry.emit_runtime(
-                RuntimeEvent::new(
-                    RuntimeLevel::Warn,
-                    RuntimeKind::Authentication,
-                    format!("SOCKS5 handshake failed: {error:#}"),
-                )
-                .with_client(peer.to_string()),
+                Runtime::SocksHandshakeFailed,
+                Some(error_reason(&format!("{error:#}"))),
+                Some(&peer.to_string()),
             );
             return Err(error);
         }
         Err(_) => {
             vector.telemetry.emit_runtime(
-                RuntimeEvent::new(
-                    RuntimeLevel::Warn,
-                    RuntimeKind::Authentication,
-                    "SOCKS5 handshake timed out",
-                )
-                .with_client(peer.to_string()),
+                Runtime::SocksHandshakeTimeout,
+                None,
+                Some(&peer.to_string()),
             );
             return Err(anyhow!("SOCKS5 handshake timeout"));
         }
@@ -216,7 +206,7 @@ async fn handle_client(
                     }
                 }
                 Err(error) => {
-                    access.finish(error.access_outcome(), Some(format!("{error:#}")));
+                    access.finish_error(error.diagnostic_reason());
                     write_reply(
                         &mut stream,
                         error.socks_reply(),
