@@ -21,8 +21,7 @@ pub(crate) use self::tls_cert::certificate_sha256;
 use self::tls_cert::{ReloadingCertResolver, new_self_signed_cert};
 use super::{Logger, query_first};
 
-const PORTAL_QUERY_PARAMETERS: &[&str] =
-    &["net", "tls", "crt", "key", "rate", "etar", "dial", "socks"];
+const TLS_QUERY_PARAMETERS: &[&str] = &["tls", "crt", "key"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TLSMode {
@@ -46,7 +45,7 @@ pub(crate) fn new_server_configs_with_reload_interval(
     reload_interval: Duration,
     logger: Logger,
 ) -> Result<(TLSMode, Arc<rustls::ServerConfig>, quinn::ServerConfig)> {
-    let query = query_first(parsed_url, PORTAL_QUERY_PARAMETERS)?;
+    let query = query_first(parsed_url, TLS_QUERY_PARAMETERS)?;
     let mode = match query.get("tls").map(String::as_str) {
         None => TLSMode::SelfSigned,
         Some("0") => TLSMode::None,
