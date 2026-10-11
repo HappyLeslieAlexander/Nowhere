@@ -44,8 +44,8 @@ and Egress reconnection do not change process state.
 5. On a five-second read timeout or disconnect, reconnect; keep cumulative totals
    and clear stale active counts.
 
-The [contract](telemetry.md), [schema](telemetry/schema.json) and
-[examples](telemetry/examples.json) define the wire interface.
+The [contract and JSON messages](telemetry.md#messages) and
+[JSON Schema](telemetry.md#json-schema) define the wire interface.
 The [independent client](../src/tests/telemetry/headless.py) verifies real Unix IPC,
 known-byte counters, logs and cleanup. See [Testing](testing.md#headless-ipc-check).
 

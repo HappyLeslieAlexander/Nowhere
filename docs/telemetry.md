@@ -3,9 +3,9 @@
 Nowhere publishes only cumulative logical traffic and active Flow counts over
 protected local IPC. Service logs use stdout and stderr.
 
-The protocol identifier is `nowhere.telemetry.3`.
-[JSON Schema](telemetry/schema.json) and [examples](telemetry/examples.json)
-define the messages. All roles use the same contract.
+The contract identifier is `nowhere.telemetry.3`.
+The JSON messages and [JSON Schema](#json-schema) below define the contract
+for all roles.
 
 ## Contents
 
@@ -18,6 +18,7 @@ define the messages. All roles use the same contract.
 - [Resource limits](#resource-limits)
 - [Containers](#containers)
 - [Status](#status)
+- [JSON Schema](#json-schema)
 
 ## Discovery and identity
 
@@ -110,6 +111,22 @@ and the latest statistics.
 Hello contains `instance`: `telemetry_protocol`, random `id`, `role`, `pid`,
 `version` and validated `endpoint`. Identity checks precede trusting statistics.
 
+```json
+{
+  "type": "hello",
+  "data": {
+    "instance": {
+      "telemetry_protocol": "nowhere.telemetry.3",
+      "id": "0123456789abcdef0123456789abcdef",
+      "role": "portal",
+      "pid": 42,
+      "version": "dev",
+      "endpoint": "127.0.0.1:2000"
+    }
+  }
+}
+```
+
 Snapshot contains exactly six integer fields:
 
 | Field | Meaning |
@@ -120,6 +137,20 @@ Snapshot contains exactly six integer fields:
 | `udp_download_bytes` | Cumulative UDP payload toward the Vector |
 | `tcp_active` | Currently owned TCP business Flows |
 | `udp_active` | Currently owned UDP business Flows |
+
+```json
+{
+  "type": "snapshot",
+  "data": {
+    "tcp_upload_bytes": 12345,
+    "tcp_download_bytes": 67890,
+    "udp_upload_bytes": 512,
+    "udp_download_bytes": 1024,
+    "tcp_active": 2,
+    "udp_active": 1
+  }
+}
+```
 
 ## Statistics
 
@@ -135,9 +166,9 @@ unique end-to-end traffic. Preserve unsigned 64-bit precision in consumers.
 Counters and active counts are independent atomic reads, not a transactional
 multi-field sample. Active counts are nonnegative in normal ownership operation.
 
-Nowhere does not persist counters. OpenCtrl keeps cumulative totals across child
-restarts and supports explicitly resetting its displayed totals. Reconnecting to
-the same process replaces its latest values and must not add the sample twice.
+Nowhere does not persist counters; they reset when the process restarts.
+Reconnecting to the same process replaces its latest values and must not add
+the sample twice. A new instance ID identifies a new process lifetime.
 
 ## Delivery and ordering
 
@@ -147,9 +178,10 @@ The consumer records receive time and derives throughput from differences.
 Active counts may lag by approximately one second.
 
 Writing one frame has a two-second limit. Clients should connect and read complete
-messages with a five-second deadline. OpenCtrl disconnects and retries after a
-read timeout, clears stale active counts, preserves cumulative bytes and keeps
-process status unchanged.
+messages with a five-second deadline. On timeout or disconnection, reconnect
+and validate a new Hello before reading the latest Snapshot. Active counts are
+stale until a new Snapshot arrives. IPC availability does not establish process
+state.
 
 ## Privacy and trust
 
@@ -164,10 +196,8 @@ Errors are constructed without passwords, Shared Keys or complete credential
 URLs. Logs use `2026-10-11T08:30:00.123Z message`, without levels or ANSI colors.
 Embedded newlines are escaped so each record occupies one line.
 
-OpenCtrl reads both child streams and forwards the original text through SSE.
-It retains no log history, applies no error classification, and does not infer
-process state from text. Normal Flow starts, successful finishes, normal EOF,
-active cancellation and ordinary UDP idle cleanup produce no access logs.
+Normal Flow starts, successful finishes, normal EOF, active cancellation and
+ordinary UDP idle cleanup produce no access logs.
 
 ## Resource limits
 
@@ -187,3 +217,136 @@ Host-to-container and cross-container observation are outside the contract.
 `nowhere status` reads Hello and the first Snapshot with a two-second per-instance
 deadline. It displays role, PID, instance ID, endpoint and the six statistics.
 Service process state is the supervisor's responsibility.
+
+## JSON Schema
+
+This Draft 2020-12 schema validates the JSON payload inside each frame.
+It can be copied directly into a JSON Schema validator.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nowhere:telemetry:3",
+  "title": "Nowhere Telemetry 3",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "instance"
+          ],
+          "properties": {
+            "instance": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "telemetry_protocol",
+                "id",
+                "role",
+                "pid",
+                "version",
+                "endpoint"
+              ],
+              "properties": {
+                "telemetry_protocol": {
+                  "const": "nowhere.telemetry.3"
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                },
+                "role": {
+                  "enum": [
+                    "portal",
+                    "vector",
+                    "egress"
+                  ]
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967295
+                },
+                "version": {
+                  "type": "string"
+                },
+                "endpoint": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "snapshot"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tcp_upload_bytes",
+            "tcp_download_bytes",
+            "udp_upload_bytes",
+            "udp_download_bytes",
+            "tcp_active",
+            "udp_active"
+          ],
+          "properties": {
+            "tcp_upload_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "tcp_download_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "udp_upload_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "udp_download_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "tcp_active": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "udp_active": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+```

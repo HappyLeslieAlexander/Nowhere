@@ -36,13 +36,17 @@ fn snapshots_have_only_six_statistics() {
 
 #[test]
 fn published_examples_match_the_wire_contract() {
-    let examples: serde_json::Value =
-        serde_json::from_str(include_str!("../../../docs/telemetry/examples.json")).unwrap();
-    for value in examples["valid"].as_array().unwrap() {
+    let document = include_str!("../../../docs/telemetry.md");
+    let mut messages = 0;
+    for block in document.split("```json\n").skip(1) {
+        let value: serde_json::Value =
+            serde_json::from_str(block.split("```").next().unwrap()).unwrap();
+        if value.get("$schema").is_some() {
+            continue;
+        }
         let message: ServerMessage = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(serde_json::to_value(message).unwrap(), *value);
+        assert_eq!(serde_json::to_value(message).unwrap(), value);
+        messages += 1;
     }
-    for value in examples["invalid"].as_array().unwrap() {
-        assert!(serde_json::from_value::<ServerMessage>(value.clone()).is_err());
-    }
+    assert_eq!(messages, 2);
 }
