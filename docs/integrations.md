@@ -60,7 +60,8 @@ of Rust private modules and status text.
 1. Discover an instance in the local per-user registry.
 2. Validate permissions, endpoint namespace, peer and process identity.
 3. Connect, validate Hello against discovery and send `subscribe`.
-4. Consume Summary or Detail messages; switch modes with another `subscribe`.
+4. Read the initial Snapshot and Lifecycle, then consume Summary or Detail messages.
+   Each connection selects its mode once; switch by disconnecting and reconnecting.
 5. On disconnect, rediscover and subscribe again.
 
 Summary delivers Snapshot and Lifecycle. Detail additionally delivers Runtime,

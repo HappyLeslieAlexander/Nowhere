@@ -131,19 +131,18 @@ The server verifies operating-system access and sends `hello`. Send `subscribe`
 within five seconds. No snapshots or events arrive before subscription:
 
 ```json
-{"type":"subscribe","data":{"request_id":1,"subscription":"detail"}}
+{"type":"subscribe","data":{"subscription":"detail"}}
 ```
 
-The server acknowledges with `subscribed`, echoing the request ID and mode,
-then sends the current `snapshot` and `lifecycle`:
+The server sends the current `snapshot` and `lifecycle`. The first snapshot
+confirms the subscription:
 
 ```text
      Collector                                                Service
          |                                                       |
          |----------- Connect to protected local IPC ----------->|
          |<----------------------- hello ------------------------|
-         |---------- subscribe: detail, request_id=1 ----------->|
-         |<---------- subscribed: detail, request_id=1 ----------|
+         |----------------- subscribe: detail ----------------->|
          |<---------------------- snapshot ----------------------|
          |<--------------------- lifecycle ----------------------|
          |<- runtime_event / access_start / access_finish / gap -|
@@ -157,10 +156,10 @@ then sends the current `snapshot` and `lifecycle`:
 | `summary` | Snapshot and Lifecycle |
 | `detail` | Summary messages plus Runtime, Access and Gap |
 
-Send another `subscribe` to switch modes. Its acknowledgement establishes the
-new delivery mode; previously sent messages may arrive before that
-acknowledgement. A mode switch does not trigger another initial snapshot or
-lifecycle message.
+Each connection selects its mode once. To switch modes, disconnect, rediscover
+and open a new subscription. Events during the transition are not replayed.
+After subscription, EOF releases the collector; any additional input closes
+the connection immediately, including another `subscribe`.
 
 Access finishes are self-contained and may arrive without a start. Late
 subscribers receive no inventory of individual active Flows. The publisher
@@ -182,17 +181,16 @@ Invalid or unauthenticated requests do not create target Access records.
 | JSON `type` | Purpose |
 |---|---|
 | `hello` | Instance identity, configuration metadata and current lifecycle |
-| `subscribed` | Request ID and accepted subscription mode |
 | `snapshot` | Cumulative counters, active resources, samples and Egress state |
 | `lifecycle` | Process state, reason and timestamp |
 | `runtime_event` | Sanitized runtime diagnostic |
 | `access_start` | Validated target and initial Flow metadata |
 | `access_finish` | Self-contained outcome, duration and logical byte totals |
 | `gap` | Count of detailed events missed by a lagging receiver |
-| `error` | Fixed error code; invalid commands end the connection |
 
 The [schema](telemetry/schema.json) defines every field and its value range.
-Commands are limited to the documented subscription shape.
+The only command is the initial subscription shape. Invalid commands close
+the connection without an error message; collectors diagnose failures locally.
 
 ## Statistics
 
@@ -319,12 +317,12 @@ business `protocol` (`tcp` or `udp`). `peer` is `null` when unavailable.
 ### Diagnostics
 
 Runtime events use `message` for a safe diagnostic template and an optional
-classified reason, such as `TLS carrier connection failed: connection refused`.
-Only known templates and a closed reason vocabulary are published. Unknown
-details become `operation failed`.
+classified reason, such as `SOCKS5 handshake failed: connection refused`.
+The publisher accepts closed runtime event types and classified reasons, then
+renders them once. Unknown error details become `operation failed`.
 
 Access errors use the same vocabulary, including DNS failure, timeout,
-certificate failure and connection refusal. Lifecycle messages use whitelisted
+certificate failure and connection refusal. Lifecycle messages use typed
 reasons such as `STOPPED: START_FAILED`. Nested diagnostic causes are classified;
 keys, passwords, tokens, authentication data and raw error chains never leave
 the publisher through IPC.
@@ -339,13 +337,12 @@ stdout/stderr business logs follow their own policy.
 | Connected collectors | 16 per service; Windows also has a pending pipe instance |
 | Server writes | Two-second deadline |
 | Initial subscription and partial-frame assembly | Five-second deadlines |
-| Command rate | Token bucket of eight, replenished at four per second |
 | Detailed event broadcast queue | 1024 entries |
 | Encoded detailed event | Below 8192 bytes |
 
 A full service closes new clients without spawning rejection tasks. An idle
-subscribed client remains connected while sending no commands. Invalid commands
-close the connection; any error reply contains only a fixed code.
+subscribed client remains connected while sending no commands. Invalid initial
+commands or any post-subscription input close the connection without a reply.
 
 Detailed events use bounded identifiers, validated targets and peer metadata.
 There are no unbounded client queues or disk histories. Access finishes require no

@@ -137,7 +137,7 @@ python3 src/tests/telemetry/headless.py ./target/release/nowhere
 
 The script launches Portal and Vector with redirected standard streams. Using
 only Python's standard library and the public length-prefixed JSON interface,
-it checks discovery, identity, Summary/Detail switching, known logical byte
+it checks discovery, identity, Summary/Detail reconnection, known logical byte
 counts, one-shot status and shutdown cleanup. It requires neither a terminal nor
 Rust module access. The optional `--isolation-peer` argument exercises namespace
 isolation against a separately supplied executable; see the script's `--help`.
