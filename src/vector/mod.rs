@@ -228,9 +228,7 @@ impl ForwardVector {
         self.inner
             .telemetry
             .set_lifecycle(LifeState::Stopped, outcome);
-        self.inner
-            .telemetry
-            .capture_and_publish(&self.inner.stats, self.inner.client.ping_ms());
+        self.inner.telemetry.capture_and_publish(&self.inner.stats);
         tokio::task::yield_now().await;
         telemetry_shutdown.cancel();
         while telemetry_tasks.join_next().await.is_some() {}

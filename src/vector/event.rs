@@ -15,11 +15,7 @@ pub(super) async fn telemetry_loop(vector: Arc<VectorInner>, shutdown: Cancellat
         tokio::select! {
             _ = shutdown.cancelled() => return,
             _ = interval.tick() => {
-                vector.client.refresh_latency().await;
-                vector.telemetry.capture_and_publish(
-                    &vector.stats,
-                    vector.client.ping_ms(),
-                );
+                vector.telemetry.capture_and_publish(&vector.stats);
             }
         }
     }

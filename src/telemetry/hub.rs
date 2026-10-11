@@ -19,7 +19,7 @@ use super::wire::{
     InstanceRole, TelemetrySnapshot,
 };
 
-const DETAIL_EVENT_CAPACITY: usize = 1_024;
+const EVENT_CAPACITY: usize = 1_024;
 
 pub(crate) struct TelemetryHub {
     descriptor: InstanceDescriptor,
@@ -61,7 +61,7 @@ impl TelemetryHub {
             lifecycle_timestamp_ms: now_unix_ms(),
             ..TelemetrySnapshot::default()
         });
-        let (events, _) = broadcast::channel(DETAIL_EVENT_CAPACITY);
+        let (events, _) = broadcast::channel(EVENT_CAPACITY);
         Arc::new(Self {
             descriptor,
             event_sequence: Mutex::new(0),
@@ -108,49 +108,38 @@ impl TelemetryHub {
                 return false;
             }
             snapshot.egress_online = online;
-            if online != Some(true) {
-                snapshot.ping_ms = None;
-            }
             snapshot.sequence += 1;
             snapshot.timestamp_ms = now_unix_ms();
             true
         });
     }
 
-    pub(crate) fn capture_and_publish(&self, stats: &Stats, ping_ms: u64) {
+    pub(crate) fn capture_and_publish(&self, stats: &Stats) {
         let mut sampler = self
             .process_sampler
             .lock()
             .unwrap_or_else(|lock| lock.into_inner());
         let process = sampler.sample();
         self.snapshots.send_modify(|current| {
-            *current = TelemetrySnapshot {
-                sequence: current.sequence + 1,
-                timestamp_ms: now_unix_ms(),
-                uptime_ms: process_uptime_ms(self.descriptor.incarnation).unwrap_or_else(|| {
-                    self.started.elapsed().as_millis().min(u64::MAX as u128) as u64
-                }),
-                egress_online: current.egress_online,
-                lifecycle: current.lifecycle,
-                lifecycle_reason: current.lifecycle_reason,
-                lifecycle_timestamp_ms: current.lifecycle_timestamp_ms,
-                tcp_upload_bytes: stats.tcp_upload_bytes.load(Ordering::Relaxed),
-                tcp_download_bytes: stats.tcp_download_bytes.load(Ordering::Relaxed),
-                udp_upload_bytes: stats.udp_upload_bytes.load(Ordering::Relaxed),
-                udp_download_bytes: stats.udp_download_bytes.load(Ordering::Relaxed),
-                tls_upload_bytes: stats.tls_upload_bytes.load(Ordering::Relaxed),
-                tls_download_bytes: stats.tls_download_bytes.load(Ordering::Relaxed),
-                quic_upload_bytes: stats.quic_upload_bytes.load(Ordering::Relaxed),
-                quic_download_bytes: stats.quic_download_bytes.load(Ordering::Relaxed),
-                tcp_active: i64::from(stats.tcp_active.load(Ordering::Relaxed)),
-                udp_active: i64::from(stats.udp_active.load(Ordering::Relaxed)),
-                tls_carriers_active: stats.tls_carriers_active.load(Ordering::Relaxed),
-                quic_carriers_active: stats.quic_carriers_active.load(Ordering::Relaxed),
-                ping_ms: (ping_ms > 0 && current.egress_online != Some(false)).then_some(ping_ms),
-                cpu_percent: process.cpu_percent,
-                rss_bytes: process.rss_bytes,
-                open_fds: process.open_fds,
-            };
+            current.sequence += 1;
+            current.timestamp_ms = now_unix_ms();
+            current.uptime_ms = process_uptime_ms(self.descriptor.incarnation)
+                .unwrap_or_else(|| self.started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+            current.tcp_upload_bytes = stats.tcp_upload_bytes.load(Ordering::Relaxed);
+            current.tcp_download_bytes = stats.tcp_download_bytes.load(Ordering::Relaxed);
+            current.udp_upload_bytes = stats.udp_upload_bytes.load(Ordering::Relaxed);
+            current.udp_download_bytes = stats.udp_download_bytes.load(Ordering::Relaxed);
+            current.tls_upload_bytes = stats.tls_upload_bytes.load(Ordering::Relaxed);
+            current.tls_download_bytes = stats.tls_download_bytes.load(Ordering::Relaxed);
+            current.quic_upload_bytes = stats.quic_upload_bytes.load(Ordering::Relaxed);
+            current.quic_download_bytes = stats.quic_download_bytes.load(Ordering::Relaxed);
+            current.tls_carriers_active = stats.tls_carriers_active.load(Ordering::Relaxed);
+            current.quic_carriers_active = stats.quic_carriers_active.load(Ordering::Relaxed);
+            current.tcp_active = i64::from(stats.tcp_active.load(Ordering::Relaxed));
+            current.udp_active = i64::from(stats.udp_active.load(Ordering::Relaxed));
+            current.cpu_percent = process.cpu_percent;
+            current.rss_bytes = process.rss_bytes;
+            current.open_fds = process.open_fds;
         });
     }
 

@@ -6,7 +6,7 @@
 use super::config::CarrierMode;
 use super::tls::{ClientTls, EXPORTER_LABEL, require_quic_nw3};
 use super::{BoxReader, BoxWriter, OpenFlowError, PortalClientConfig, TcpTunnel, TcpTunnelGuard};
-use crate::common::{LatencyTracker, handshake_timeout};
+use crate::common::handshake_timeout;
 use crate::protocol::{
     AuthTransport, Credentials, FlowKind, SetupResult, Target, encode_auth_frame,
     encode_target_into,
@@ -27,8 +27,6 @@ pub(crate) struct PortalClient {
     credentials: Credentials,
     tls: ClientTls,
     quic: Mutex<Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
-    latency: Arc<LatencyTracker>,
-    latency_guard: crate::common::LatencyGuard,
     pub(super) shutdown: CancellationToken,
 }
 pub(crate) struct QuicFlow {
@@ -47,11 +45,11 @@ impl Drop for ConnectionAttempt {
         }
     }
 }
-pub(crate) struct TlsCarrierGuard(Arc<Stats>, Option<crate::common::LatencyGuard>);
+pub(crate) struct TlsCarrierGuard(Arc<Stats>);
 impl TlsCarrierGuard {
     pub(crate) fn new(stats: Arc<Stats>) -> Self {
         stats.tls_carriers_active.fetch_add(1, Ordering::Relaxed);
-        Self(stats, None)
+        Self(stats)
     }
 }
 impl Drop for TlsCarrierGuard {
@@ -68,8 +66,6 @@ impl PortalClient {
         shutdown: CancellationToken,
     ) -> Result<Arc<Self>> {
         let tls = ClientTls::new(&config)?;
-        let latency = LatencyTracker::new();
-        let latency_guard = latency.register();
         Ok(Arc::new(Self {
             config,
             stats,
@@ -77,8 +73,6 @@ impl PortalClient {
             credentials: credentials.clone(),
             tls,
             quic: Mutex::new(None),
-            latency,
-            latency_guard,
             shutdown,
         }))
     }
@@ -131,10 +125,7 @@ impl PortalClient {
                 endpoint.family,
             )
             .await?;
-        let mut guard = TlsCarrierGuard::new(self.stats.clone());
-        let latency = self.latency.register();
-        latency.update_tcp(stream.get_ref().0.get_ref());
-        guard.1 = Some(latency);
+        let guard = TlsCarrierGuard::new(self.stats.clone());
         let (reader, mut writer) = tokio::io::split(stream);
         writer
             .write_all(&encode_auth_frame(
@@ -243,21 +234,6 @@ impl PortalClient {
             return Err(OpenFlowError::Setup(result));
         }
         Ok(QuicFlow { send, recv, udp })
-    }
-    pub(crate) async fn refresh_latency(&self) {
-        if let Ok(state) = self.quic.try_lock() {
-            if let Some((_, q)) = &*state
-                && q.connection.close_reason().is_none()
-                && !q.cancel.is_cancelled()
-            {
-                self.latency_guard.update(q.connection.rtt());
-            } else {
-                self.latency_guard.update(std::time::Duration::ZERO);
-            }
-        }
-    }
-    pub(crate) fn ping_ms(&self) -> u64 {
-        self.latency.current_ms()
     }
     pub(crate) async fn close(&self, deadline: Instant) {
         self.shutdown.cancel();

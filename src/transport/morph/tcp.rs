@@ -135,10 +135,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
             }),
         }
     }
-
-    pub(crate) fn get_ref(&self) -> &S {
-        &self.inner
-    }
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for MorphTcpStream<S> {

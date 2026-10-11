@@ -28,12 +28,11 @@ impl Forwarder {
                     let target = dialer
                         .dial_tcp_target(target, self.runtime.tcp_dial_timeout)
                         .await?;
-                    let (read, write, _latency) = target.into_split();
+                    let (read, write) = target.into_split();
                     Ok::<_, anyhow::Error>((
                         Box::pin(read) as BoxReader,
                         Box::pin(write) as BoxWriter,
                         None,
-                        _latency,
                     ))
                 }
                 Outlet::Egress(slot) => {
@@ -44,7 +43,7 @@ impl Forwarder {
                     .await
                     .context("Egress TCP setup timeout")??;
                     let (r, w, guard) = tunnel.into_parts();
-                    Ok((r, w, Some(guard), None))
+                    Ok((r, w, Some(guard)))
                 }
             }
         };
@@ -54,7 +53,7 @@ impl Forwarder {
             closed = incoming.closed() => { closed?; return Ok(ResultCode::Cancelled); },
             result = dial => result,
         };
-        let (mut target_read, mut target_write, _guard, _latency) = match dialed {
+        let (mut target_read, mut target_write, _guard) = match dialed {
             Ok(parts) => parts,
             Err(error) => {
                 incoming

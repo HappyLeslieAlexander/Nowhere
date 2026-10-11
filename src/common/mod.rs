@@ -7,7 +7,6 @@ mod config;
 mod datagram;
 mod dial;
 mod endpoint;
-mod latency;
 mod lifecycle;
 mod logger;
 mod network;
@@ -27,7 +26,6 @@ pub(crate) use datagram::{
 pub(crate) use dial::DialPolicy;
 pub use endpoint::validate_endpoint_url_input;
 pub(crate) use endpoint::{AddressFamily, CarrierEndpoint, ServiceEndpoint};
-pub(crate) use latency::{LatencyGuard, LatencyTracker};
 pub(crate) use lifecycle::{LifeReason, LifeState, ShutdownSignals};
 pub use logger::{LogLevel, Logger};
 pub use network::bind_udp_addrs;

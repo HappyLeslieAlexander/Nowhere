@@ -10,7 +10,6 @@ use anyhow::{Context, Result, bail};
 use tokio::net::{TcpStream, UdpSocket};
 
 use super::protocol::parse_udp_header;
-use crate::common::LatencyGuard;
 
 pub(crate) enum OutboundUdpSocket {
     Direct(UdpSocket),
@@ -41,7 +40,6 @@ pub(crate) struct SocksUdpAssociation {
     pub(super) control: TcpStream,
     pub(super) socket: UdpSocket,
     pub(super) target_header: Vec<u8>,
-    pub(super) _latency: LatencyGuard,
 }
 
 impl SocksUdpAssociation {

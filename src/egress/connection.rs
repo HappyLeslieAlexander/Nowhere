@@ -70,7 +70,7 @@ impl Egress {
                 _ = q.cancel.cancelled() => break,
                 _ = q.draining.cancelled() => break,
                 _ = sample.tick() => self.forward.telemetry.capture_and_publish(
-                    &self.forward.stats, connection.rtt().as_millis().max(1) as u64,
+                    &self.forward.stats,
                 ),
                 stream = connection.accept_bi() => match stream {
                     Ok((send, recv)) => {
@@ -87,7 +87,6 @@ impl Egress {
                         tasks.spawn(async move {
                             forward.serve(
                                 Incoming::Quic { send, recv, connection: connection.clone() },
-
                                 connection.cancel.clone(),
                             ).await;
                         });

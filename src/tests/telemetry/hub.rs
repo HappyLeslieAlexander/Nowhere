@@ -129,7 +129,7 @@ fn snapshots_keep_counters_distinct_without_event_receivers() {
         counter.store(value, Ordering::Relaxed);
     }
     stats.tls_carriers_active.store(2, Ordering::Relaxed);
-    hub.capture_and_publish(&stats, 17);
+    hub.capture_and_publish(&stats);
     let snapshot = hub.snapshots.borrow();
     assert_eq!(
         (snapshot.tcp_upload_bytes, snapshot.tcp_download_bytes),
@@ -157,7 +157,7 @@ fn lifecycle_and_online_state_are_only_published_in_snapshots() {
     hub.set_lifecycle(LifeState::Ready, LifeReason::Listening);
     hub.set_egress_online(Some(true));
     let before = hub.snapshots.borrow().clone();
-    hub.capture_and_publish(&Stats::default(), 0);
+    hub.capture_and_publish(&Stats::default());
     let after = hub.snapshots.borrow().clone();
     assert_eq!(after.lifecycle, LifeState::Ready);
     assert_eq!(after.lifecycle_reason, LifeReason::Listening);
@@ -178,7 +178,7 @@ fn concurrent_sampling_and_state_updates_do_not_regress() {
             scope.spawn(move || {
                 for _ in 0..300 {
                     stats.tcp_upload_bytes.fetch_add(1, Ordering::Relaxed);
-                    hub.capture_and_publish(stats, 17);
+                    hub.capture_and_publish(stats);
                 }
                 completed.fetch_add(1, Ordering::Release);
             });

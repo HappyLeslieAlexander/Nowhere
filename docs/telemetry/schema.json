@@ -139,15 +139,6 @@
           "minimum": 0,
           "maximum": 18446744073709551615
         },
-        "ping_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 18446744073709551615,
-          "description": "Transport RTT in milliseconds; null when unavailable."
-        },
         "tcp_active": {
           "type": "integer",
           "minimum": -9223372036854775808,
@@ -244,7 +235,6 @@
         "quic_download_bytes",
         "tls_carriers_active",
         "quic_carriers_active",
-        "ping_ms",
         "tcp_active",
         "udp_active",
         "cpu_percent",

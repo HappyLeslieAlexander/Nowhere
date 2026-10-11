@@ -38,7 +38,7 @@ impl Egress {
                     _ = stop.cancelled() => break,
                     _ = ticks.tick() => {
                         if forward.telemetry.snapshot_receiver().borrow().egress_online != Some(true) {
-                            forward.telemetry.capture_and_publish(&forward.stats, 0);
+                            forward.telemetry.capture_and_publish(&forward.stats);
                         }
                     }
                 }
@@ -67,7 +67,7 @@ impl Egress {
             .set_lifecycle(LifeState::Stopped, LifeReason::CleanupComplete);
         self.forward
             .telemetry
-            .capture_and_publish(&self.forward.stats, 0);
+            .capture_and_publish(&self.forward.stats);
         observation_stop.cancel();
         while observation.join_next().await.is_some() {}
         self.forward.logger.flush();

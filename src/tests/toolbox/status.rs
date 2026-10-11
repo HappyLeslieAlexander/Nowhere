@@ -26,7 +26,7 @@ async fn status_reads_a_real_local_snapshot_and_redacts_metadata() {
     let server = TelemetryServer::bind(hub.clone()).unwrap();
     let shutdown = CancellationToken::new();
     let task = tokio::spawn(server.run(shutdown.clone()));
-    hub.capture_and_publish(&Stats::default(), 0);
+    hub.capture_and_publish(&Stats::default());
     let item = read_status(discovered).await.unwrap();
     assert_eq!(item.id, hub.descriptor().id);
     assert_eq!(item.endpoint, "<redacted>");

@@ -58,11 +58,7 @@ impl Portal {
                 tokio::select! {
                     _ = sample_stop.cancelled() => break,
                     _ = ticks.tick() => {
-                        let ping = match &f.outbound {
-                            super::forward::Outlet::Network(dialer) => dialer.ping_ms(),
-                            super::forward::Outlet::Egress(slot) => slot.connection().map_or(0, |q| q.connection.rtt().as_millis().max(1) as u64),
-                        };
-                        f.telemetry.capture_and_publish(&f.stats, ping);
+                        f.telemetry.capture_and_publish(&f.stats);
                     }
                 }
             }
@@ -100,7 +96,7 @@ impl Portal {
                 LifeReason::Timeout
             },
         );
-        forward.telemetry.capture_and_publish(&forward.stats, 0);
+        forward.telemetry.capture_and_publish(&forward.stats);
         telemetry_stop.cancel();
         while observation.join_next().await.is_some() {}
         forward.logger.flush();

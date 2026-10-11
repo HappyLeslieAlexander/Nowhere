@@ -44,16 +44,11 @@ async fn tcp_connect_uses_only_no_auth_and_preserves_domain() {
         .dial_tcp_target(&target, Duration::from_secs(2))
         .await
         .unwrap();
-    #[cfg(target_os = "linux")]
-    assert!(dialer.ping_ms() > 0);
-    #[cfg(not(target_os = "linux"))]
-    assert_eq!(dialer.ping_ms(), 0);
     stream.write_all(b"ping").await.unwrap();
     let mut response = [0u8; 4];
     stream.read_exact(&mut response).await.unwrap();
     assert_eq!(&response, b"ping");
     drop(stream);
-    assert_eq!(dialer.ping_ms(), 0);
     server.await.unwrap();
 }
 
@@ -133,10 +128,6 @@ async fn udp_associate_wraps_payload_and_keeps_control_alive() {
         .dial_udp_target(&target, Duration::from_secs(2))
         .await
         .unwrap();
-    #[cfg(target_os = "linux")]
-    assert!(dialer.ping_ms() > 0);
-    #[cfg(not(target_os = "linux"))]
-    assert_eq!(dialer.ping_ms(), 0);
     let mut packet = Vec::new();
     assert_eq!(socket.send(b"hello", &mut packet).await.unwrap(), 5);
     let mut response = [0u8; 512];
@@ -148,7 +139,6 @@ async fn udp_associate_wraps_payload_and_keeps_control_alive() {
     let payload = socket.recv(&mut response).await.unwrap();
     assert_eq!(&response[payload], b"bye");
     drop(socket);
-    assert_eq!(dialer.ping_ms(), 0);
     server.await.unwrap();
 }
 

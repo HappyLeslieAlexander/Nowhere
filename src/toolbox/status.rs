@@ -132,12 +132,6 @@ fn status_panel(item: &StatusItem) -> String {
             format!("↑ {} · ↓ {}", bytes(upload), bytes(download)),
         ),
         (
-            "RTT",
-            item.snapshot
-                .ping_ms
-                .map_or_else(|| "—".to_owned(), |ms| format!("{ms}ms")),
-        ),
-        (
             "CPU",
             item.snapshot
                 .cpu_percent
