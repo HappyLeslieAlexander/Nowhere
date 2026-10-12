@@ -19,7 +19,7 @@ fn defaults_unknown_and_removed_options_are_ignored() {
     assert_eq!(config.net, CarrierMode::Tcp);
     assert_eq!(
         config.effective_url(),
-        "vector://localhost:2000?in=127.0.0.1:1080&sni=localhost&pin=none&morph=0&rate=0&etar=0"
+        "vector://localhost:2000?in=127.0.0.1:1080&sni=localhost&pin=none&morph=1&rate=0&etar=0"
     );
     assert!(!config.effective_url().contains("secret"));
     assert!(!config.effective_url().contains("rev="));
@@ -111,4 +111,20 @@ fn ingress_credentials_split_before_single_decode_and_are_redacted() {
         ("a:b", "p%40ss")
     );
     assert!(!config.effective_url().contains("p%40ss"));
+}
+
+#[test]
+fn morph_defaults_on_and_honors_explicit_values() {
+    for scheme in ["vector", "egress", "nowhere"] {
+        for (query, enabled) in [("", true), ("morph=0", false), ("morph=1", true)] {
+            let url = Url::parse(&format!(
+                "{scheme}://0123456789abcdef0123456789abcdef@localhost:2000?{query}"
+            ))
+            .unwrap();
+            let query = query_first(&url, &["morph"]).unwrap();
+            let config = PortalClientConfig::parse(&url, &query).unwrap();
+            assert_eq!(config.morph, enabled, "{url}");
+            assert_eq!(config.morph_keys.is_some(), enabled, "{url}");
+        }
+    }
 }

@@ -57,7 +57,7 @@ fn fixed_quic_and_effective_defaults_ignore_removed_options_and_hide_credentials
     assert_eq!(egress.config.dial_policy, DialPolicy::default());
     assert_eq!(
         egress.effective,
-        "egress://localhost:2000?sni=localhost&pin=none&dial4=192.0.2.254&dial6=auto&morph=0&rate=0&etar=0"
+        "egress://localhost:2000?sni=localhost&pin=none&dial4=192.0.2.254&dial6=auto&morph=1&rate=0&etar=0"
     );
     assert!(!egress.effective.contains("secret"));
     assert!(!egress.effective.contains("rev="));

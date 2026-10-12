@@ -43,7 +43,7 @@ async fn client_prefers_fixed_nw3_alpn() {
         TlsAcceptor::from(Arc::new(server)).accept(stream).await
     });
     let raw = format!(
-        "vector://0123456789abcdef0123456789abcdef@{endpoint}?alpn=private/2&pin={pin}&in=127.0.0.1:1080"
+        "vector://0123456789abcdef0123456789abcdef@{endpoint}?morph=0&alpn=private/2&pin={pin}&in=127.0.0.1:1080"
     );
 
     let _ = ClientTls::new(&config(&raw))
@@ -132,7 +132,7 @@ async fn test_pinned_handshake(pin: TestPin, sni: Option<&str>) -> Result<()> {
         TestPin::Uppercase => Some(fingerprint.to_ascii_uppercase()),
         TestPin::Invalid => Some("not-a-fingerprint".to_owned()),
     };
-    let mut raw = format!("vector://0123456789abcdef0123456789abcdef@{endpoint}?");
+    let mut raw = format!("vector://0123456789abcdef0123456789abcdef@{endpoint}?morph=0&");
     if let Some(sni) = sni {
         raw.push_str(&format!("sni={sni}&"));
     }
@@ -175,8 +175,9 @@ async fn tcp_server_without_nw3_is_rejected() {
         let (stream, _) = listener.accept().await.unwrap();
         let _ = TlsAcceptor::from(Arc::new(server)).accept(stream).await;
     });
-    let raw =
-        format!("vector://0123456789abcdef0123456789abcdef@{endpoint}?pin={pin}&in=127.0.0.1:1080");
+    let raw = format!(
+        "vector://0123456789abcdef0123456789abcdef@{endpoint}?morph=0&pin={pin}&in=127.0.0.1:1080"
+    );
     assert!(
         ClientTls::new(&config(&raw))
             .unwrap()

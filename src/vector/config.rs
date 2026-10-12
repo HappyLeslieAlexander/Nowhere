@@ -73,8 +73,8 @@ impl PortalClientConfig {
             _ => bail!("unsupported client URL scheme"),
         };
         let morph = match query.get("morph").map(String::as_str) {
-            None | Some("0") => false,
-            Some("1") => true,
+            Some("0") => false,
+            None | Some("1") => true,
             Some(_) => bail!("{context}: morph must be 0 or 1"),
         };
         let morph_keys = morph.then(|| MorphKeys::from_url(url)).transpose()?;

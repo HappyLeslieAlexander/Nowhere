@@ -24,7 +24,7 @@ async fn shutdown_cancels_pending_connection_and_registration() {
             quinn::Endpoint::server(quic.clone(), "127.0.0.1:0".parse().unwrap()).unwrap();
         let egress = Egress::new(
             Url::parse(&format!(
-                "egress://{KEY}@{}?pin={pin}",
+                "egress://{KEY}@{}?morph=0&pin={pin}",
                 endpoint.local_addr().unwrap()
             ))
             .unwrap(),
@@ -87,7 +87,7 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     let endpoint = quinn::Endpoint::server(quic, "127.0.0.1:0".parse().unwrap()).unwrap();
     let address = endpoint.local_addr().unwrap();
     let egress = Egress::new(
-        Url::parse(&format!("egress://{KEY}@{address}?pin={pin}")).unwrap(),
+        Url::parse(&format!("egress://{KEY}@{address}?morph=0&pin={pin}")).unwrap(),
         Logger,
     )
     .unwrap();

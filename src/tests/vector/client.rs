@@ -65,7 +65,7 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
     for kind in [FlowKind::Tcp, FlowKind::Udp] {
         let (config, credentials) = PortalClientConfig::from_probe_url(
             &url::Url::parse(&format!(
-                "vector://{KEY}@{}/udp:{}?pin={pin}",
+                "vector://{KEY}@{}/udp:{}?morph=0&pin={pin}",
                 address.ip(),
                 address.port()
             ))

@@ -38,7 +38,7 @@ impl Portal {
         let bind_host = listen_host.unwrap_or(&endpoint.host);
         let credentials = Credentials::for_service(&url, "Portal listener")?;
         let runtime = super::config::PortalRuntimeConfig::from_env()?;
-        let morph_keys = (query.get("morph").is_some_and(|s| s == "1"))
+        let morph_keys = (query.get("morph").is_none_or(|s| s == "1"))
             .then(|| MorphKeys::from_url(&url))
             .transpose()?;
         let out = query.get("out").map(String::as_str).unwrap_or("direct");

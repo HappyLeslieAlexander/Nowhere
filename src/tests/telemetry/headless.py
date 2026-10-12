@@ -142,7 +142,7 @@ def main():
             assert read_message(ipc)["type"] == "snapshot"
 
             pin = subprocess.check_output([current, "fingerprint",
-                f"nowhere://{KEY}@127.0.0.1:{port}?net=tcp&morph=0"], env=env, timeout=DEADLINE,
+                f"nowhere://{KEY}@127.0.0.1:{port}?net=tcp&morph=1"], env=env, timeout=DEADLINE,
                 stderr=subprocess.PIPE).decode().strip()
             assert len(pin) == 64
             ingress = reserve_port()
