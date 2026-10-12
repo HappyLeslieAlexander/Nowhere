@@ -50,7 +50,7 @@ in the [wire specification](protocol.md#setup-results).
 Read a presented certificate over TCP/TLS:
 
 ```sh
-nowhere fingerprint "nowhere://KEY@relay.example:2000?morph=0"
+nowhere fingerprint "nowhere://KEY@relay.example:2000?morph=1"
 ```
 
 `fingerprint` requires `morph=0|1` matching Portal; `#NAME` and an `sni` DNS

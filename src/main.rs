@@ -56,7 +56,7 @@ Service options:
   dial6=<ipv6|auto>   IPv6 source; mutually exclusive with dial.
   sni=<name|none>     Client verified server name; default endpoint host.
   pin=<sha256|none>   Exact certificate pin; otherwise system CA verification.
-  morph=0|1           Keyed wire masking; default 0, both peers must agree.
+  morph=0|1           Keyed wire masking; default 1, both peers must agree.
   rate=<mbps>         Vector-to-target limit; default 0 disables it.
   etar=<mbps>         Target-to-Vector limit; default 0 disables it.
 

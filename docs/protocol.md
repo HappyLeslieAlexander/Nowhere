@@ -545,7 +545,8 @@ Stale owner's cleanup          Cannot release a different connection's Slot.
 
 ## Morph
 
-Morph is an optional transform below TLS/QUIC, enabled by `morph=1`. Peers must
+Morph is an optional transform below TLS/QUIC, enabled by default (`morph=1`)
+and disabled by `morph=0`. Peers must
 agree on Shared Key and whether Morph is enabled; no in-band switch or detection
 is performed. With Morph disabled, the transport bytes pass through unchanged.
 

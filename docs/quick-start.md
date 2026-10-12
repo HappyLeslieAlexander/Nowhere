@@ -53,7 +53,7 @@ fingerprint needed for the next step.
 Read the presented certificate over TCP/TLS:
 
 ```sh
-./target/release/nowhere fingerprint "nowhere://KEY@relay.example:2000?morph=0"
+./target/release/nowhere fingerprint "nowhere://KEY@relay.example:2000?morph=1"
 ```
 
 Compare the result with Portal's fingerprint obtained through a trusted channel,
