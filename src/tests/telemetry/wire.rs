@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Minimal wire shapes and removed message rejection.
+//! Telemetry wire shapes and unknown message rejection.
 
 use super::*;
 
@@ -19,14 +19,7 @@ fn snapshots_have_only_six_statistics() {
     ] {
         assert_eq!(value[field], 0);
     }
-    for kind in [
-        "diagnostic",
-        "access_start",
-        "access_finish",
-        "lifecycle",
-        "gap",
-        "subscribed",
-    ] {
+    for kind in ["unknown", "", "HELLO", "SNAPSHOT"] {
         assert!(
             serde_json::from_value::<ServerMessage>(serde_json::json!({"type":kind,"data":{}}))
                 .is_err()

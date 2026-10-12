@@ -139,8 +139,7 @@ The script launches Portal and Vector with redirected standard streams. Using
 only Python's standard library and the public length-prefixed JSON interface,
 it checks discovery, identity, passive reconnection, known instance logical byte
 counts, one-shot status and shutdown cleanup. It requires neither a terminal nor
-Rust module access. The optional `--isolation-peer` argument exercises namespace
-isolation against a separately supplied executable; see the script's `--help`.
+Rust module access.
 Windows named-pipe, ACL and peer-identity checks belong to the native Rust suite.
 
 ## Performance measurements

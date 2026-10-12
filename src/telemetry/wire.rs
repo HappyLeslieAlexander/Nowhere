@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::process::{process_incarnation, process_uid};
 
-pub(crate) const TELEMETRY_PROTOCOL: &str = "nowhere.telemetry.3";
+pub(crate) const TELEMETRY_PROTOCOL: &str = "nowhere.telemetry";
 pub(crate) const MAX_FRAME_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

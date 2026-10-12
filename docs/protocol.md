@@ -620,7 +620,7 @@ own references:
 |---|---|
 | [Configuration](configuration.md) | Role URLs, parsing, source binding and effective configuration |
 | [Security](security.md) | Certificate trust, admission and resource boundaries |
-| [Telemetry](telemetry.md) | `nowhere.telemetry.3`, local IPC and process statistics |
+| [Telemetry](telemetry.md) | `nowhere.telemetry`, local IPC and process statistics |
 | [Interoperability](interoperability.md) | Peer implementation requirements |
 | [Testing](testing.md) | Reference vectors, regression coverage and validation |
 
