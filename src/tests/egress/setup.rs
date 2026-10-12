@@ -44,10 +44,10 @@ fn endpoint_accepts_only_one_quic_carrier_or_a_compact_port() {
 }
 
 #[test]
-fn fixed_quic_and_effective_defaults_ignore_removed_options_and_hide_credentials() {
+fn fixed_quic_and_effective_defaults_ignore_unknown_options_and_hide_credentials() {
     let egress = Egress::new(
         Url::parse(
-            "egress://0123456789abcdef0123456789abcdef@localhost:2000?net=tcp&rev=bad&next=secret&dial4=192.0.2.254",
+            "egress://0123456789abcdef0123456789abcdef@localhost:2000?net=tcp&unknown=bad&unused=secret&dial4=192.0.2.254",
         )
         .unwrap(),
         Logger,
@@ -60,6 +60,6 @@ fn fixed_quic_and_effective_defaults_ignore_removed_options_and_hide_credentials
         "egress://localhost:2000?sni=localhost&pin=none&dial4=192.0.2.254&dial6=auto&morph=1&rate=0&etar=0"
     );
     assert!(!egress.effective.contains("secret"));
-    assert!(!egress.effective.contains("rev="));
-    assert!(!egress.effective.contains("next="));
+    assert!(!egress.effective.contains("unknown="));
+    assert!(!egress.effective.contains("unused="));
 }

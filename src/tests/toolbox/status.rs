@@ -21,8 +21,8 @@ async fn status_reads_local_statistics_and_redacts_endpoint_credentials() {
     let output = status_panel(&item);
     assert!(output.contains("TCP upload"));
     assert!(output.contains("UDP flows"));
-    for removed in ["CPU", "Memory", "Uptime", "Carriers", "Lifecycle"] {
-        assert!(!output.contains(removed));
+    for unrelated in ["CPU", "Memory", "Uptime", "Carriers", "Lifecycle"] {
+        assert!(!output.contains(unrelated));
     }
     stop.cancel();
     task.await.unwrap();

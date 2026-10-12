@@ -21,15 +21,15 @@ fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
             "unknown carrier",
         ),
         (
-            "vector://0123456789abcdef0123456789abcdef@localhost:2000?up=tcp&down=tcp&morph=secret",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?morph=secret",
             "morph must be 0 or 1",
         ),
         (
-            "vector://0123456789abcdef0123456789abcdef@localhost:2000?up=tcp&down=tcp&sni=secret:443",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?sni=secret:443",
             "sni must be an ASCII DNS name",
         ),
         (
-            "vector://0123456789abcdef0123456789abcdef@localhost:2000?up=tcp&down=tcp&in=user:secret@localhost:secret",
+            "vector://0123456789abcdef0123456789abcdef@localhost:2000?in=user:secret@localhost:secret",
             "port must be in 1..=65535",
         ),
         (
@@ -47,9 +47,7 @@ fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
 
 #[test]
 fn toolbox_probe_url_allows_missing_socks() {
-    let url =
-        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?up=tcp&down=tcp")
-            .unwrap();
+    let url = Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000").unwrap();
     assert!(ToolboxClient::parse(&url).is_ok());
 }
 

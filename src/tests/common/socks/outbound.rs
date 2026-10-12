@@ -282,7 +282,7 @@ async fn write_test_reply(stream: &mut TcpStream, address: SocketAddr) {
 }
 
 #[tokio::test]
-async fn direct_ip_targets_apply_source_policy_and_reject_legacy_family_conflicts() {
+async fn direct_ip_targets_apply_source_policy_and_reject_source_family_conflicts() {
     use crate::common::DialPolicy;
     let listener4 = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let listener6 = match TcpListener::bind("[::1]:0").await {
@@ -323,15 +323,15 @@ async fn direct_ip_targets_apply_source_policy_and_reject_legacy_family_conflict
         } else {
             "127.0.0.1"
         };
-        let legacy = OutboundDialer::new(opposite.into(), None);
+        let source_bound = OutboundDialer::new(opposite.into(), None);
         assert!(
-            legacy
+            source_bound
                 .dial_tcp_target(&Target::ip(address).unwrap(), Duration::from_secs(2))
                 .await
                 .is_err()
         );
         assert!(
-            legacy
+            source_bound
                 .dial_udp_target(&target, Duration::from_secs(2))
                 .await
                 .is_err()

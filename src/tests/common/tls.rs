@@ -41,7 +41,7 @@ fn server_tls_config_explicitly_disables_early_data() {
 #[test]
 fn server_offers_only_nw3() {
     let (_, tls, _) = new_server_configs(
-        &Url::parse("portal://secret@127.0.0.1:2000?tls=1&alpn=private/2&pool=8").unwrap(),
+        &Url::parse("portal://secret@127.0.0.1:2000?tls=1&unknown=ignored").unwrap(),
         Logger,
     )
     .unwrap();

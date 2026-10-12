@@ -138,7 +138,7 @@ async fn toolbox_errors_do_not_expose_configuration_values() {
 #[test]
 fn parse_command_url_keeps_vector_remote_host() {
     let parsed = parse_command_url(
-        "vector://0123456789abcdef0123456789abcdef@relay.example:2000?up=udp&down=tcp&socks=127.0.0.1:1080",
+        "vector://0123456789abcdef0123456789abcdef@relay.example:2000?in=127.0.0.1:1080",
     )
     .unwrap();
     assert_eq!(parsed.scheme(), "vector");
@@ -289,12 +289,10 @@ async fn service_key_rejections_identify_the_role_without_starting_a_service() {
 }
 
 #[tokio::test]
-async fn no_arguments_succeeds_without_a_terminal_and_tui_is_unknown() {
+async fn no_arguments_succeeds_without_a_terminal_and_unknown_commands_fail() {
     start(vec!["nowhere".to_owned()]).await.unwrap();
-    let error = start(vec!["nowhere".to_owned(), "tui".to_owned()])
+    let error = start(vec!["nowhere".to_owned(), "unknown-command".to_owned()])
         .await
         .unwrap_err();
     assert!(error.to_string().starts_with("unknown command"));
-    assert!(!HELP_TEXT.contains("TUI"));
-    assert!(!HELP_TEXT.contains("nowhere tui"));
 }

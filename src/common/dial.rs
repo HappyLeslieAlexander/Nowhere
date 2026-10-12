@@ -11,7 +11,7 @@ use anyhow::{Result, bail};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DialPolicy {
-    Legacy(Option<IpAddr>),
+    SingleSource(Option<IpAddr>),
     DualStack {
         v4: Option<Ipv4Addr>,
         v6: Option<Ipv6Addr>,
@@ -20,7 +20,7 @@ pub(crate) enum DialPolicy {
 
 impl Default for DialPolicy {
     fn default() -> Self {
-        Self::Legacy(None)
+        Self::SingleSource(None)
     }
 }
 
@@ -57,7 +57,7 @@ impl DialPolicy {
             match dial.map(String::as_str) {
                 None | Some("auto") => Ok(Self::default()),
                 Some(value) => {
-                    Ok(Self::Legacy(Some(value.parse::<IpAddr>().map_err(
+                    Ok(Self::SingleSource(Some(value.parse::<IpAddr>().map_err(
                         |_| anyhow::anyhow!("dial must be auto or an IP literal"),
                     )?)))
                 }
@@ -67,7 +67,7 @@ impl DialPolicy {
 
     pub(crate) fn accepts(&self, target: IpAddr) -> bool {
         match self {
-            Self::Legacy(Some(source)) => source.is_ipv4() == target.is_ipv4(),
+            Self::SingleSource(Some(source)) => source.is_ipv4() == target.is_ipv4(),
             _ => true,
         }
     }
@@ -77,7 +77,7 @@ impl DialPolicy {
             bail!("target address family conflicts with dial");
         }
         Ok(match self {
-            Self::Legacy(source) => *source,
+            Self::SingleSource(source) => *source,
             Self::DualStack { v4, .. } if target.is_ipv4() => v4.map(IpAddr::V4),
             Self::DualStack { v6, .. } => v6.map(IpAddr::V6),
         })
@@ -87,7 +87,7 @@ impl DialPolicy {
 impl fmt::Display for DialPolicy {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Legacy(source) => write!(
+            Self::SingleSource(source) => write!(
                 formatter,
                 "dial={}",
                 source.map_or_else(|| "auto".to_owned(), |ip| ip.to_string())

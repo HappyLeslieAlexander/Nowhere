@@ -43,14 +43,6 @@ fn all_integer_limits_reject_zero_instead_of_falling_back() {
 }
 
 #[test]
-fn removed_quic_specific_udp_limit_is_not_an_input() {
-    assert_eq!(
-        parse(&[("NOW_QUIC_MAX_UDP_FLOWS", "13")]).unwrap(),
-        parse(&[]).unwrap()
-    );
-}
-
-#[test]
 fn all_durations_reject_zero_and_invalid_syntax() {
     for name in [
         "NOW_TCP_DIAL_TIMEOUT",
@@ -103,14 +95,11 @@ fn overflow_is_a_startup_error() {
 }
 
 #[test]
-fn removed_application_count_limits_are_ignored() {
-    for name in [
-        "NOW_MAX_TCP_FLOWS",
-        "NOW_MAX_UDP_FLOWS",
-        "NOW_MAX_PENDING_PAIRS",
-    ] {
-        for value in ["0", "1", "invalid"] {
-            assert_eq!(parse(&[(name, value)]).unwrap(), parse(&[]).unwrap());
-        }
+fn unknown_environment_values_are_ignored() {
+    for value in ["0", "1", "invalid"] {
+        assert_eq!(
+            parse(&[("NOW_UNKNOWN_OPTION", value)]).unwrap(),
+            parse(&[]).unwrap()
+        );
     }
 }

@@ -43,7 +43,7 @@ async fn client_prefers_fixed_nw3_alpn() {
         TlsAcceptor::from(Arc::new(server)).accept(stream).await
     });
     let raw = format!(
-        "vector://0123456789abcdef0123456789abcdef@{endpoint}?morph=0&alpn=private/2&pin={pin}&in=127.0.0.1:1080"
+        "vector://0123456789abcdef0123456789abcdef@{endpoint}?morph=0&unknown=ignored&pin={pin}&in=127.0.0.1:1080"
     );
 
     let _ = ClientTls::new(&config(&raw))
@@ -168,7 +168,7 @@ async fn tcp_server_without_nw3_is_rejected() {
             .with_no_client_auth()
             .with_single_cert(vec![certificate], key)
             .unwrap();
-    server.alpn_protocols = vec![b"nw2".to_vec()];
+    server.alpn_protocols = vec![b"unsupported".to_vec()];
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -243,12 +243,12 @@ async fn quic_requires_nw3() {
         .await
         .unwrap();
     assert!(
-        negotiate_quic(vec![b"nw2".to_vec()], TestPin::Exact)
+        negotiate_quic(vec![b"unsupported".to_vec()], TestPin::Exact)
             .await
             .is_err()
     );
     assert!(
-        negotiate_quic(vec![b"now/1".to_vec()], TestPin::Exact)
+        negotiate_quic(vec![b"http/1.1".to_vec()], TestPin::Exact)
             .await
             .is_err()
     );

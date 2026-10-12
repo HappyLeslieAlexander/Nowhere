@@ -88,7 +88,7 @@ async fn fingerprint_rejects_invalid_share_links_without_leaking_secrets() {
 #[test]
 fn fingerprint_share_links_decode_keys_and_ignore_display_names_and_flow_options() {
     let url = Url::parse(
-        "nowhere://shared%40key%3A%2F%3F%23%25%2B@[::1]:2006?net=udp&net=invalid&morph=1&morph=0&sni=relay.example&up=udp&down=udp&mux=1&pin=wrong&socks=missing#My%20Portal",
+        "nowhere://shared%40key%3A%2F%3F%23%25%2B@[::1]:2006?net=udp&net=invalid&morph=1&morph=0&sni=relay.example&unknown=ignored&pin=wrong&socks=missing#My%20Portal",
     ).unwrap();
     let config = PortalClientConfig::from_fingerprint_url(&url).unwrap();
     assert_eq!(config.endpoint(), "[::1]:2006");
@@ -189,7 +189,7 @@ async fn fingerprint_reads_the_leaf_certificate_with_and_without_morph_without_f
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let url = Url::parse(&format!(
-            "nowhere://secret@{address}?net={net}&morph={morph}&sni=wrong.example&up=udp&down=udp&mux=1#My%20Portal"
+            "nowhere://secret@{address}?net={net}&morph={morph}&sni=wrong.example&unknown=ignored#My%20Portal"
         )).unwrap();
         let config = PortalClientConfig::from_fingerprint_url(&url).unwrap();
         let morph_keys = config.morph_keys.clone();

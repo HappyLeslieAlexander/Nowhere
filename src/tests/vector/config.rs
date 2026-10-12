@@ -13,17 +13,16 @@ fn parse(query: &str) -> Result<VectorConfig> {
     )
 }
 #[test]
-fn defaults_unknown_and_removed_options_are_ignored() {
-    let config =
-        parse("rev=garbage&mux=bad&up=udp&down=no&next=bad&socks=bad&net=%ZZ&unknown=%ZZ").unwrap();
+fn defaults_and_unknown_options_are_ignored() {
+    let config = parse("unused=garbage&net=%ZZ&unknown=%ZZ").unwrap();
     assert_eq!(config.net, CarrierMode::Tcp);
     assert_eq!(
         config.effective_url(),
         "vector://localhost:2000?in=127.0.0.1:1080&sni=localhost&pin=none&morph=1&rate=0&etar=0"
     );
     assert!(!config.effective_url().contains("secret"));
-    assert!(!config.effective_url().contains("rev="));
-    assert!(!config.effective_url().contains("socks="));
+    assert!(!config.effective_url().contains("unused="));
+    assert!(!config.effective_url().contains("unknown="));
     assert_eq!(parse("net=udp&net=bad").unwrap().net, CarrierMode::Tcp);
     assert!(parse("net=bad&net=udp").is_ok());
 }

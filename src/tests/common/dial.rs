@@ -10,7 +10,7 @@ use url::Url;
 impl From<&str> for DialPolicy {
     fn from(value: &str) -> Self {
         Self::from_query(&HashMap::from([("dial".to_owned(), value.to_owned())]))
-            .expect("valid legacy source in test")
+            .expect("valid source address in test")
     }
 }
 
@@ -59,7 +59,7 @@ fn source_policy_configuration_matrix() {
 }
 
 #[test]
-fn legacy_sources_restrict_the_family() {
+fn single_sources_restrict_the_family() {
     for (source, other) in [
         ("127.0.0.1", "::1"),
         ("::1", "127.0.0.1"),

@@ -61,7 +61,7 @@ fn deterministic_mutation_corpus_bounds_target_datagram_reassembly_and_urls() {
             assembly.clear();
         }
         let url = format!(
-            "vector://{KEY}@127.0.0.1/{}:2000?in=127.0.0.1:1080&morph={}&rev={}&unknown=%{:02x}",
+            "vector://{KEY}@127.0.0.1/{}:2000?in=127.0.0.1:1080&morph={}&unused={}&unknown=%{:02x}",
             if next() & 1 == 0 { "tcp" } else { "udp" },
             next() % 8,
             next(),
