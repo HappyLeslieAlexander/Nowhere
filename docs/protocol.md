@@ -496,8 +496,8 @@ Reassembly enforces 64 partial-packet slots, a ten-second TTL, per-connection
 byte reservations and bounded per-Flow queues. The connection application
 queue/reassembly budget
 is `NOW_QUIC_UDP_QUEUE_BYTES` (default 4 MiB), in addition to Quinn's bounded
-DATAGRAM receive/send buffers (Portal receive: 256 KiB; Vector/Egress receive
-and all send buffers: 4 MiB). Queue admission is nonblocking; a slow Flow
+DATAGRAM receive/send buffers (4 MiB each for Portal, Vector and Egress).
+Queue admission is nonblocking; a slow Flow
 must not block the connection dispatcher. Empty packets consume a
 budget unit. Reservations survive until packet/fragment delivery or cleanup.
 
