@@ -23,11 +23,7 @@ pub enum FlowKind {
 impl TryFrom<u8> for FlowKind {
     type Error = anyhow::Error;
     fn try_from(value: u8) -> Result<Self> {
-        match value {
-            0 => Ok(Self::Tcp),
-            1 => Ok(Self::Udp),
-            _ => bail!("invalid FlowStart reserved bits"),
-        }
+        Ok(if value & 1 == 0 { Self::Tcp } else { Self::Udp })
     }
 }
 pub async fn read_flow_start<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<FlowKind>> {

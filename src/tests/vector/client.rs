@@ -6,7 +6,7 @@
 use super::*;
 use crate::common::Logger;
 use crate::protocol::{
-    ConnectionRole, FlowResult, read_auth_frame, read_flow_start, read_request, write_flow_result,
+    ConnectionRole, FlowResult, read_auth_frame, read_request, write_flow_result,
 };
 use std::sync::atomic::Ordering;
 #[tokio::test]
@@ -51,7 +51,9 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
                         ConnectionRole::Vector
                     );
                 }
-                assert_eq!(read_flow_start(&mut recv).await.unwrap(), Some(kind));
+                let mut flow_start = [0xff];
+                recv.read_exact(&mut flow_start).await.unwrap();
+                assert_eq!(flow_start, [kind as u8]);
                 assert_eq!(read_request(&mut recv).await.unwrap(), expected);
                 write_flow_result(&mut send, FlowResult::Ready)
                     .await

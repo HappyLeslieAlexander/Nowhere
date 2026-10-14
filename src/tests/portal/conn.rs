@@ -97,7 +97,7 @@ async fn first_flow_pipelines_auth_and_target_without_an_auth_ack() {
     let (mut send, mut recv) = q.open_bi().await.unwrap();
     assert_eq!(u64::from(send.id()), 0);
     send.write_all(&tag(&q, false)).await.unwrap();
-    request(&mut send, 0, &target).await;
+    request(&mut send, 0xfe, &target).await;
     assert_eq!(result(&mut recv).await, SetupResult::Ready);
     send.write_all(b"first flow").await.unwrap();
     send.finish().unwrap();
@@ -108,7 +108,7 @@ async fn first_flow_pipelines_auth_and_target_without_an_auth_ack() {
     echo.abort();
 }
 #[tokio::test]
-async fn invalid_reserved_bits_and_target_reject_only_the_flow() {
+async fn invalid_or_truncated_target_rejects_only_the_flow() {
     let h = Harness::new("direct", false).await;
     let (target, echo) = tcp_echo().await;
     let (endpoint, q) = connect(&h).await;
@@ -116,7 +116,7 @@ async fn invalid_reserved_bits_and_target_reject_only_the_flow() {
     send.write_all(&tag(&q, false)).await.unwrap();
     send.finish().unwrap();
     recv.read_to_end(0).await.unwrap();
-    for bytes in [vec![2], vec![0, 9], vec![0, 1, 127, 0, 0, 1, 0, 0]] {
+    for bytes in [vec![2], vec![0xfe, 9], vec![0xfe, 1, 127, 0, 0, 1, 0, 0]] {
         let (mut send, mut recv) = q.open_bi().await.unwrap();
         send.write_all(&bytes).await.unwrap();
         send.finish().unwrap();
@@ -205,7 +205,7 @@ async fn persistent_udp_control_fin_reclaims_without_close_datagram() {
     recv.read_to_end(0).await.unwrap();
     let (mut send, mut recv) = q.open_bi().await.unwrap();
     let id = crate::protocol::udp_flow_id(u64::from(send.id()), false).unwrap();
-    request(&mut send, 1, &target).await;
+    request(&mut send, 0xff, &target).await;
     assert_eq!(result(&mut recv).await, SetupResult::Ready);
     assert!(
         tokio::time::timeout(Duration::from_millis(40), recv.read_to_end(0))

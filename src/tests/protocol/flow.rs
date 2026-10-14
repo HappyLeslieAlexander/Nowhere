@@ -22,18 +22,19 @@ fn stream_direction_and_id_boundaries_are_checked_before_conversion() {
     }
 }
 #[tokio::test]
-async fn flow_start_reserved_bits_truncation_and_auth_only_fin() {
+async fn flow_start_ignores_reserved_bits_and_preserves_auth_only_fin() {
     for byte in 0..=255 {
-        let result = FlowKind::try_from(byte);
-        assert_eq!(result.is_ok(), byte < 2);
+        let expected = if byte % 2 == 0 {
+            FlowKind::Tcp
+        } else {
+            FlowKind::Udp
+        };
+        assert_eq!(FlowKind::try_from(byte).unwrap(), expected);
+        let bytes = [byte, 0x03];
+        let mut input = bytes.as_slice();
+        assert_eq!(read_flow_start(&mut input).await.unwrap(), Some(expected));
+        assert_eq!(input, &[0x03]);
     }
     let mut empty = &b""[..];
     assert_eq!(read_flow_start(&mut empty).await.unwrap(), None);
-    for byte in [0, 1] {
-        let bytes = [byte];
-        assert_eq!(
-            read_flow_start(&mut bytes.as_slice()).await.unwrap(),
-            Some(byte.try_into().unwrap())
-        );
-    }
 }
