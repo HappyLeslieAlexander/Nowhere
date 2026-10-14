@@ -242,8 +242,9 @@ remain application constraints even when QUIC transport credit is available.
 
 ## FlowStart and Target
 
-FlowStart is one byte. Bit 0 is `0` for TCP, `1` for UDP. Bits 1–7 must be zero.
-Thus only bytes `00` and `01` are valid. Target immediately follows:
+FlowStart is one byte. Bit 0 identifies the Flow type (0 = TCP, 1 = UDP).
+Bits 1–7 are reserved for future use. Senders MUST set these bits to zero;
+receivers MUST ignore them. Target immediately follows:
 
 | ATYP | Address bytes | Final field |
 |---|---|---|
@@ -263,7 +264,7 @@ IDNA before encoding. DNS resolution belongs to the selected exit.
 ```text
 +-----------------------------------+-------------+
 |             Bits 7..1             |    Bit 0    |
-|         Reserved: all zero        | TCP=0 UDP=1 |
+| Reserved: send zero, ignore on RX | TCP=0 UDP=1 |
 +-----------------------------------+-------------+
 ```
 
@@ -294,9 +295,9 @@ TCP   IPv4  address       port 443
 ```
 
 There is no Target length prefix outside its address-type-specific encoding.
-Reserved FlowStart bits, invalid ATYP, invalid Target or truncated input fail
-only that Flow. TCP carries reliable payload after READY and preserves
-half-close, per-Flow cancellation and the configured shutdown/read deadlines.
+Invalid ATYP, invalid Target or truncated input fail only that Flow. TCP carries
+reliable payload after READY and preserves half-close, per-Flow cancellation and
+the configured shutdown/read deadlines.
 
 ## Setup results
 
@@ -343,7 +344,7 @@ No carrier fallback is permitted, including for missing DATAGRAM support.
 | Failure | Scope |
 |---|---|
 | Invalid authentication or business Stream initiator | Close the connection |
-| Invalid FlowStart/Target or per-Flow resource/dial failure | End the affected Flow |
+| Invalid Target, truncated request or per-Flow resource/dial failure | End the affected Flow |
 | Failure after READY | Close/reset the Flow; do not send a second SetupResult |
 | Registered Egress connection lost | End every Flow depending on that connection |
 

@@ -33,11 +33,11 @@ Each connection has one business Stream initiator:
 | Vector to Portal over TLS or QUIC | Vector | Vector |
 | Egress to Portal over QUIC | Egress | Portal |
 
-Role-direction violations close the connection. Each Flow starts with TCP `0`
-or UDP `1`, followed by the [Target encoding](protocol.md#flowstart-and-target).
-All other FlowStart bits are invalid. READY is required before target payload.
-TLS uses one Flow per connection; QUIC uses one bidirectional Stream per Flow.
-Ordinary Flow errors end the affected Flow.
+Role-direction violations close the connection. Each Flow starts with a FlowStart byte,
+followed by the [Target encoding](protocol.md#flowstart-and-target).
+Senders MUST set reserved Bits 1–7 to zero; receivers MUST ignore them.
+READY is required before target payload.TLS uses one Flow per connection;
+QUIC uses one bidirectional Stream per Flow. Ordinary Flow errors end the affected Flow.
 
 ## UDP delivery and lifetime
 
