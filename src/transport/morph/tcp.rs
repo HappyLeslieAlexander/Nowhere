@@ -21,6 +21,7 @@ const TCP_PRELUDE_ENV: &str = "NOW_MORPH_TCP_PRELUDE";
 enum TcpPreludePolicy {
     Low7,
     Full8,
+    Fade,
 }
 
 impl TcpPreludePolicy {
@@ -32,31 +33,59 @@ impl TcpPreludePolicy {
         match value {
             Ok(value) if value == "low7" => Ok(Self::Low7),
             Ok(value) if value == "full8" => Ok(Self::Full8),
+            Ok(value) if value == "fade" => Ok(Self::Fade),
             Err(std::env::VarError::NotPresent) => Ok(Self::Full8),
             Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("{TCP_PRELUDE_ENV} must be low7 or full8"),
+                format!("{TCP_PRELUDE_ENV} must be low7, full8 or fade"),
             )),
         }
     }
 
     fn generate(self) -> io::Result<[u8; TCP_PRELUDE_LEN]> {
-        let mut prelude = [0u8; TCP_PRELUDE_LEN];
-        getrandom::fill(&mut prelude).map_err(io::Error::other)?;
-        self.apply(&mut prelude);
-        Ok(prelude)
+        self.generate_with(|bytes| getrandom::fill(bytes).map_err(io::Error::other))
     }
 
-    fn apply(self, prelude: &mut [u8; TCP_PRELUDE_LEN]) {
+    fn generate_with(
+        self,
+        mut fill: impl FnMut(&mut [u8]) -> io::Result<()>,
+    ) -> io::Result<[u8; TCP_PRELUDE_LEN]> {
+        let mut prelude = [0u8; TCP_PRELUDE_LEN];
+        fill(&mut prelude)?;
         match self {
             Self::Low7 => {
-                for byte in prelude {
+                for byte in &mut prelude {
                     *byte &= 0x7f;
                 }
             }
             Self::Full8 => {}
+            Self::Fade => {
+                let mut boundaries = [0u8; 2];
+                fill(&mut boundaries)?;
+                let a = 8 + usize::from(sample_below(boundaries[0], 5, &mut fill)?);
+                let b = 16 + usize::from(sample_below(boundaries[1], 17, &mut fill)?);
+                for byte in &mut prelude[..a] {
+                    *byte = 0x20 + sample_below(*byte, 95, &mut fill)?;
+                }
+                for byte in &mut prelude[a..b] {
+                    *byte &= 0x7f;
+                }
+            }
         }
+        Ok(prelude)
     }
+}
+
+fn sample_below(
+    mut byte: u8,
+    upper: u8,
+    fill: &mut impl FnMut(&mut [u8]) -> io::Result<()>,
+) -> io::Result<u8> {
+    let limit = 256u16 - 256 % u16::from(upper);
+    while u16::from(byte) >= limit {
+        fill(std::slice::from_mut(&mut byte))?;
+    }
+    Ok(byte % upper)
 }
 
 pub(super) struct TcpMorph {

@@ -166,6 +166,41 @@ async fn tcp_emits_fixed_prelude_nonce_and_ciphertext_vector() {
     assert_eq!(&wire[TCP_PRELUDE_LEN + NONCE_LEN..], expected);
 }
 
+#[tokio::test]
+async fn fade_bootstrap_preserves_wire_layout_and_order_across_partial_writes() {
+    let written = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let inner = PendingWriteStream {
+        ready: Arc::new(AtomicBool::new(true)),
+        writes: Arc::new(AtomicUsize::new(0)),
+        written: written.clone(),
+        outcomes: std::sync::Mutex::new(VecDeque::from([
+            WriteOutcome::Accept(3),
+            WriteOutcome::Pending,
+            WriteOutcome::Accept(61),
+            WriteOutcome::Accept(2),
+            WriteOutcome::Pending,
+            WriteOutcome::Accept(10),
+        ])),
+    };
+    let keys = MorphKeys::derive(b"shared");
+    let prelude = TcpPreludePolicy::Fade.generate().unwrap();
+    let nonce = [0x23; NONCE_LEN];
+    let mut stream = MorphTcpStream::connect_for_test(inner, keys.clone(), prelude, nonce)
+        .await
+        .unwrap();
+    {
+        let wire = written.lock().unwrap();
+        assert_eq!(wire.len(), TCP_PRELUDE_LEN + NONCE_LEN);
+        assert_eq!(&wire[..TCP_PRELUDE_LEN], &prelude);
+        assert_eq!(&wire[TCP_PRELUDE_LEN..], &nonce);
+    }
+    stream.write_all(b"hello").await.unwrap();
+    let wire = written.lock().unwrap();
+    let mut expected = b"hello".to_vec();
+    apply_at(&keys.tcp_c2s, &nonce, 0, &mut expected).unwrap();
+    assert_eq!(&wire[TCP_PRELUDE_LEN + NONCE_LEN..], expected);
+}
+
 #[test]
 fn tcp_waits_for_write_readiness_before_copying_or_xoring() {
     let ready = Arc::new(AtomicBool::new(false));

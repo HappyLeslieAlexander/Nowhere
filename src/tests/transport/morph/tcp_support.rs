@@ -16,10 +16,13 @@ fn prelude_policy_defaults_to_full8_and_rejects_invalid_settings() {
     for (value, expected) in [
         ("low7", TcpPreludePolicy::Low7),
         ("full8", TcpPreludePolicy::Full8),
+        ("fade", TcpPreludePolicy::Fade),
     ] {
         assert_eq!(TcpPreludePolicy::parse(Ok(value.into())).unwrap(), expected);
     }
-    for value in ["", "FULL8", " full8", "low7 ", "other"] {
+    for value in [
+        "", "FULL8", "FADE", " full8", " fade", "low7 ", "fade ", "other",
+    ] {
         let error = TcpPreludePolicy::parse(Ok(value.into())).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(error.to_string().contains(TCP_PRELUDE_ENV));
@@ -28,18 +31,16 @@ fn prelude_policy_defaults_to_full8_and_rejects_invalid_settings() {
 }
 
 #[tokio::test]
-async fn server_accepts_both_prelude_policies_without_interpreting_bytes() {
-    for policy in [TcpPreludePolicy::Low7, TcpPreludePolicy::Full8] {
-        let mut prelude = [0xff; TCP_PRELUDE_LEN];
-        policy.apply(&mut prelude);
-        assert_eq!(
-            prelude,
-            [if policy == TcpPreludePolicy::Low7 {
-                0x7f
-            } else {
-                0xff
-            }; TCP_PRELUDE_LEN]
-        );
+async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
+    let mut preludes = vec![[0xff; TCP_PRELUDE_LEN], [0; TCP_PRELUDE_LEN]];
+    for policy in [
+        TcpPreludePolicy::Low7,
+        TcpPreludePolicy::Full8,
+        TcpPreludePolicy::Fade,
+    ] {
+        preludes.push(policy.generate().unwrap());
+    }
+    for prelude in preludes {
         let keys = MorphKeys::derive(b"shared");
         let (client_io, server_io) = tokio::io::duplex(4096);
         let (client, server) = tokio::join!(
@@ -52,6 +53,151 @@ async fn server_accepts_both_prelude_policies_without_interpreting_bytes() {
         let mut payload = [0; 5];
         server.read_exact(&mut payload).await.unwrap();
         assert_eq!(&payload, b"hello");
+        server.write_all(b"reply").await.unwrap();
+        client.read_exact(&mut payload).await.unwrap();
+        assert_eq!(&payload, b"reply");
+    }
+}
+
+#[test]
+fn legacy_prelude_policies_preserve_every_input_byte_mapping() {
+    for value in 0..=u8::MAX {
+        for policy in [TcpPreludePolicy::Low7, TcpPreludePolicy::Full8] {
+            let mut calls = 0;
+            let prelude = policy
+                .generate_with(|bytes| {
+                    calls += 1;
+                    bytes.fill(value);
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(calls, 1);
+            let expected = if policy == TcpPreludePolicy::Low7 {
+                value & 0x7f
+            } else {
+                value
+            };
+            assert_eq!(prelude, [expected; TCP_PRELUDE_LEN]);
+        }
+    }
+}
+
+#[test]
+fn bounded_sampling_is_uniform_over_all_accepted_bytes_and_retries_rejections() {
+    for (upper, accepted, multiplicity) in [(5u8, 255u16, 51), (17, 255, 15), (95, 190, 2)] {
+        let mut counts = vec![0; usize::from(upper)];
+        for input in 0..=u8::MAX {
+            let mut retries = 0;
+            let output = sample_below(input, upper, &mut |bytes| {
+                retries += 1;
+                bytes.fill(0);
+                Ok(())
+            })
+            .unwrap();
+            if u16::from(input) < accepted {
+                assert_eq!(retries, 0);
+                counts[usize::from(output)] += 1;
+            } else {
+                assert_eq!(retries, 1);
+                assert_eq!(output, 0);
+            }
+        }
+        assert_eq!(counts, vec![multiplicity; usize::from(upper)]);
+    }
+    let mut replacements = [255, 190, 94].into_iter();
+    assert_eq!(
+        sample_below(255, 95, &mut |bytes| {
+            bytes[0] = replacements.next().unwrap();
+            Ok(())
+        })
+        .unwrap(),
+        94
+    );
+    assert!(replacements.next().is_none());
+}
+
+#[test]
+fn fade_covers_all_boundary_pairs_and_exact_segment_ranges() {
+    for a in 8..=12 {
+        for b in 16..=32 {
+            let mut input = vec![255; TCP_PRELUDE_LEN];
+            input.extend([a as u8 - 8, b as u8 - 16]);
+            input.extend((0..a).map(|index| if index % 2 == 0 { 0 } else { 94 }));
+            let mut input = input.into_iter();
+            let prelude = TcpPreludePolicy::Fade
+                .generate_with(|bytes| {
+                    for byte in bytes {
+                        *byte = input.next().unwrap();
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            assert!(input.next().is_none());
+            assert_eq!(prelude.len(), 64);
+            for (index, &byte) in prelude[..a].iter().enumerate() {
+                assert_eq!(byte, if index % 2 == 0 { 0x20 } else { 0x7e });
+            }
+            assert!(prelude[a..b].iter().all(|&byte| byte == 0x7f));
+            assert!(prelude[b..].iter().all(|&byte| byte == 0xff));
+        }
+    }
+}
+
+#[test]
+fn fade_preserves_uniform_low7_and_full8_byte_mappings() {
+    let mut ascii_counts = [0; 95];
+    let mut low7_counts = [0; 128];
+    let mut full8_counts = [0; 256];
+    for input in 0..=u8::MAX {
+        let mut calls = 0;
+        let prelude = TcpPreludePolicy::Fade
+            .generate_with(|bytes| {
+                calls += 1;
+                bytes.fill(if calls == 1 { input } else { 0 });
+                Ok(())
+            })
+            .unwrap();
+        if input < 190 {
+            ascii_counts[usize::from(prelude[0] - 0x20)] += 1;
+        }
+        low7_counts[usize::from(prelude[8])] += 1;
+        full8_counts[usize::from(prelude[16])] += 1;
+    }
+    assert_eq!(ascii_counts, [2; 95]);
+    assert_eq!(low7_counts, [2; 128]);
+    assert_eq!(full8_counts, [1; 256]);
+}
+
+#[test]
+fn fade_uses_fresh_secure_randomness_for_each_prelude() {
+    let mut seen = std::collections::HashSet::new();
+    let mut tail_has_high_bit = false;
+    for _ in 0..1024 {
+        let prelude = TcpPreludePolicy::Fade.generate().unwrap();
+        assert!(prelude[..8].iter().all(|byte| (0x20..=0x7e).contains(byte)));
+        assert!(prelude[..16].iter().all(|&byte| byte <= 0x7f));
+        tail_has_high_bit |= prelude[32..].iter().any(|&byte| byte > 0x7f);
+        assert!(seen.insert(prelude));
+    }
+    assert!(tail_has_high_bit);
+}
+
+#[test]
+fn fade_propagates_random_source_errors_at_every_generation_stage() {
+    for fail_at in 1..=12 {
+        let mut calls = 0;
+        let error = TcpPreludePolicy::Fade
+            .generate_with(|bytes| {
+                calls += 1;
+                if calls == fail_at {
+                    return Err(io::Error::other("random source failed"));
+                }
+                bytes.fill(if calls <= 2 { 255 } else { 0 });
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(calls, fail_at);
+        assert_eq!(error.to_string(), "random source failed");
     }
 }
 
