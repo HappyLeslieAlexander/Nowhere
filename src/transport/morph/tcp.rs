@@ -19,9 +19,9 @@ const TCP_PRELUDE_ENV: &str = "NOW_MORPH_TCP_PRELUDE";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TcpPreludePolicy {
-    Low7,
-    Full8,
     Fade,
+    Full8,
+    Low7,
 }
 
 impl TcpPreludePolicy {
@@ -31,13 +31,13 @@ impl TcpPreludePolicy {
 
     fn parse(value: Result<String, std::env::VarError>) -> io::Result<Self> {
         match value {
-            Ok(value) if value == "low7" => Ok(Self::Low7),
-            Ok(value) if value == "full8" => Ok(Self::Full8),
             Ok(value) if value == "fade" => Ok(Self::Fade),
+            Ok(value) if value == "full8" => Ok(Self::Full8),
+            Ok(value) if value == "low7" => Ok(Self::Low7),
             Err(std::env::VarError::NotPresent) => Ok(Self::Fade),
             Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("{TCP_PRELUDE_ENV} must be low7, full8 or fade"),
+                format!("{TCP_PRELUDE_ENV} must be fade, full8 or low7"),
             )),
         }
     }
@@ -53,12 +53,6 @@ impl TcpPreludePolicy {
         let mut prelude = [0u8; TCP_PRELUDE_LEN];
         fill(&mut prelude)?;
         match self {
-            Self::Low7 => {
-                for byte in &mut prelude {
-                    *byte &= 0x7f;
-                }
-            }
-            Self::Full8 => {}
             Self::Fade => {
                 let mut boundaries = [0u8; 2];
                 fill(&mut boundaries)?;
@@ -68,6 +62,12 @@ impl TcpPreludePolicy {
                     *byte = 0x20 + sample_below(*byte, 95, &mut fill)?;
                 }
                 for byte in &mut prelude[a..b] {
+                    *byte &= 0x7f;
+                }
+            }
+            Self::Full8 => {}
+            Self::Low7 => {
+                for byte in &mut prelude {
                     *byte &= 0x7f;
                 }
             }

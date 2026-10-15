@@ -14,9 +14,9 @@ fn prelude_policy_defaults_to_fade_and_rejects_invalid_settings() {
         TcpPreludePolicy::Fade
     );
     for (value, expected) in [
-        ("low7", TcpPreludePolicy::Low7),
-        ("full8", TcpPreludePolicy::Full8),
         ("fade", TcpPreludePolicy::Fade),
+        ("full8", TcpPreludePolicy::Full8),
+        ("low7", TcpPreludePolicy::Low7),
     ] {
         assert_eq!(TcpPreludePolicy::parse(Ok(value.into())).unwrap(), expected);
     }
@@ -34,9 +34,9 @@ fn prelude_policy_defaults_to_fade_and_rejects_invalid_settings() {
 async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
     let mut preludes = vec![[0xff; TCP_PRELUDE_LEN], [0; TCP_PRELUDE_LEN]];
     for policy in [
-        TcpPreludePolicy::Low7,
-        TcpPreludePolicy::Full8,
         TcpPreludePolicy::Fade,
+        TcpPreludePolicy::Full8,
+        TcpPreludePolicy::Low7,
     ] {
         preludes.push(policy.generate().unwrap());
     }
@@ -62,7 +62,7 @@ async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
 #[test]
 fn legacy_prelude_policies_preserve_every_input_byte_mapping() {
     for value in 0..=u8::MAX {
-        for policy in [TcpPreludePolicy::Low7, TcpPreludePolicy::Full8] {
+        for policy in [TcpPreludePolicy::Full8, TcpPreludePolicy::Low7] {
             let mut calls = 0;
             let prelude = policy
                 .generate_with(|bytes| {
