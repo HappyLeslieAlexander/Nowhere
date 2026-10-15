@@ -34,7 +34,7 @@ impl TcpPreludePolicy {
             Ok(value) if value == "low7" => Ok(Self::Low7),
             Ok(value) if value == "full8" => Ok(Self::Full8),
             Ok(value) if value == "fade" => Ok(Self::Fade),
-            Err(std::env::VarError::NotPresent) => Ok(Self::Full8),
+            Err(std::env::VarError::NotPresent) => Ok(Self::Fade),
             Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!("{TCP_PRELUDE_ENV} must be low7, full8 or fade"),

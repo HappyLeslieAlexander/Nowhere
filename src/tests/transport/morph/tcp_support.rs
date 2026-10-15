@@ -6,12 +6,12 @@
 use super::*;
 
 #[test]
-fn prelude_policy_defaults_to_full8_and_rejects_invalid_settings() {
+fn prelude_policy_defaults_to_fade_and_rejects_invalid_settings() {
     use std::env::VarError;
 
     assert_eq!(
         TcpPreludePolicy::parse(Err(VarError::NotPresent)).unwrap(),
-        TcpPreludePolicy::Full8
+        TcpPreludePolicy::Fade
     );
     for (value, expected) in [
         ("low7", TcpPreludePolicy::Low7),
