@@ -582,7 +582,12 @@ The client sends a 64-byte random prelude and a 12-byte random nonce before the
 masked TLS stream. These 76 bytes are not encrypted by Morph. The server consumes
 them without interpreting the prelude and sends no bootstrap of its own.
 `NOW_MORPH_TCP_PRELUDE=full8` uses all random bits; `low7` clears each byte's high
-bit. Both modes have the same length and are accepted by the receiver.
+bit. The default, `fade`, independently and uniformly samples boundaries
+A in `[8,12]` and B in `[16,32]`, inclusive, for each Flow. It generates uniform
+printable ASCII (`0x20–0x7E`) in `[0,A)`, uniform low7 (`0x00–0x7F`) in `[A,B)`
+and uniform full8 (`0x00–0xFF`) in `[B,64)`. All modes use a secure random source;
+Fade uses rejection sampling for its boundaries and printable ASCII to avoid
+modulo bias.
 
 Each direction uses IETF ChaCha20 with its directional key, the client's nonce
 and initial block counter zero. Cipher positions advance continuously across

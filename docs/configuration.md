@@ -247,7 +247,7 @@ values; duration settings use values such as `5s` or `250ms`.
 | `NOW_RELOAD_INTERVAL` | `1h` | Supplied certificate reload |
 | `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect backoff |
 | `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
-| `NOW_MORPH_TCP_PRELUDE` | `full8` | Morph prelude mode: `full8` or `low7` |
+| `NOW_MORPH_TCP_PRELUDE` | `fade` | [Morph prelude mode](protocol.md#tcp-encapsulation): `full8`, `low7` or `fade` |
 
 ### QUIC window profiles
 
