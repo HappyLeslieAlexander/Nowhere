@@ -43,7 +43,6 @@ async fn shutdown_cancels_pending_connection_and_registration() {
             assert_eq!(recv.read_to_end(16).await.unwrap().len(), 16);
             (connection, send, recv)
         } else {
-            // Hold the Initial without completing the QUIC handshake.
             shutdown.cancel();
             tokio::time::timeout(std::time::Duration::from_secs(1), task)
                 .await

@@ -34,8 +34,6 @@ async fn shutdown_cancels_incomplete_quic_authentication_and_registration() {
         let (endpoint, q) = connect(&h).await;
         let (mut send, _recv) = q.open_bi().await.unwrap();
         send.write_all(&tag(&q, true)[..prefix]).await.unwrap();
-        // With a complete tag, wait until the server has consumed authentication
-        // and is waiting for the registration Stream's FIN.
         if prefix == 16 {
             tokio::time::timeout(Duration::from_secs(2), async {
                 while inner.unauthenticated_admission.active() != 0 {
