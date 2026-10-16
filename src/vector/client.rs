@@ -128,40 +128,66 @@ impl PortalClient {
         kind: FlowKind,
         target: &Target,
     ) -> std::result::Result<QuicFlow, OpenFlowError> {
-        let state = tokio::select! {_=self.shutdown.cancelled()=>return Err(OpenFlowError::Cancelled),state=self.quic.lock()=>state};
-        let existing = state
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => Err(OpenFlowError::Cancelled),
+            result = self.open_quic_flow_inner(kind, target) => result,
+        }
+    }
+    async fn open_quic_flow_inner(
+        &self,
+        kind: FlowKind,
+        target: &Target,
+    ) -> std::result::Result<QuicFlow, OpenFlowError> {
+        let mut state = self.quic.lock().await;
+        if let Some(q) = state
             .as_ref()
             .filter(|(_, q)| {
                 q.connection.close_reason().is_none()
                     && !q.cancel.is_cancelled()
                     && !q.draining.is_cancelled()
             })
-            .map(|(_, q)| q.clone());
-        let mut locked = Some(state);
-        let mut attempt = None;
-        let mut endpoint = None;
-        let mut auth = None;
-        let q = if let Some(q) = existing {
-            drop(locked.take());
-            q
-        } else {
-            let (ep, connection) = connect_quic(&self.config, &self.tls)
-                .await
-                .map_err(OpenFlowError::Transport)?;
-            let mut exporter = [0; 32];
-            connection
-                .export_keying_material(&mut exporter, EXPORTER_LABEL, b"")
-                .map_err(|e| OpenFlowError::Transport(anyhow!("exporter failed: {e:?}")))?;
-            auth = Some(encode_auth_frame(
-                self.credentials.vector_key,
-                AuthTransport::Quic,
-                &exporter,
-            ));
-            let q = QuicConnection::new(connection, false);
-            attempt = Some(ConnectionAttempt(Some(q.clone())));
-            endpoint = Some(ep);
-            q
-        };
+            .map(|(_, q)| q.clone())
+        {
+            drop(state);
+            let (flow, result) = self.start_quic_flow(&q, kind, target, None).await?;
+            return ready_quic_flow(flow, result);
+        }
+        let (endpoint, connection) = connect_quic(&self.config, &self.tls)
+            .await
+            .map_err(OpenFlowError::Transport)?;
+        let mut exporter = [0; 32];
+        connection
+            .export_keying_material(&mut exporter, EXPORTER_LABEL, b"")
+            .map_err(|e| OpenFlowError::Transport(anyhow!("exporter failed: {e:?}")))?;
+        let auth = encode_auth_frame(self.credentials.vector_key, AuthTransport::Quic, &exporter);
+        let q = QuicConnection::new(connection, false);
+        let mut attempt = ConnectionAttempt(Some(q.clone()));
+        let (flow, result) = self.start_quic_flow(&q, kind, target, Some(auth)).await?;
+        let limits =
+            crate::transport::transport_flow_control().map_err(OpenFlowError::Transport)?;
+        q.connection
+            .set_receive_window(limits.connection_receive_window.into());
+        q.connection.set_max_concurrent_bi_streams(1024u32.into());
+        let monitor = q.clone();
+        tokio::spawn(async move {
+            if monitor.connection.accept_bi().await.is_ok() {
+                monitor
+                    .connection
+                    .close(1u32.into(), b"role direction violation");
+            }
+        });
+        *state = Some((endpoint, q));
+        attempt.0 = None;
+        ready_quic_flow(flow, result)
+    }
+    async fn start_quic_flow(
+        &self,
+        q: &Arc<QuicConnection>,
+        kind: FlowKind,
+        target: &Target,
+        auth: Option<[u8; 16]>,
+    ) -> std::result::Result<(QuicFlow, SetupResult), OpenFlowError> {
         let (mut send, mut recv) = timeout(handshake_timeout(), q.connection.open_bi())
             .await
             .map_err(|e| OpenFlowError::Transport(e.into()))?
@@ -186,40 +212,36 @@ impl PortalClient {
         send.write_all(&bytes[..prefix + size])
             .await
             .map_err(|e| OpenFlowError::Transport(e.into()))?;
-        let result=tokio::select! {
-            _=self.shutdown.cancelled()=>return Err(OpenFlowError::Cancelled),
-            result=timeout(crate::common::flow_setup_timeout(),crate::protocol::read_flow_result(&mut recv))=>result,
-        }.map_err(|error|OpenFlowError::Transport(error.into()))?.map_err(OpenFlowError::Protocol)?;
-        if let Some(endpoint) = endpoint {
-            let limits =
-                crate::transport::transport_flow_control().map_err(OpenFlowError::Transport)?;
-            q.connection
-                .set_receive_window(limits.connection_receive_window.into());
-            q.connection.set_max_concurrent_bi_streams(1024u32.into());
-            let monitor = q.clone();
-            tokio::spawn(async move {
-                if monitor.connection.accept_bi().await.is_ok() {
-                    monitor
-                        .connection
-                        .close(1u32.into(), b"role direction violation");
-                }
-            });
-
-            **locked.as_mut().unwrap() = Some((endpoint, q.clone()));
-            attempt.as_mut().unwrap().0 = None;
-        }
-        let result = SetupResult::from(result);
-        if result != SetupResult::Ready {
-            return Err(OpenFlowError::Setup(result));
-        }
-        Ok(QuicFlow { send, recv, udp })
+        let result = timeout(
+            crate::common::flow_setup_timeout(),
+            crate::protocol::read_flow_result(&mut recv),
+        )
+        .await
+        .map_err(|error| OpenFlowError::Transport(error.into()))?
+        .map_err(OpenFlowError::Protocol)?;
+        Ok((QuicFlow { send, recv, udp }, SetupResult::from(result)))
     }
     pub(crate) async fn close(&self, deadline: Instant) {
         self.shutdown.cancel();
-        if let Some((endpoint, q)) = self.quic.lock().await.take() {
+        let Ok(mut state) = tokio::time::timeout_at(deadline, self.quic.lock()).await else {
+            return;
+        };
+        let cached = state.take();
+        drop(state);
+        if let Some((endpoint, q)) = cached {
             q.close();
             let _ = tokio::time::timeout_at(deadline, endpoint.wait_idle()).await;
         }
+    }
+}
+fn ready_quic_flow(
+    flow: QuicFlow,
+    result: SetupResult,
+) -> std::result::Result<QuicFlow, OpenFlowError> {
+    if result == SetupResult::Ready {
+        Ok(flow)
+    } else {
+        Err(OpenFlowError::Setup(result))
     }
 }
 pub(crate) async fn write_start(
