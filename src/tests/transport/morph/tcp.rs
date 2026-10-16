@@ -72,6 +72,72 @@ fn tcp_empty_io_is_immediately_ready_after_bootstrap() {
     ));
 }
 
+#[tokio::test]
+async fn tcp_limits_each_cipher_direction_without_touching_the_other() {
+    let keys = MorphKeys::derive(b"shared");
+    let nonce = [17; NONCE_LEN];
+    let (client_io, mut peer) = tokio::io::duplex(64);
+    let mut client = MorphTcpStream::initialized_for_test(client_io, &keys, nonce, true);
+    let state = client.morph.as_mut().unwrap();
+    state.write_offset = TCP_STREAM_LIMIT - 3;
+    state.write_cipher.try_seek(state.write_offset).unwrap();
+    state.read_offset = TCP_STREAM_LIMIT - 5;
+    state.read_cipher.try_seek(state.read_offset).unwrap();
+
+    assert_eq!(client.write(b"request").await.unwrap(), 3);
+    let mut wire = [0; 3];
+    peer.read_exact(&mut wire).await.unwrap();
+    apply_at(&keys.tcp_c2s, &nonce, TCP_STREAM_LIMIT - 3, &mut wire).unwrap();
+    assert_eq!(&wire, b"req");
+    assert_eq!(
+        client.write(b"x").await.unwrap_err().kind(),
+        exhausted().kind()
+    );
+    assert_eq!(client.write(&[]).await.unwrap(), 0);
+
+    let mut response = *b"reply";
+    apply_at(&keys.tcp_s2c, &nonce, TCP_STREAM_LIMIT - 5, &mut response).unwrap();
+    peer.write_all(&response).await.unwrap();
+    let mut received = [0; 8];
+    assert_eq!(client.read(&mut received).await.unwrap(), 5);
+    assert_eq!(&received[..5], b"reply");
+    assert_eq!(
+        client.read(&mut received).await.unwrap_err().kind(),
+        exhausted().kind()
+    );
+    assert_eq!(client.read(&mut []).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn tcp_partial_reads_at_the_cipher_limit_preserve_existing_buffer_contents() {
+    let keys = MorphKeys::derive(b"shared");
+    let nonce = [18; NONCE_LEN];
+    let (client_io, mut peer) = tokio::io::duplex(64);
+    let mut client = MorphTcpStream::initialized_for_test(client_io, &keys, nonce, true);
+    let state = client.morph.as_mut().unwrap();
+    state.read_offset = TCP_STREAM_LIMIT - 5;
+    state.read_cipher.try_seek(state.read_offset).unwrap();
+    let mut response = *b"reply";
+    apply_at(&keys.tcp_s2c, &nonce, TCP_STREAM_LIMIT - 5, &mut response).unwrap();
+    peer.write_all(&response).await.unwrap();
+
+    let mut received = [0xa5; 9];
+    let mut buffer = ReadBuf::new(&mut received);
+    buffer.put_slice(b"head");
+    let waker = Waker::noop();
+    let mut context = Context::from_waker(waker);
+    assert!(matches!(
+        Pin::new(&mut client).poll_read(&mut context, &mut buffer),
+        Poll::Ready(Ok(()))
+    ));
+    assert_eq!(buffer.filled(), b"headreply");
+    assert_eq!(client.write(b"independent").await.unwrap(), 11);
+    let mut wire = [0; 11];
+    peer.read_exact(&mut wire).await.unwrap();
+    apply_at(&keys.tcp_c2s, &nonce, 0, &mut wire).unwrap();
+    assert_eq!(&wire, b"independent");
+}
+
 #[derive(Debug)]
 struct PendingWriteStream {
     ready: Arc<AtomicBool>,
