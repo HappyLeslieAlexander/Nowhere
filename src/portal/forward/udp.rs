@@ -139,9 +139,7 @@ impl TargetReceiver<'_> {
             Self::Network(socket) => {
                 buffer.resize(u16::MAX as usize + 262, 0);
                 let range = socket.recv(buffer).await?;
-                let n = range.len();
-                buffer.copy_within(range, 0);
-                Ok(Some(crate::vector::ReceivedUdpPacket::Buffered(n)))
+                Ok(Some(crate::vector::ReceivedUdpPacket::Buffered(range)))
             }
             Self::Tunnel(receiver) => receiver.recv_into(buffer).await,
         }
@@ -217,3 +215,7 @@ async fn relay_udp(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/portal/forward/udp.rs"]
+mod tests;

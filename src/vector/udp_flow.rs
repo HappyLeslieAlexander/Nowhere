@@ -12,6 +12,7 @@ use crate::transport::{QuicConnection, Stats, UdpRoute};
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use framing::UotReadState;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -27,20 +28,31 @@ pub(crate) struct UdpTunnel {
     cancel: CancellationToken,
 }
 pub(crate) struct UdpTunnelSender {
-    writer: Option<BoxWriter>,
-    quic: Option<(Arc<QuicConnection>, u32)>,
-    packet_id: u32,
+    transport: UdpSendTransport,
     stats: Arc<Stats>,
     account: bool,
     cancel: CancellationToken,
 }
 pub(crate) struct UdpTunnelReceiver {
-    reader: Option<BoxReader>,
-    datagrams: Option<mpsc::Receiver<BudgetedDatagram>>,
-    uot: UotReadState,
+    transport: UdpReceiveTransport,
     stats: Arc<Stats>,
     account: bool,
     cancel: CancellationToken,
+}
+enum UdpSendTransport {
+    Stream(BoxWriter),
+    Quic {
+        connection: Arc<QuicConnection>,
+        id: u32,
+        packet_id: u32,
+    },
+}
+enum UdpReceiveTransport {
+    Stream {
+        reader: BoxReader,
+        framing: UotReadState,
+    },
+    Quic(mpsc::Receiver<BudgetedDatagram>),
 }
 impl UdpTunnel {
     pub(crate) fn stream(
@@ -59,17 +71,16 @@ impl UdpTunnel {
         };
         Self {
             sender: UdpTunnelSender {
-                writer: Some(writer),
-                quic: None,
-                packet_id: 1,
+                transport: UdpSendTransport::Stream(writer),
                 stats: stats.clone(),
                 account,
                 cancel: cancel.clone(),
             },
             receiver: UdpTunnelReceiver {
-                reader: Some(reader),
-                datagrams: None,
-                uot: UotReadState::default(),
+                transport: UdpReceiveTransport::Stream {
+                    reader,
+                    framing: UotReadState::default(),
+                },
                 stats,
                 account,
                 cancel: cancel.clone(),
@@ -107,17 +118,17 @@ impl UdpTunnel {
         };
         Self {
             sender: UdpTunnelSender {
-                writer: None,
-                quic: Some((quic, id)),
-                packet_id: 1,
+                transport: UdpSendTransport::Quic {
+                    connection: quic,
+                    id,
+                    packet_id: 1,
+                },
                 stats: stats.clone(),
                 account,
                 cancel: cancel.clone(),
             },
             receiver: UdpTunnelReceiver {
-                reader: None,
-                datagrams: Some(datagrams),
-                uot: UotReadState::default(),
+                transport: UdpReceiveTransport::Quic(datagrams),
                 stats,
                 account,
                 cancel: cancel.clone(),
@@ -150,14 +161,18 @@ impl UdpTunnel {
     }
     pub(crate) async fn close(&mut self) {
         self.cancel.cancel();
-        if let Some(writer) = &mut self.sender.writer {
-            let _ =
-                tokio::time::timeout(crate::common::handshake_timeout(), writer.shutdown()).await;
-        }
-        if let Some((q, id)) = &self.sender.quic {
-            q.remove(*id);
-            if let Ok(bytes) = crate::protocol::encode_udp_close(*id) {
-                let _ = q.connection.send_datagram(Bytes::copy_from_slice(&bytes));
+        match &mut self.sender.transport {
+            UdpSendTransport::Stream(writer) => {
+                let _ = tokio::time::timeout(crate::common::handshake_timeout(), writer.shutdown())
+                    .await;
+            }
+            UdpSendTransport::Quic { connection, id, .. } => {
+                connection.remove(*id);
+                if let Ok(bytes) = crate::protocol::encode_udp_close(*id) {
+                    let _ = connection
+                        .connection
+                        .send_datagram(Bytes::copy_from_slice(&bytes));
+                }
             }
         }
     }
@@ -172,15 +187,20 @@ impl UdpTunnelSender {
         if self.cancel.is_cancelled() {
             bail!("UDP Flow closed");
         }
-        let sent = if let Some(writer) = &mut self.writer {
-            write_udp_packet(writer, payload).await?;
-            true
-        } else if let Some((quic, id)) = &self.quic {
-            crate::common::send_quic_udp_packet(&quic.connection, *id, &mut self.packet_id, payload)
-                .await?
-                == UdpDatagramSend::Sent
-        } else {
-            bail!("UDP sender missing");
+        let sent = match &mut self.transport {
+            UdpSendTransport::Stream(writer) => {
+                write_udp_packet(writer, payload).await?;
+                true
+            }
+            UdpSendTransport::Quic {
+                connection,
+                id,
+                packet_id,
+            } => {
+                crate::common::send_quic_udp_packet(&connection.connection, *id, packet_id, payload)
+                    .await?
+                    == UdpDatagramSend::Sent
+            }
         };
         if sent && self.account {
             self.stats
@@ -199,8 +219,15 @@ impl UdpTunnelReceiver {
             biased;
             _ = self.cancel.cancelled() => return Ok(None),
             packet = async {
-                if let Some(reader) = &mut self.reader {Ok::<_,anyhow::Error>(self.uot.read_packet(reader,payload).await?.map(ReceivedUdpPacket::Buffered))}
-                else {Ok(self.datagrams.as_mut().expect("UDP receiver").recv().await.map(ReceivedUdpPacket::Owned))}
+                match &mut self.transport {
+                    UdpReceiveTransport::Stream { reader, framing } => {
+                        Ok::<_, anyhow::Error>(framing.read_packet(reader, payload).await?
+                            .map(|size| ReceivedUdpPacket::Buffered(0..size)))
+                    }
+                    UdpReceiveTransport::Quic(datagrams) => {
+                        Ok(datagrams.recv().await.map(ReceivedUdpPacket::Owned))
+                    }
+                }
             } => packet,
         }?;
         if let Some(packet) = &packet
@@ -214,19 +241,19 @@ impl UdpTunnelReceiver {
     }
 }
 pub(crate) enum ReceivedUdpPacket {
-    Buffered(usize),
+    Buffered(Range<usize>),
     Owned(BudgetedDatagram),
 }
 impl ReceivedUdpPacket {
     pub(crate) fn len(&self) -> usize {
         match self {
-            Self::Buffered(n) => *n,
+            Self::Buffered(range) => range.len(),
             Self::Owned(bytes) => bytes.payload.len(),
         }
     }
     pub(crate) fn payload<'a>(&'a self, buffer: &'a [u8]) -> &'a [u8] {
         match self {
-            Self::Buffered(n) => &buffer[..*n],
+            Self::Buffered(range) => &buffer[range.clone()],
             Self::Owned(bytes) => &bytes.payload,
         }
     }
