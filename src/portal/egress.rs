@@ -80,9 +80,8 @@ async fn write_request(
     target: &Target,
 ) -> Result<()> {
     let mut bytes = [0; crate::protocol::TARGET_MAX_ENCODED_LEN + 1];
-    bytes[0] = kind as u8;
-    let size = crate::protocol::encode_target_into(target, &mut bytes[1..])?;
-    send.write_all(&bytes[..size + 1]).await?;
+    let size = crate::protocol::encode_flow_request_into(kind, target, &mut bytes)?;
+    send.write_all(&bytes[..size]).await?;
     Ok(())
 }
 async fn ready(recv: &mut quinn::RecvStream) -> Result<()> {

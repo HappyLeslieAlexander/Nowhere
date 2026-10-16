@@ -10,6 +10,7 @@ use std::str::FromStr;
 use anyhow::{Context, Result, bail};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use super::FlowKind;
 use super::util::{DOMAIN_LEN_MAX, validate_domain_bytes, validate_port};
 
 pub const TARGET_ATYP_IPV4: u8 = 0x01;
@@ -132,6 +133,19 @@ pub fn encode_target_into(target: &Target, output: &mut [u8]) -> Result<usize> {
     Ok(encoded_len)
 }
 
+pub(crate) fn encode_flow_request_into(
+    kind: FlowKind,
+    target: &Target,
+    output: &mut [u8],
+) -> Result<usize> {
+    let Some((start, address)) = output.split_first_mut() else {
+        bail!("protocol::request::encode_flow_request_into: output too short");
+    };
+    let length = encode_target_into(target, address)?;
+    *start = kind as u8;
+    Ok(length + 1)
+}
+
 pub fn decode_target(input: &[u8]) -> Result<(Target, usize)> {
     let Some(&address_type) = input.first() else {
         bail!("protocol::request::decode_target: missing address type");
@@ -192,25 +206,21 @@ pub async fn read_request<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Target
 
     match address_type[0] {
         TARGET_ATYP_IPV4 => {
-            let mut tail = [0; TARGET_IPV4_LEN - 1];
-            reader
-                .read_exact(&mut tail)
-                .await
-                .context("protocol::request::read_request: failed to read IPv4 target")?;
             let mut encoded = [0; TARGET_IPV4_LEN];
             encoded[0] = TARGET_ATYP_IPV4;
-            encoded[1..].copy_from_slice(&tail);
+            reader
+                .read_exact(&mut encoded[1..])
+                .await
+                .context("protocol::request::read_request: failed to read IPv4 target")?;
             Ok(decode_target(&encoded)?.0)
         }
         TARGET_ATYP_IPV6 => {
-            let mut tail = [0; TARGET_IPV6_LEN - 1];
-            reader
-                .read_exact(&mut tail)
-                .await
-                .context("protocol::request::read_request: failed to read IPv6 target")?;
             let mut encoded = [0; TARGET_IPV6_LEN];
             encoded[0] = TARGET_ATYP_IPV6;
-            encoded[1..].copy_from_slice(&tail);
+            reader
+                .read_exact(&mut encoded[1..])
+                .await
+                .context("protocol::request::read_request: failed to read IPv6 target")?;
             Ok(decode_target(&encoded)?.0)
         }
         TARGET_ATYP_DOMAIN => {

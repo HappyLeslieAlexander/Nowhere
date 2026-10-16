@@ -42,7 +42,7 @@ pub(crate) fn encode_udp_data_fragments(
 
 pub(crate) fn encode_target(target: &Target) -> Result<Vec<u8>> {
     let mut output = vec![0; target.encoded_len()?];
-    let written = super::encode_target_into(target, &mut output)?;
+    let written = super::request::encode_target_into(target, &mut output)?;
     debug_assert_eq!(written, output.len());
     Ok(output)
 }
@@ -52,7 +52,7 @@ pub(crate) async fn write_request<W: AsyncWrite + Unpin>(
     target: &Target,
 ) -> Result<()> {
     let mut encoded = [0; super::TARGET_MAX_ENCODED_LEN];
-    let encoded_len = super::encode_target_into(target, &mut encoded)?;
+    let encoded_len = super::request::encode_target_into(target, &mut encoded)?;
     writer
         .write_all(&encoded[..encoded_len])
         .await

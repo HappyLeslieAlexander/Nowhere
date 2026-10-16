@@ -9,7 +9,7 @@ use super::{BoxReader, BoxWriter, OpenFlowError, PortalClientConfig, TcpTunnel, 
 use crate::common::handshake_timeout;
 use crate::protocol::{
     AuthTransport, Credentials, FlowKind, SetupResult, Target, encode_auth_frame,
-    encode_target_into,
+    encode_flow_request_into,
 };
 use crate::transport::{QuicConnection, Stats};
 use anyhow::{Context, Result, anyhow, bail};
@@ -181,10 +181,9 @@ impl PortalClient {
         } else {
             0
         };
-        bytes[prefix] = kind as u8;
-        let size = encode_target_into(target, &mut bytes[prefix + 1..])
+        let size = encode_flow_request_into(kind, target, &mut bytes[prefix..])
             .map_err(OpenFlowError::Protocol)?;
-        send.write_all(&bytes[..prefix + 1 + size])
+        send.write_all(&bytes[..prefix + size])
             .await
             .map_err(|e| OpenFlowError::Transport(e.into()))?;
         let result=tokio::select! {
@@ -229,9 +228,8 @@ pub(crate) async fn write_start(
     target: &Target,
 ) -> Result<()> {
     let mut request = [0; crate::protocol::TARGET_MAX_ENCODED_LEN + 1];
-    request[0] = kind as u8;
-    let length = encode_target_into(target, &mut request[1..])?;
-    writer.write_all(&request[..length + 1]).await?;
+    let length = encode_flow_request_into(kind, target, &mut request)?;
+    writer.write_all(&request[..length]).await?;
     writer.flush().await?;
     Ok(())
 }

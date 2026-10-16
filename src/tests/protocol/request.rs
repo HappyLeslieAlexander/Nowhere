@@ -12,6 +12,45 @@ use crate::protocol::{encode_target, write_request, write_request_frame};
 use super::*;
 
 #[test]
+fn flow_requests_encode_all_targets_into_the_supplied_buffer() {
+    for target in [
+        Target::try_from("127.0.0.1:80").unwrap(),
+        Target::try_from("[2001:db8::5]:65535").unwrap(),
+        Target::domain("example.com", 443).unwrap(),
+        Target::domain(
+            format!(
+                "{}.{}.{}.{}",
+                "a".repeat(63),
+                "b".repeat(63),
+                "c".repeat(63),
+                "d".repeat(61)
+            ),
+            1,
+        )
+        .unwrap(),
+    ] {
+        for kind in [FlowKind::Tcp, FlowKind::Udp] {
+            let mut buffer = [0xa5; TARGET_MAX_ENCODED_LEN + 2];
+            let length = encode_flow_request_into(kind, &target, &mut buffer).unwrap();
+            assert_eq!(buffer[0], kind as u8);
+            let (decoded, consumed) = decode_target(&buffer[1..length]).unwrap();
+            assert_eq!(decoded, target);
+            assert_eq!(consumed + 1, length);
+            assert!(buffer[length..].iter().all(|&byte| byte == 0xa5));
+            assert!(encode_flow_request_into(kind, &target, &mut buffer[..length - 1]).is_err());
+        }
+    }
+    assert!(
+        encode_flow_request_into(
+            FlowKind::Tcp,
+            &Target::Ip("127.0.0.1:80".parse().unwrap()),
+            &mut []
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn ipv4_ipv6_and_domain_match_socks5_address_vectors() {
     let ipv4 = Target::Ip(SocketAddr::V4(SocketAddrV4::new(
         Ipv4Addr::new(192, 0, 2, 1),
