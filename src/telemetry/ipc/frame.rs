@@ -151,12 +151,14 @@ where
             self.payload_read += count;
         }
 
-        let payload = std::mem::take(&mut self.payload);
+        let decoded =
+            serde_json::from_slice(&self.payload).context("telemetry: failed to decode JSON frame");
+        self.payload.clear();
         self.length_bytes = [0; 4];
         self.length_read = 0;
         self.payload_read = 0;
         self.started_at = None;
-        serde_json::from_slice(&payload).context("telemetry: failed to decode JSON frame")
+        decoded
     }
 }
 

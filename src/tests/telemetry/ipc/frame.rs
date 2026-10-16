@@ -25,6 +25,25 @@ async fn framing_round_trips_and_rejects_oversize_lengths() {
 }
 
 #[tokio::test]
+async fn frame_reader_reuses_payload_storage_after_success_and_invalid_json() {
+    let message = ServerMessage::Snapshot(crate::telemetry::TelemetrySnapshot::default());
+    let payload = serde_json::to_vec(&message).unwrap();
+    let mut wire = Vec::new();
+    write_payload(&mut wire, &payload).await.unwrap();
+    write_payload(&mut wire, b"{").await.unwrap();
+    write_payload(&mut wire, &payload).await.unwrap();
+    let mut reader = FrameReader::new(wire.as_slice());
+    assert_eq!(reader.next::<ServerMessage>().await.unwrap(), message);
+    let pointer = reader.payload.as_ptr();
+    let capacity = reader.payload.capacity();
+    assert!(reader.next::<ServerMessage>().await.is_err());
+    assert_eq!(reader.next::<ServerMessage>().await.unwrap(), message);
+    assert_eq!(reader.payload.as_ptr(), pointer);
+    assert_eq!(reader.payload.capacity(), capacity);
+    assert!(reader.payload.is_empty());
+}
+
+#[tokio::test]
 async fn frame_reader_survives_cancelled_partial_reads() {
     let message = ServerMessage::Snapshot(crate::telemetry::TelemetrySnapshot::default());
     let payload = serde_json::to_vec(&message).unwrap();
