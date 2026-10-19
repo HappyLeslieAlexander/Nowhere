@@ -9,7 +9,7 @@ use tokio::io::AsyncWriteExt;
 use url::Url;
 
 use crate::common::Logger;
-use crate::vector::ForwardVector as Vector;
+use crate::vector::VectorRuntime as Vector;
 
 use super::*;
 

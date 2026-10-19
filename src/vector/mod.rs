@@ -39,16 +39,16 @@ const SOCKS_CLIENT_RESOURCE_LIMIT: usize = 1024;
 const SOCKS_UDP_TARGET_RESOURCE_LIMIT: usize = 1024;
 
 pub struct Vector {
-    runtime: ForwardVector,
+    runtime: VectorRuntime,
 }
 
-struct ForwardVector {
+struct VectorRuntime {
     inner: Arc<VectorInner>,
 }
 
 impl Vector {
     pub fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
-        ForwardVector::new(parsed_url, logger).map(|runtime| Self { runtime })
+        VectorRuntime::new(parsed_url, logger).map(|runtime| Self { runtime })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -69,7 +69,7 @@ pub(super) struct VectorInner {
     shutdown: CancellationToken,
 }
 
-impl ForwardVector {
+impl VectorRuntime {
     fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
         let result = Self::build(parsed_url, logger);
         if result.is_err() {
