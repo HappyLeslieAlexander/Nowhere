@@ -78,7 +78,7 @@ pub(in crate::vector) async fn serve_listener(
                     let shutdown = shutdown.clone();
                     clients.spawn(async move {
                         let _admission = admission;
-                        if let Err(error) = handle_client(vector.clone(), stream, peer, shutdown).await && !crate::common::normal_close(&error) {
+                        if let Err(error) = handle_client(vector.clone(), stream, peer, shutdown).await && !crate::common::is_normal_close(&error) {
                             vector.logger.error(format_args!(
                                 "socks client failed: {error:#}"
                             ));
@@ -169,7 +169,7 @@ async fn handle_client(
                             reply,
                             &unspecified,
                         ) => {
-                            if let Err(error) = result && !crate::common::normal_close(&error) {
+                            if let Err(error) = result && !crate::common::is_normal_close(&error) {
                                 return Err(error);
                             }
                         },

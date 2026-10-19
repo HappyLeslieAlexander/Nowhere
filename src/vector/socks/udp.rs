@@ -147,7 +147,7 @@ async fn open_and_relay_udp_target(
             Ok(tunnel) => tunnel,
             Err(error) => {
                 let error = anyhow::Error::new(error);
-                if crate::common::normal_close(&error) { return; }
+                if crate::common::is_normal_close(&error) { return; }
                 vector.logger.error(format_args!(
                     "udp setup failed: {error:#}"
                 ));
@@ -283,7 +283,7 @@ async fn relay_udp_target(
     };
     tunnel.close().await;
     if let Err(error) = completion
-        && !crate::common::normal_close(&error)
+        && !crate::common::is_normal_close(&error)
     {
         vector
             .logger

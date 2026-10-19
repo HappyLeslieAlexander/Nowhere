@@ -77,7 +77,7 @@ impl Forwarder {
             failed => {
                 let _ = incoming.result(SetupResult::InvalidRequest).await;
                 match failed {
-                    Ok(Err(error)) if !crate::common::normal_close(&error) => self
+                    Ok(Err(error)) if !crate::common::is_normal_close(&error) => self
                         .logger
                         .error(format_args!("flow request failed: {error:#}")),
                     Err(error) => self
@@ -100,7 +100,7 @@ impl Forwarder {
         };
 
         if let Err(error) = result
-            && !crate::common::normal_close(&error)
+            && !crate::common::is_normal_close(&error)
         {
             self.logger
                 .error(format_args!("flow forwarding failed: {error:#}"));

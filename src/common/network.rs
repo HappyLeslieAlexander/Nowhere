@@ -192,7 +192,7 @@ pub(super) async fn connect_udp_addr(
 #[path = "../tests/common/network.rs"]
 mod tests;
 
-pub(crate) fn normal_close(error: &anyhow::Error) -> bool {
+pub(crate) fn is_normal_close(error: &anyhow::Error) -> bool {
     fn closed(error: &(dyn std::error::Error + 'static)) -> bool {
         if let Some(error) = error.downcast_ref::<quinn::ConnectionError>() {
             return matches!(error, quinn::ConnectionError::LocallyClosed)

@@ -92,7 +92,7 @@ impl Egress {
         let failure = connection
             .close_reason()
             .map(anyhow::Error::new)
-            .filter(|error| !crate::common::normal_close(error));
+            .filter(|error| !crate::common::is_normal_close(error));
         q.close();
         tasks.abort_all();
         while tasks.join_next().await.is_some() {}
