@@ -3,8 +3,9 @@
 
 //! TLS fingerprint queries, share-link validation, and error redaction tests.
 
-use super::*;
 use std::{sync::Arc, time::Duration};
+
+use super::*;
 
 #[tokio::test]
 async fn fingerprint_connection_refusal_reports_the_cause_without_echoing_the_endpoint() {

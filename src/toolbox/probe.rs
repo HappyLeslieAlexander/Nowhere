@@ -3,17 +3,20 @@
 
 //! One-shot authenticated target setup probes with bounded completion and diagnostics.
 
-use super::diagnostic::connection_failure_reason;
-use super::format::{format_duration, panel};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result};
+use tokio_util::sync::CancellationToken;
+use url::Url;
+
 use crate::common::{flow_setup_timeout, handshake_timeout, shutdown_timeout};
 use crate::protocol::{Carrier, Credentials, SetupResult, Target};
 use crate::transport::Stats;
 use crate::vector::{PortalClient, PortalClientConfig};
-use anyhow::{Context, Result};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio_util::sync::CancellationToken;
-use url::Url;
+
+use super::diagnostic::connection_failure_reason;
+use super::format::{format_duration, panel};
 
 pub(crate) struct ToolboxClient {
     config: PortalClientConfig,

@@ -3,10 +3,12 @@
 
 //! Explicit TLS certificate fingerprint inspection for Portal share links.
 
-use super::diagnostic::connection_failure_reason;
-use crate::vector::PortalClientConfig;
 use anyhow::{Context, Result};
 use url::Url;
+
+use crate::vector::PortalClientConfig;
+
+use super::diagnostic::connection_failure_reason;
 
 pub async fn fingerprint(url: Url) -> Result<()> {
     let config =

@@ -9,12 +9,13 @@ mod format;
 mod probe;
 mod status;
 
+use std::fmt::Write;
+
+use anyhow::{Context, Result};
+
 pub use fingerprint::fingerprint;
 pub use probe::probe;
 pub use status::status;
-
-use anyhow::{Context, Result};
-use std::fmt::Write;
 
 pub fn generate_key() -> Result<String> {
     let mut key = [0u8; 16];

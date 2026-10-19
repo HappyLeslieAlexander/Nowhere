@@ -3,16 +3,19 @@
 
 //! Bounded local IPC snapshot collection and deterministic one-shot status output.
 
-use super::diagnostic::connection_failure_reason;
-use super::format::{bytes, panel};
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+
 use crate::telemetry::{
     Hello, InstanceRole, ServerMessage, TelemetryClient, TelemetrySnapshot, discover_instances,
 };
-use anyhow::{Context, Result, bail};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
+
+use super::diagnostic::connection_failure_reason;
+use super::format::{bytes, panel};
 
 const STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 const STATUS_CONCURRENCY: usize = 8;
