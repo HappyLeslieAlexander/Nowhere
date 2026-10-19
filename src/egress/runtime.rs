@@ -31,7 +31,7 @@ impl Egress {
                 None
             }
         };
-        let mut maintenance = Box::pin(self.maintain());
+        let mut maintenance = Box::pin(self.maintain_connection());
         let mut maintenance_finished = false;
         let failure = tokio::select! {
             signal = signals.recv() => signal.map(|_| ()).err(),

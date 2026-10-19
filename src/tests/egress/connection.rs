@@ -34,7 +34,7 @@ async fn shutdown_cancels_pending_connection_and_registration() {
         )
         .unwrap();
         let shutdown = egress.forward.shutdown.clone();
-        let task = tokio::spawn(async move { egress.registered_connection().await });
+        let task = tokio::spawn(async move { egress.run_connection().await });
         let incoming = tokio::time::timeout(std::time::Duration::from_secs(2), endpoint.accept())
             .await
             .unwrap()
@@ -92,7 +92,7 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
         Logger,
     )
     .unwrap();
-    let task = tokio::spawn(async move { egress.registered_connection().await });
+    let task = tokio::spawn(async move { egress.run_connection().await });
     let connection = endpoint.accept().await.unwrap().await.unwrap();
     let (mut auth_send, mut auth_recv) = connection.accept_bi().await.unwrap();
     let mut exporter = [0; 32];

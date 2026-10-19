@@ -15,12 +15,12 @@ use crate::vector::client::connect_quic;
 use super::Egress;
 
 impl Egress {
-    pub(super) async fn maintain(&self) {
+    pub(super) async fn maintain_connection(&self) {
         loop {
             if self.forward.shutdown.is_cancelled() {
                 return;
             }
-            if let Err(error) = self.registered_connection().await
+            if let Err(error) = self.run_connection().await
                 && !self.forward.shutdown.is_cancelled()
             {
                 self.forward
@@ -33,7 +33,7 @@ impl Egress {
             }
         }
     }
-    pub(super) async fn registered_connection(&self) -> Result<()> {
+    pub(super) async fn run_connection(&self) -> Result<()> {
         let (endpoint, connection) = tokio::select! {
             biased;
             _ = self.forward.shutdown.cancelled() => return Ok(()),
@@ -51,7 +51,7 @@ impl Egress {
         connection.set_receive_window(limits.connection_receive_window.into());
         connection.set_max_concurrent_bi_streams(1024u32.into());
         let q = QuicConnection::new(connection.clone(), true);
-        let _owner = Registered {
+        let _owner = ConnectionGuard {
             connection: q.clone(),
         };
         let mut tasks = JoinSet::new();
@@ -104,11 +104,11 @@ impl Egress {
     }
 }
 
-struct Registered {
+struct ConnectionGuard {
     connection: Arc<QuicConnection>,
 }
 
-impl Drop for Registered {
+impl Drop for ConnectionGuard {
     fn drop(&mut self) {
         self.connection.close();
     }
