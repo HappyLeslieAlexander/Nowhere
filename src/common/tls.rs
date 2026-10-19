@@ -25,18 +25,18 @@ pub(crate) use self::tls_cert::certificate_sha256;
 const TLS_QUERY_PARAMETERS: &[&str] = &["tls", "crt", "key"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TLSMode {
+pub enum TlsMode {
     None,
     SelfSigned,
-    CATrusted,
+    CaTrusted,
 }
 
-impl fmt::Display for TLSMode {
+impl fmt::Display for TlsMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::None => f.write_str("0"),
             Self::SelfSigned => f.write_str("1"),
-            Self::CATrusted => f.write_str("2"),
+            Self::CaTrusted => f.write_str("2"),
         }
     }
 }
@@ -45,17 +45,17 @@ pub(crate) fn new_server_configs_with_reload_interval(
     parsed_url: &Url,
     reload_interval: Duration,
     logger: Logger,
-) -> Result<(TLSMode, Arc<rustls::ServerConfig>, quinn::ServerConfig)> {
+) -> Result<(TlsMode, Arc<rustls::ServerConfig>, quinn::ServerConfig)> {
     let query = query_first(parsed_url, TLS_QUERY_PARAMETERS)?;
     let mode = match query.get("tls").map(String::as_str) {
-        None => TLSMode::SelfSigned,
-        Some("0") => TLSMode::None,
-        Some("1") => TLSMode::SelfSigned,
-        Some("2") => TLSMode::CATrusted,
+        None => TlsMode::SelfSigned,
+        Some("0") => TlsMode::None,
+        Some("1") => TlsMode::SelfSigned,
+        Some("2") => TlsMode::CaTrusted,
         _ => bail!("common::tls::new_server_configs: invalid tls mode"),
     };
 
-    if mode == TLSMode::None {
+    if mode == TlsMode::None {
         bail!("common::tls::new_server_configs: tls=1 or tls=2 required");
     }
 
@@ -66,7 +66,7 @@ pub(crate) fn new_server_configs_with_reload_interval(
         .with_no_client_auth();
 
     let (mut server_crypto, cert_sha256) = match mode {
-        TLSMode::SelfSigned => {
+        TlsMode::SelfSigned => {
             let (certs, key) = new_self_signed_cert()
                 .context("common::tls::new_server_configs: failed to create self-signed config")?;
             let cert_sha256 = certificate_sha256(&certs[0]);
@@ -75,7 +75,7 @@ pub(crate) fn new_server_configs_with_reload_interval(
                 .context("common::tls::new_server_configs: failed to parse key pair")?;
             (server_crypto, cert_sha256)
         }
-        TLSMode::CATrusted => {
+        TlsMode::CaTrusted => {
             let crt_file = query.get("crt").cloned().unwrap_or_default();
             let key_file = query.get("key").cloned().unwrap_or_default();
             let (resolver, cert_sha256) =
@@ -86,7 +86,7 @@ pub(crate) fn new_server_configs_with_reload_interval(
                 cert_sha256,
             )
         }
-        TLSMode::None => unreachable!(),
+        TlsMode::None => unreachable!(),
     };
 
     server_crypto.max_early_data_size = 0;

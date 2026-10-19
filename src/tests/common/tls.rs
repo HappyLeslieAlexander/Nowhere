@@ -10,7 +10,7 @@ use super::*;
 fn new_server_configs(
     parsed_url: &Url,
     logger: Logger,
-) -> Result<(TLSMode, Arc<rustls::ServerConfig>, quinn::ServerConfig)> {
+) -> Result<(TlsMode, Arc<rustls::ServerConfig>, quinn::ServerConfig)> {
     new_server_configs_with_reload_interval(
         parsed_url,
         std::time::Duration::from_secs(60 * 60),
