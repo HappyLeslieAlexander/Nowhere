@@ -3,8 +3,9 @@
 
 //! Exporter-bound Egress authentication and the ACCEPTED registration barrier.
 
-use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, encode_auth_frame};
 use anyhow::{Context, Result};
+
+use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, encode_auth_frame};
 
 pub(super) async fn register(connection: &quinn::Connection, key: [u8; 32]) -> Result<()> {
     let mut exporter = [0; 32];

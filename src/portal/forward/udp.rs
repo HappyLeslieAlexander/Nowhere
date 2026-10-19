@@ -3,14 +3,17 @@
 
 //! UDP target dialing and whole-datagram relay across stream and QUIC transports.
 
-use super::{ActiveFlow, Forwarder, Incoming, Outlet};
+use std::sync::atomic::Ordering;
+
+use anyhow::{Context, Result};
+use tokio_util::sync::CancellationToken;
+
 use crate::common::OutboundUdpSocket;
 use crate::portal::egress;
 use crate::protocol::{SetupResult, Target};
 use crate::vector::UdpTunnel;
-use anyhow::{Context, Result};
-use std::sync::atomic::Ordering;
-use tokio_util::sync::CancellationToken;
+
+use super::{ActiveFlow, Forwarder, Incoming, Outlet};
 
 impl Forwarder {
     pub(super) async fn udp(
@@ -96,18 +99,22 @@ impl Forwarder {
         result
     }
 }
+
 enum UdpTarget {
     Network(OutboundUdpSocket),
     Tunnel(UdpTunnel),
 }
+
 enum TargetSender<'a> {
     Network(&'a OutboundUdpSocket),
     Tunnel(&'a mut crate::vector::UdpTunnelSender),
 }
+
 enum TargetReceiver<'a> {
     Network(&'a OutboundUdpSocket),
     Tunnel(&'a mut crate::vector::UdpTunnelReceiver),
 }
+
 impl UdpTarget {
     fn split_mut(&mut self) -> (TargetSender<'_>, TargetReceiver<'_>) {
         match self {
@@ -122,6 +129,7 @@ impl UdpTarget {
         }
     }
 }
+
 impl TargetSender<'_> {
     async fn send(&mut self, payload: &[u8], scratch: &mut Vec<u8>) -> Result<bool> {
         match self {
@@ -130,6 +138,7 @@ impl TargetSender<'_> {
         }
     }
 }
+
 impl TargetReceiver<'_> {
     async fn recv(
         &mut self,
@@ -145,6 +154,7 @@ impl TargetReceiver<'_> {
         }
     }
 }
+
 #[allow(clippy::too_many_arguments)]
 async fn relay_udp(
     forward: &Forwarder,

@@ -3,11 +3,13 @@
 
 //! Egress service supervision and bounded graceful shutdown.
 
-use super::Egress;
-use crate::common::ShutdownSignals;
-use crate::telemetry::{InstanceRole, TelemetryServer};
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
+
+use crate::common::ShutdownSignals;
+use crate::telemetry::{InstanceRole, TelemetryServer};
+
+use super::Egress;
 
 impl Egress {
     pub async fn run(self) -> Result<()> {

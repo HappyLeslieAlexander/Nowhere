@@ -3,17 +3,20 @@
 
 //! Validated Egress configuration and shared target-forwarding construction.
 
-use super::Egress;
+use std::sync::Arc;
+
+use anyhow::{Context, Result, bail};
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+use url::Url;
+
 use crate::common::{DialPolicy, Logger, OutboundDialer, query_first};
 use crate::portal::forward::{Forwarder, Outlet};
 use crate::protocol::Credentials;
 use crate::transport::{Buffers, RateLimiter, Stats};
 use crate::vector::{PortalClientConfig, tls::ClientTls};
-use anyhow::{Context, Result, bail};
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio_util::sync::CancellationToken;
-use url::Url;
+
+use super::Egress;
 
 impl Egress {
     pub fn new(url: Url, logger: Logger) -> Result<Self> {

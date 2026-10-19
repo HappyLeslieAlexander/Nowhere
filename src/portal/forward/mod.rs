@@ -7,19 +7,23 @@ mod incoming;
 mod tcp;
 mod udp;
 
+use std::sync::Arc;
+
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+
 use crate::common::{Logger, OutboundDialer};
 use crate::portal::egress::EgressSlot;
 use crate::protocol::{FlowKind, SetupResult};
 use crate::transport::{Buffers, RateLimiter, Stats};
+
 pub(crate) use incoming::Incoming;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio_util::sync::CancellationToken;
 
 pub(crate) enum Outlet {
     Network(Arc<OutboundDialer>),
     Egress(Arc<EgressSlot>),
 }
+
 pub(crate) struct Forwarder {
     pub(crate) outbound: Outlet,
     pub(crate) runtime: crate::portal::config::PortalRuntimeConfig,
@@ -30,21 +34,25 @@ pub(crate) struct Forwarder {
     pub(crate) flows: Arc<Semaphore>,
     pub(crate) shutdown: CancellationToken,
 }
+
 struct ActiveFlow {
     stats: Arc<Stats>,
     udp: bool,
 }
+
 impl ActiveFlow {
     fn new(stats: Arc<Stats>, udp: bool) -> Self {
         stats.add_flow(udp);
         Self { stats, udp }
     }
 }
+
 impl Drop for ActiveFlow {
     fn drop(&mut self) {
         self.stats.done_flow(self.udp);
     }
 }
+
 impl Forwarder {
     pub(crate) async fn serve(
         self: Arc<Self>,

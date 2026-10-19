@@ -3,12 +3,14 @@
 
 //! Incoming flow headers, setup results, and transport-specific tunnel handles.
 
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
 use crate::protocol::{FlowKind, FlowResult, SetupResult, Target};
 use crate::transport::{QuicConnection, Stats};
 use crate::vector::{BoxReader, BoxWriter, TcpTunnelGuard, UdpTunnel};
-use anyhow::{Context, Result};
-use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(crate) enum Incoming {
     Tls {
@@ -22,6 +24,7 @@ pub(crate) enum Incoming {
         connection: Arc<QuicConnection>,
     },
 }
+
 impl Incoming {
     pub(super) async fn request(&mut self) -> Result<Option<(FlowKind, Target)>> {
         match self {

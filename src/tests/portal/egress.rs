@@ -21,6 +21,7 @@ async fn egress_offline_fails_immediately_without_local_dial() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn egress_bridges_multiple_vectors_and_cleans_up_on_disconnect() {
     let (tcp, tcp_task) = tcp_echo().await;

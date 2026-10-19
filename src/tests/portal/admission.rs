@@ -13,6 +13,7 @@ impl UnauthenticatedAdmission {
             .total
     }
 }
+
 #[test]
 fn unauthenticated_budgets_bound_sources_and_reclaim_permissions() {
     let admission = Arc::new(UnauthenticatedAdmission::new());

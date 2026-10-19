@@ -3,8 +3,9 @@
 
 //! Egress configuration defaults, target dial policy, and credential redaction tests.
 
-use super::*;
 use crate::common::DialPolicy;
+
+use super::*;
 
 #[test]
 fn endpoint_accepts_only_one_quic_carrier_or_a_compact_port() {

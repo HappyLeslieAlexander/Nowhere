@@ -3,13 +3,16 @@
 
 //! SOCKS UDP receive ranges and payload borrowing through the forwarding path.
 
-use super::*;
+use std::time::Duration;
+
+use tokio::net::{TcpListener, UdpSocket};
+
 use crate::common::{
     COMMAND_UDP_ASSOCIATE, DialPolicy, OutboundDialer, REPLY_SUCCEEDED, SocksAddress, SocksConfig,
     authenticate, encode_udp_packet_into, read_request, write_reply,
 };
-use std::time::Duration;
-use tokio::net::{TcpListener, UdpSocket};
+
+use super::*;
 
 #[tokio::test]
 async fn socks_target_receiver_preserves_headers_and_borrows_payload_in_place() {

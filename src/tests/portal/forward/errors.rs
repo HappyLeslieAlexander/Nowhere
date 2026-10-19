@@ -3,9 +3,10 @@
 
 //! Preserve target setup failures when reporting the rejection also fails.
 
-use super::*;
 use crate::protocol::Target;
 use crate::vector::TcpTunnelGuard;
+
+use super::*;
 
 #[tokio::test]
 async fn failed_rejection_write_preserves_the_original_tcp_and_udp_error() {

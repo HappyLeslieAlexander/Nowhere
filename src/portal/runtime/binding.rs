@@ -3,10 +3,12 @@
 
 //! Portal startup URLs and network-family-aware listener binding.
 
-use super::*;
-use crate::portal::listener::{listen_endpoint, listen_tcp};
 use quinn::Endpoint;
 use tokio::net::TcpListener;
+
+use crate::portal::listener::{listen_endpoint, listen_tcp};
+
+use super::*;
 
 impl Portal {
     pub(in crate::portal) fn listen_endpoints(&self) -> Result<Vec<Endpoint>> {

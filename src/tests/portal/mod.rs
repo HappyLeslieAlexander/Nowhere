@@ -3,14 +3,23 @@
 
 //! Shared Portal integration harness, target servers, and transport exchange fixtures.
 
-use super::*;
-use crate::protocol::{SetupResult, Target};
-use crate::vector::{PortalClient, PortalClientConfig};
+mod conn;
+mod egress;
+mod forward;
+
 use std::time::Duration;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+use crate::protocol::{SetupResult, Target};
+use crate::vector::{PortalClient, PortalClientConfig};
+
+use super::*;
+
 const KEY: &str = "0123456789abcdef0123456789abcdef";
+
 struct Harness {
     inner: Arc<PortalInner>,
     tcp: std::net::SocketAddr,
@@ -19,6 +28,7 @@ struct Harness {
     stop: CancellationToken,
     tasks: Vec<JoinHandle<anyhow::Result<()>>>,
 }
+
 impl Harness {
     async fn new(out: &str, morph: bool) -> Self {
         Self::family(out, morph, "127.0.0.1").await
@@ -100,6 +110,7 @@ impl Harness {
         }
     }
 }
+
 impl Drop for Harness {
     fn drop(&mut self) {
         self.stop.cancel();
@@ -109,9 +120,11 @@ impl Drop for Harness {
         }
     }
 }
+
 async fn tcp_echo() -> (Target, JoinHandle<()>) {
     tcp_echo_family("127.0.0.1").await
 }
+
 async fn tcp_echo_family(host: &str) -> (Target, JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind(format!("{host}:0"))
         .await
@@ -131,9 +144,11 @@ async fn tcp_echo_family(host: &str) -> (Target, JoinHandle<()>) {
     });
     (target, task)
 }
+
 async fn udp_echo() -> (Target, JoinHandle<()>) {
     udp_echo_family("127.0.0.1").await
 }
+
 async fn udp_echo_family(host: &str) -> (Target, JoinHandle<()>) {
     let socket = tokio::net::UdpSocket::bind(format!("{host}:0"))
         .await
@@ -150,6 +165,7 @@ async fn udp_echo_family(host: &str) -> (Target, JoinHandle<()>) {
     });
     (target, task)
 }
+
 fn udp_sizes() -> Vec<usize> {
     #[cfg(target_os = "linux")]
     {
@@ -160,6 +176,7 @@ fn udp_sizes() -> Vec<usize> {
         vec![0, 1, 1024, 8000]
     }
 }
+
 async fn exchange(client: &Arc<PortalClient>, tcp: &Target, udp: &Target) {
     let mut tunnel = client.open_tcp(tcp).await.unwrap();
     let payload = vec![42; 131072];
@@ -195,7 +212,3 @@ impl super::egress::EgressSlot {
         self.connection().is_ok()
     }
 }
-
-mod conn;
-mod egress;
-mod forward;

@@ -3,14 +3,19 @@
 
 //! Portal listener supervision, independent telemetry, and graceful shutdown.
 
-use super::{Portal, PortalInner, conn};
-use crate::common::ShutdownSignals;
-use crate::telemetry::TelemetryServer;
-use anyhow::{Context, Result};
+mod binding;
+
 use std::sync::Arc;
+
+use anyhow::{Context, Result};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-mod binding;
+
+use crate::common::ShutdownSignals;
+use crate::telemetry::TelemetryServer;
+
+use super::{Portal, PortalInner, conn};
+
 impl Portal {
     pub async fn run(self) -> Result<()> {
         let forward = &self.inner.forward;
@@ -87,6 +92,7 @@ impl Portal {
         Ok(())
     }
 }
+
 pub(super) async fn tcp_loop(
     portal: Arc<PortalInner>,
     listener: tokio::net::TcpListener,
@@ -119,6 +125,7 @@ pub(super) async fn tcp_loop(
     while tasks.join_next().await.is_some() {}
     result
 }
+
 pub(super) async fn quic_loop(
     portal: Arc<PortalInner>,
     endpoint: quinn::Endpoint,

@@ -8,10 +8,11 @@ mod registration;
 mod runtime;
 mod setup;
 
+use std::sync::Arc;
+
 use crate::portal::forward::Forwarder;
 use crate::protocol::Credentials;
 use crate::vector::{PortalClientConfig, tls::ClientTls};
-use std::sync::Arc;
 
 pub struct Egress {
     config: PortalClientConfig,

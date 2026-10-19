@@ -3,13 +3,16 @@
 
 //! Egress QUIC connection ownership, authenticated stream serving, and reconnects.
 
-use super::Egress;
+use std::sync::Arc;
+
+use anyhow::{Result, bail};
+use tokio::task::JoinSet;
+
 use crate::portal::forward::Incoming;
 use crate::transport::QuicConnection;
 use crate::vector::client::connect_quic;
-use anyhow::{Result, bail};
-use std::sync::Arc;
-use tokio::task::JoinSet;
+
+use super::Egress;
 
 impl Egress {
     pub(super) async fn maintain(&self) {
@@ -100,9 +103,11 @@ impl Egress {
         Ok(())
     }
 }
+
 struct Registered {
     connection: Arc<QuicConnection>,
 }
+
 impl Drop for Registered {
     fn drop(&mut self) {
         self.connection.close();

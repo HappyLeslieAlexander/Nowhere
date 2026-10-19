@@ -3,9 +3,9 @@
 
 //! Portal TLS/QUIC forwarding matrices, Morph, IPv6, and TCP half-close tests.
 
-use super::*;
-
 mod socks;
+
+use super::*;
 
 #[tokio::test]
 async fn direct_tls_quic_tcp_udp_morph_and_half_close() {

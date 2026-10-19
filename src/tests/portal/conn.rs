@@ -3,8 +3,9 @@
 
 //! Portal authentication, role direction, setup cancellation, and UDP cleanup regressions.
 
-use super::*;
 use crate::protocol::{AuthTransport, encode_auth_frame};
+
+use super::*;
 
 #[tokio::test]
 async fn shutdown_cancels_incomplete_tcp_handshakes() {
@@ -60,6 +61,7 @@ async fn connect(h: &Harness) -> (quinn::Endpoint, quinn::Connection) {
         .await
         .unwrap()
 }
+
 fn tag(q: &quinn::Connection, egress: bool) -> [u8; 16] {
     let mut exporter = [0; 32];
     q.export_keying_material(&mut exporter, crate::protocol::AUTH_EXPORTER_LABEL, b"")
@@ -71,11 +73,13 @@ fn tag(q: &quinn::Connection, egress: bool) -> [u8; 16] {
         &exporter,
     )
 }
+
 async fn request(send: &mut quinn::SendStream, kind: u8, target: &Target) {
     let mut bytes = vec![kind];
     bytes.extend(crate::protocol::encode_target(target).unwrap());
     send.write_all(&bytes).await.unwrap();
 }
+
 async fn result(recv: &mut quinn::RecvStream) -> SetupResult {
     SetupResult::from(
         tokio::time::timeout(
@@ -87,6 +91,7 @@ async fn result(recv: &mut quinn::RecvStream) -> SetupResult {
         .unwrap(),
     )
 }
+
 #[tokio::test]
 async fn first_flow_pipelines_auth_and_target_without_an_auth_ack() {
     let h = Harness::new("direct", false).await;
@@ -105,6 +110,7 @@ async fn first_flow_pipelines_auth_and_target_without_an_auth_ack() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn invalid_or_truncated_target_rejects_only_the_flow() {
     let h = Harness::new("direct", false).await;
@@ -131,6 +137,7 @@ async fn invalid_or_truncated_target_rejects_only_the_flow() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn connection_replay_authentication_failure_never_dials_or_claims_a_slot() {
     let h = Harness::new("egress", false).await;
@@ -149,6 +156,7 @@ async fn connection_replay_authentication_failure_never_dials_or_claims_a_slot()
     e2.wait_idle().await;
     h.close().await;
 }
+
 #[tokio::test]
 async fn slot_busy_role_direction_and_old_owner_cleanup() {
     let h = Harness::new("egress", false).await;
@@ -192,6 +200,7 @@ async fn slot_busy_role_direction_and_old_owner_cleanup() {
     e1.wait_idle().await;
     h.close().await;
 }
+
 #[tokio::test]
 async fn persistent_udp_control_fin_reclaims_without_close_datagram() {
     let h = Harness::new("direct", false).await;
@@ -254,6 +263,7 @@ async fn persistent_udp_control_fin_reclaims_without_close_datagram() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn tls_replay_fails_on_fresh_and_resumed_connections() {
     let h = Harness::new("direct", false).await;
@@ -324,6 +334,7 @@ async fn tls_replay_fails_on_fresh_and_resumed_connections() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn flow_limit_is_per_flow_and_other_flows_survive() {
     let h = Harness::new("direct", false).await;
@@ -356,6 +367,7 @@ async fn flow_limit_is_per_flow_and_other_flows_survive() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn egress_reconnects_with_new_owner_and_does_not_recover_old_flows() {
     let h = Harness::new("egress", false).await;
@@ -407,6 +419,7 @@ async fn egress_reconnects_with_new_owner_and_does_not_recover_old_flows() {
     let _ = task.await;
     h.close().await;
 }
+
 #[tokio::test]
 async fn udp_reset_and_stop_sending_reclaim_only_the_owned_flow() {
     let h = Harness::new("direct", false).await;
@@ -446,6 +459,7 @@ async fn udp_reset_and_stop_sending_reclaim_only_the_owned_flow() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn quic_udp_without_datagram_capability_rejects_flow() {
     let h = Harness::new("direct", false).await;
@@ -473,6 +487,7 @@ async fn quic_udp_without_datagram_capability_rejects_flow() {
     h.close().await;
     echo.abort();
 }
+
 #[tokio::test]
 async fn pre_ready_unknown_and_auth_only_datagrams_never_reach_target() {
     let h = Harness::new("direct", false).await;
@@ -510,6 +525,7 @@ async fn pre_ready_unknown_and_auth_only_datagrams_never_reach_target() {
     endpoint.wait_idle().await;
     h.close().await;
 }
+
 #[tokio::test]
 async fn stream_id_exhaustion_enters_bounded_drain_without_truncation() {
     let h = Harness::new("direct", false).await;
@@ -531,6 +547,7 @@ async fn stream_id_exhaustion_enters_bounded_drain_without_truncation() {
     endpoint.wait_idle().await;
     h.close().await;
 }
+
 #[tokio::test]
 async fn ipv6_target_and_source_bind_failures_have_no_fallback() {
     let target = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();

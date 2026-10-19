@@ -3,15 +3,19 @@
 
 //! Single-connection Egress Slot ownership and outbound TCP/UDP stream setup.
 
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context, Result};
+
 use crate::protocol::{Carrier, FlowKind, SetupResult, Target};
 use crate::transport::{QuicConnection, Stats};
 use crate::vector::{TcpTunnel, TcpTunnelGuard, UdpTunnel};
-use anyhow::{Context, Result};
-use std::sync::{Arc, Mutex};
+
 #[derive(Default)]
 pub(crate) struct EgressSlot {
     owner: Mutex<Option<Arc<QuicConnection>>>,
 }
+
 impl EgressSlot {
     pub(crate) fn claim(&self, connection: Arc<QuicConnection>) -> bool {
         let mut slot = self.owner.lock().unwrap();
@@ -40,6 +44,7 @@ impl EgressSlot {
             .context("Egress offline")
     }
 }
+
 pub(crate) async fn open_tcp(q: Arc<QuicConnection>, target: &Target) -> Result<TcpTunnel> {
     let (send, recv) = open(q, FlowKind::Tcp, target).await?;
     Ok(TcpTunnel::new(
@@ -49,6 +54,7 @@ pub(crate) async fn open_tcp(q: Arc<QuicConnection>, target: &Target) -> Result<
         TcpTunnelGuard { _flow: None },
     ))
 }
+
 pub(crate) async fn open_udp(
     q: Arc<QuicConnection>,
     target: &Target,
@@ -63,6 +69,7 @@ pub(crate) async fn open_udp(
     tunnel.activate();
     Ok(tunnel)
 }
+
 async fn open(
     q: Arc<QuicConnection>,
     kind: FlowKind,
@@ -74,6 +81,7 @@ async fn open(
     ready(&mut recv).await?;
     Ok((send, recv))
 }
+
 async fn write_request(
     send: &mut quinn::SendStream,
     kind: FlowKind,
@@ -84,6 +92,7 @@ async fn write_request(
     send.write_all(&bytes[..size]).await?;
     Ok(())
 }
+
 async fn ready(recv: &mut quinn::RecvStream) -> Result<()> {
     let result = tokio::time::timeout(
         crate::common::flow_setup_timeout(),

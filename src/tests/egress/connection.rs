@@ -3,10 +3,12 @@
 
 //! Egress registration ordering, target dialing barriers, and online lifecycle tests.
 
-use super::*;
+use url::Url;
+
 use crate::common::Logger;
 use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, Credentials};
-use url::Url;
+
+use super::*;
 
 #[tokio::test]
 async fn shutdown_cancels_pending_connection_and_registration() {

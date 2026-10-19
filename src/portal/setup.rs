@@ -3,11 +3,13 @@
 
 //! Portal construction from URL configuration.
 
-use super::{
-    Portal, PortalInner, admission,
-    egress::EgressSlot,
-    forward::{Forwarder, Outlet},
-};
+use std::sync::Arc;
+
+use anyhow::Result;
+use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
+use url::Url;
+
 use crate::common::{
     DEFAULT_RATE_LIMIT, DialPolicy, Logger, OutboundDialer, ServiceEndpoint, SocksConfig,
     new_server_configs_with_reload_interval, query_first, rate_limit_bytes_per_second,
@@ -15,14 +17,17 @@ use crate::common::{
 };
 use crate::protocol::Credentials;
 use crate::transport::{Buffers, MorphKeys, RateLimiter, Stats};
-use anyhow::Result;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio_util::sync::CancellationToken;
-use url::Url;
+
+use super::{
+    Portal, PortalInner, admission,
+    egress::EgressSlot,
+    forward::{Forwarder, Outlet},
+};
+
 const PORTAL_QUERY_PARAMETERS: &[&str] = &[
     "tls", "crt", "key", "rate", "etar", "dial", "dial4", "dial6", "morph", "out",
 ];
+
 impl Portal {
     pub fn new_with_listen_host(
         url: Url,
@@ -137,6 +142,7 @@ impl Portal {
         })
     }
 }
+
 fn validate_query(query: &std::collections::HashMap<String, String>) -> Result<()> {
     for name in ["tls", "crt", "key", "rate", "etar", "dial", "out"] {
         if query.get(name).is_some_and(String::is_empty) {

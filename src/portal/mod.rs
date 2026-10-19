@@ -11,17 +11,23 @@ pub(crate) mod forward;
 mod listener;
 mod runtime;
 mod setup;
-use self::config::PortalRuntimeConfig;
+
+use std::sync::Arc;
+
+use anyhow::Result;
+use tokio::sync::Semaphore;
+use url::Url;
+
 use crate::common::Logger;
 use crate::protocol::Credentials;
 use crate::transport::MorphKeys;
-use anyhow::Result;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use url::Url;
+
+use self::config::PortalRuntimeConfig;
+
 pub struct Portal {
     inner: Arc<PortalInner>,
 }
+
 struct PortalInner {
     credentials: Credentials,
     morph_keys: Option<MorphKeys>,
@@ -38,6 +44,7 @@ struct PortalInner {
     effective: String,
     runtime: PortalRuntimeConfig,
 }
+
 impl Portal {
     pub fn new(url: Url, logger: Logger) -> Result<Self> {
         Self::new_with_listen_host(url, None, logger)

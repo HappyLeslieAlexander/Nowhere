@@ -3,14 +3,17 @@
 
 //! SOCKS5 proxy fixtures and Portal forwarding matrices with encoded credentials.
 
-use super::*;
 use crate::common::{
     COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, REPLY_SUCCEEDED, SocksAddress, authenticate,
     decode_udp_packet, encode_udp_packet_into, read_request, write_reply,
 };
+
+use super::*;
+
 async fn proxy() -> (std::net::SocketAddr, JoinHandle<()>) {
     proxy_family("127.0.0.1").await
 }
+
 pub(super) async fn proxy_family(host: &str) -> (std::net::SocketAddr, JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind(format!("{host}:0"))
         .await
@@ -73,6 +76,7 @@ pub(super) async fn proxy_family(host: &str) -> (std::net::SocketAddr, JoinHandl
     });
     (address, task)
 }
+
 #[tokio::test]
 async fn socks_exit_tls_quic_tcp_udp_morph_and_encoded_credentials() {
     let (address, proxy) = proxy().await;

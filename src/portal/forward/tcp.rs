@@ -3,14 +3,17 @@
 
 //! TCP target dialing, Egress bridging, half-close relay, and traffic accounting.
 
-use super::{ActiveFlow, Forwarder, Incoming, Outlet};
+use std::sync::atomic::Ordering;
+
+use anyhow::{Context, Result};
+use tokio::io::AsyncWriteExt;
+use tokio_util::sync::CancellationToken;
+
 use crate::portal::egress;
 use crate::protocol::{SetupResult, Target};
 use crate::vector::{BoxReader, BoxWriter};
-use anyhow::{Context, Result};
-use std::sync::atomic::Ordering;
-use tokio::io::AsyncWriteExt;
-use tokio_util::sync::CancellationToken;
+
+use super::{ActiveFlow, Forwarder, Incoming, Outlet};
 
 impl Forwarder {
     pub(super) async fn tcp(

@@ -3,14 +3,17 @@
 
 //! TLS and QUIC ingress authentication, role enforcement, and flow dispatch.
 
-use super::{PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming};
+use std::sync::Arc;
+
+use anyhow::{Context, Result, bail};
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
+
 use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, ConnectionRole, read_auth_frame};
 use crate::transport::{MorphTcpStream, QuicConnection};
 use crate::vector::TcpTunnelGuard;
-use anyhow::{Context, Result, bail};
-use std::sync::Arc;
-use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
+
+use super::{PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming};
 
 pub(super) async fn tcp(
     portal: Arc<PortalInner>,
@@ -63,15 +66,18 @@ pub(super) async fn tcp(
         .await;
     Ok(())
 }
+
 struct SlotOwner {
     slot: Arc<EgressSlot>,
     connection: Arc<QuicConnection>,
 }
+
 impl Drop for SlotOwner {
     fn drop(&mut self) {
         self.slot.release(&self.connection);
     }
 }
+
 pub(super) async fn quic(
     portal: Arc<PortalInner>,
     incoming: quinn::Incoming,
@@ -87,6 +93,7 @@ pub(super) async fn quic(
     connection.close(0u32.into(), b"connection ended");
     result
 }
+
 async fn quic_authenticated(
     portal: Arc<PortalInner>,
     connection: quinn::Connection,
