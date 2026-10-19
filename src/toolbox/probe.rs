@@ -18,7 +18,7 @@ use crate::vector::{PortalClient, PortalClientConfig};
 use super::diagnostic::connection_failure_reason;
 use super::format::{format_duration, panel};
 
-pub(crate) struct ToolboxClient {
+pub(crate) struct ProbeClient {
     config: PortalClientConfig,
     credentials: Credentials,
 }
@@ -32,7 +32,7 @@ pub(crate) struct ProbeReport {
     pub(crate) cleanup: Result<()>,
 }
 
-impl ToolboxClient {
+impl ProbeClient {
     pub(crate) fn parse(url: &Url) -> Result<Self> {
         let (config, credentials) = PortalClientConfig::from_probe_url(url)?;
         Ok(Self {
@@ -142,8 +142,8 @@ fn setup_name(result: SetupResult) -> String {
     result.as_str().replace(' ', "_").to_ascii_uppercase()
 }
 
-fn parse_client(url: &Url) -> Result<ToolboxClient> {
-    ToolboxClient::parse(url).context("invalid Vector configuration")
+fn parse_client(url: &Url) -> Result<ProbeClient> {
+    ProbeClient::parse(url).context("invalid Vector configuration")
 }
 
 #[cfg(test)]

@@ -48,7 +48,7 @@ fn toolbox_configuration_errors_explain_the_failure_without_echoing_values() {
 #[test]
 fn toolbox_probe_url_allows_missing_socks() {
     let url = Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000").unwrap();
-    assert!(ToolboxClient::parse(&url).is_ok());
+    assert!(ProbeClient::parse(&url).is_ok());
 }
 
 #[test]
@@ -61,7 +61,7 @@ async fn failed_probe_keeps_the_underlying_io_error() {
     let unavailable = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = unavailable.local_addr().unwrap();
     drop(unavailable);
-    let client = ToolboxClient::parse(
+    let client = ProbeClient::parse(
         &Url::parse(&format!(
             "vector://0123456789abcdef0123456789abcdef@{endpoint}"
         ))
