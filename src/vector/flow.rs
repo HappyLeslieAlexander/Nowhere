@@ -90,7 +90,7 @@ impl FlowGuard {
 
 impl Drop for FlowGuard {
     fn drop(&mut self) {
-        self.stats.done_flow(self.udp);
+        self.stats.remove_flow(self.udp);
     }
 }
 

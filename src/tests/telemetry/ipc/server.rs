@@ -59,7 +59,7 @@ async fn immediate_and_periodic_statistics_require_no_commands() {
     };
     assert_eq!(first.tcp_upload_bytes, 3072);
     assert_eq!(first.tcp_active, 1);
-    stats.done_flow(false);
+    stats.remove_flow(false);
     let ServerMessage::Snapshot(next) =
         tokio::time::timeout(Duration::from_secs(2), reader.next_message())
             .await

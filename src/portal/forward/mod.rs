@@ -49,7 +49,7 @@ impl ActiveFlow {
 
 impl Drop for ActiveFlow {
     fn drop(&mut self) {
-        self.stats.done_flow(self.udp);
+        self.stats.remove_flow(self.udp);
     }
 }
 
