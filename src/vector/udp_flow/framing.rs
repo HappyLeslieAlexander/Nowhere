@@ -3,7 +3,10 @@
 
 //! Cancellation-safe UDP-over-stream packet decoding.
 
-use super::*;
+use anyhow::{Context, Result, bail};
+use tokio::io::AsyncReadExt;
+
+use super::BoxReader;
 
 #[derive(Default)]
 pub(super) struct UotReadState {

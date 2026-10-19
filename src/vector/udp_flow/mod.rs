@@ -4,24 +4,25 @@
 //! UDP tunnel handles, transport framing, payload ownership, and traffic accounting.
 
 mod framing;
+mod io;
 
-use std::ops::Range;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use bytes::Bytes;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::common::{BudgetedDatagram, UdpDatagramSend};
-use crate::protocol::{FlowKind, Target, write_udp_packet};
+use crate::common::BudgetedDatagram;
+use crate::protocol::{FlowKind, Target};
 use crate::transport::{QuicConnection, Stats, UdpRoute};
 
 use super::PortalClient;
 use super::flow::{BoxReader, BoxWriter, FlowGuard, OpenFlowError, TcpTunnelGuard};
 use framing::UotReadState;
+
+pub(crate) use self::io::ReceivedUdpPacket;
 
 pub(crate) struct UdpTunnel {
     sender: UdpTunnelSender,
@@ -100,6 +101,7 @@ impl UdpTunnel {
             cancel,
         }
     }
+
     pub(crate) fn quic(
         route: UdpRoute,
         datagrams: mpsc::Receiver<BudgetedDatagram>,
@@ -148,26 +150,32 @@ impl UdpTunnel {
             cancel,
         }
     }
+
     pub(crate) fn activate(&self) {
         if let Some(route) = &self._route {
             route.activate();
         }
     }
+
     pub(crate) fn cancellation(&self) -> CancellationToken {
         self.cancel.clone()
     }
+
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<bool> {
         self.sender.send(payload).await
     }
+
     pub(crate) async fn recv_into(
         &mut self,
         payload: &mut Vec<u8>,
     ) -> Result<Option<ReceivedUdpPacket>> {
         self.receiver.recv_into(payload).await
     }
+
     pub(crate) fn split_mut(&mut self) -> (&mut UdpTunnelSender, &mut UdpTunnelReceiver) {
         (&mut self.sender, &mut self.receiver)
     }
+
     pub(crate) async fn close(&mut self) {
         self.cancel.cancel();
         match &mut self.sender.transport {
@@ -190,86 +198,6 @@ impl UdpTunnel {
 impl Drop for UdpTunnel {
     fn drop(&mut self) {
         self.cancel.cancel();
-    }
-}
-
-impl UdpTunnelSender {
-    pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<bool> {
-        if self.cancel.is_cancelled() {
-            bail!("UDP Flow closed");
-        }
-        let sent = match &mut self.transport {
-            UdpSendTransport::Stream(writer) => {
-                write_udp_packet(writer, payload).await?;
-                true
-            }
-            UdpSendTransport::Quic {
-                connection,
-                id,
-                packet_id,
-            } => {
-                crate::common::send_quic_udp_packet(&connection.connection, *id, packet_id, payload)
-                    .await?
-                    == UdpDatagramSend::Sent
-            }
-        };
-        if sent && self.account {
-            self.stats
-                .udp_upload_bytes
-                .fetch_add(payload.len() as u64, Ordering::Relaxed);
-        }
-        Ok(sent)
-    }
-}
-
-impl UdpTunnelReceiver {
-    pub(crate) async fn recv_into(
-        &mut self,
-        payload: &mut Vec<u8>,
-    ) -> Result<Option<ReceivedUdpPacket>> {
-        let packet = tokio::select! {
-            biased;
-            _ = self.cancel.cancelled() => return Ok(None),
-            packet = async {
-                match &mut self.transport {
-                    UdpReceiveTransport::Stream { reader, framing } => {
-                        Ok::<_, anyhow::Error>(framing.read_packet(reader, payload).await?
-                            .map(|size| ReceivedUdpPacket::Buffered(0..size)))
-                    }
-                    UdpReceiveTransport::Quic(datagrams) => {
-                        Ok(datagrams.recv().await.map(ReceivedUdpPacket::Owned))
-                    }
-                }
-            } => packet,
-        }?;
-        if let Some(packet) = &packet
-            && self.account
-        {
-            self.stats
-                .udp_download_bytes
-                .fetch_add(packet.len() as u64, Ordering::Relaxed);
-        }
-        Ok(packet)
-    }
-}
-
-pub(crate) enum ReceivedUdpPacket {
-    Buffered(Range<usize>),
-    Owned(BudgetedDatagram),
-}
-
-impl ReceivedUdpPacket {
-    pub(crate) fn len(&self) -> usize {
-        match self {
-            Self::Buffered(range) => range.len(),
-            Self::Owned(bytes) => bytes.payload.len(),
-        }
-    }
-    pub(crate) fn payload<'a>(&'a self, buffer: &'a [u8]) -> &'a [u8] {
-        match self {
-            Self::Buffered(range) => &buffer[range.clone()],
-            Self::Owned(bytes) => &bytes.payload,
-        }
     }
 }
 
@@ -310,5 +238,5 @@ pub(crate) async fn open_udp(
 }
 
 #[cfg(test)]
-#[path = "../tests/vector/udp_flow.rs"]
+#[path = "../../tests/vector/udp_flow/mod.rs"]
 mod tests;
