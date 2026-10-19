@@ -24,8 +24,7 @@ use crate::common::{
     udp_data_buf_size,
 };
 use crate::protocol::Credentials;
-use crate::telemetry::InstanceRole;
-use crate::telemetry::TelemetryServer;
+use crate::telemetry::{InstanceRole, TelemetryServer};
 use crate::transport::{Buffers, RateLimiter, Stats};
 
 use self::config::VectorConfig;
@@ -51,6 +50,7 @@ impl Vector {
     pub fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
         ForwardVector::new(parsed_url, logger).map(|runtime| Self { runtime })
     }
+
     pub async fn run(self) -> Result<()> {
         self.runtime.run().await
     }

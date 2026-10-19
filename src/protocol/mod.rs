@@ -30,10 +30,9 @@ pub const ALPN: &[u8] = b"nw3";
 #[cfg(test)]
 #[path = "../tests/protocol/support.rs"]
 mod test_support;
-
-#[cfg(test)]
-pub(crate) use test_support::*;
-
 #[cfg(test)]
 #[path = "../tests/protocol/mod.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(crate) use test_support::*;

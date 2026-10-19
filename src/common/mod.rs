@@ -40,5 +40,4 @@ pub(crate) use socks::{
     encode_udp_packet_into, format_host_port, parse_host_port, parse_socks_value, read_request,
     write_reply,
 };
-pub(crate) use tls::certificate_sha256;
-pub(crate) use tls::new_server_configs_with_reload_interval;
+pub(crate) use tls::{certificate_sha256, new_server_configs_with_reload_interval};
