@@ -4,6 +4,7 @@
 //! Vector carrier selection, defaults, query validation, and effective configuration tests.
 
 use super::*;
+
 fn parse(query: &str) -> Result<VectorConfig> {
     VectorConfig::from_url(
         &Url::parse(&format!(
@@ -12,6 +13,7 @@ fn parse(query: &str) -> Result<VectorConfig> {
         .unwrap(),
     )
 }
+
 #[test]
 fn defaults_and_unknown_options_are_ignored() {
     let config = parse("unused=garbage&net=%ZZ&unknown=%ZZ").unwrap();
@@ -26,6 +28,7 @@ fn defaults_and_unknown_options_are_ignored() {
     assert_eq!(parse("net=udp&net=bad").unwrap().net, CarrierMode::Tcp);
     assert!(parse("net=bad&net=udp").is_ok());
 }
+
 #[test]
 fn recognized_invalid_values_and_missing_ingress_fail() {
     for query in ["morph=2", "rate=-1", "etar=no", "pin=bad"] {
@@ -98,6 +101,7 @@ fn endpoint_selects_one_carrier_and_address_family() {
         assert!(error.to_string().contains("exactly one carrier"));
     }
 }
+
 #[test]
 fn ingress_credentials_split_before_single_decode_and_are_redacted() {
     let url = Url::parse(

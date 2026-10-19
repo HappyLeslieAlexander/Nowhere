@@ -3,21 +3,25 @@
 
 //! Validated `vector://` URL parsing with first-value query semantics.
 
+use std::collections::HashMap;
+
+use anyhow::{Result, anyhow, bail};
+use url::Url;
+
 use crate::common::{
     CarrierEndpoint, DialPolicy, ServiceEndpoint, SocksCredentials, first_raw_query_value,
     format_host_port, parse_host_port, parse_socks_value, query_first,
 };
 use crate::transport::MorphKeys;
-use anyhow::{Result, anyhow, bail};
-use std::collections::HashMap;
-use url::Url;
 
 const VECTOR_QUERY_KEYS: &[&str] = &["in", "sni", "pin", "rate", "etar", "morph"];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CarrierMode {
     Tcp,
     Udp,
 }
+
 impl CarrierMode {
     pub(crate) const fn carrier(self) -> crate::protocol::Carrier {
         match self {
@@ -26,6 +30,7 @@ impl CarrierMode {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub(crate) struct PortalClientConfig {
     pub(crate) remote: ServiceEndpoint,
@@ -36,6 +41,7 @@ pub(crate) struct PortalClientConfig {
     pub(crate) pin: Option<String>,
     pub(crate) dial_policy: DialPolicy,
 }
+
 impl PortalClientConfig {
     pub(crate) fn parse(url: &Url, query: &HashMap<String, String>) -> Result<Self> {
         let context = match url.scheme() {
@@ -157,12 +163,14 @@ impl PortalClientConfig {
         self.remote.udp
     }
 }
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SocksListenConfig {
     pub(super) host: String,
     pub(super) port: u16,
     pub(super) credentials: Option<SocksCredentials>,
 }
+
 impl SocksListenConfig {
     fn from_url(url: &Url) -> Result<Self> {
         let raw = first_raw_query_value(url, "in")
@@ -179,6 +187,7 @@ impl SocksListenConfig {
         format_host_port(&self.host, self.port)
     }
 }
+
 #[derive(Clone, Debug)]
 pub(crate) struct VectorConfig {
     pub(crate) portal: PortalClientConfig,
@@ -186,12 +195,14 @@ pub(crate) struct VectorConfig {
     pub(super) etar_mbps: i32,
     pub(super) socks: SocksListenConfig,
 }
+
 impl std::ops::Deref for VectorConfig {
     type Target = PortalClientConfig;
     fn deref(&self) -> &Self::Target {
         &self.portal
     }
 }
+
 impl VectorConfig {
     pub(super) fn from_url(url: &Url) -> Result<Self> {
         let (portal, _) = PortalClientConfig::from_probe_url(url)?;
@@ -219,11 +230,13 @@ impl VectorConfig {
         )
     }
 }
+
 fn validate_options(query: &HashMap<String, String>) -> Result<()> {
     parse_rate(query.get("rate").map(String::as_str), "rate")?;
     parse_rate(query.get("etar").map(String::as_str), "etar")?;
     Ok(())
 }
+
 fn parse_rate(value: Option<&str>, name: &str) -> Result<i32> {
     match value {
         None => Ok(0),
@@ -234,6 +247,7 @@ fn parse_rate(value: Option<&str>, name: &str) -> Result<i32> {
             .ok_or_else(|| anyhow!("{name} must be a non-negative integer")),
     }
 }
+
 #[cfg(test)]
 #[path = "../tests/vector/config.rs"]
 mod tests;

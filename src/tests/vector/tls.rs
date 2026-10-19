@@ -3,14 +3,16 @@
 
 //! TLS verifier selection and certificate validation tests.
 
-use super::*;
-use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::time::Duration;
+
+use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 use crate::common::certificate_sha256;
 use crate::vector::config::VectorConfig;
+
+use super::*;
 
 fn vector_config(raw: &str) -> VectorConfig {
     VectorConfig::from_url(&url::Url::parse(raw).unwrap()).unwrap()

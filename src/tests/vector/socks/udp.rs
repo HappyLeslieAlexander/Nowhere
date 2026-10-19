@@ -3,12 +3,15 @@
 
 //! SOCKS5 UDP source validation, target admission, and association shutdown tests.
 
-use super::*;
-use crate::common::Logger;
-use crate::vector::ForwardVector as Vector;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+
 use url::Url;
+
+use crate::common::Logger;
+use crate::vector::ForwardVector as Vector;
+
+use super::*;
 
 #[test]
 fn source_request_rejects_other_ips_and_domains() {

@@ -3,6 +3,9 @@
 
 //! SOCKS5 TCP listener, CONNECT dispatch, and UDP associations.
 
+#[path = "udp.rs"]
+mod udp;
+
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -25,14 +28,11 @@ use crate::common::{
     read_request, udp_idle_timeout, write_reply,
 };
 
+use self::udp::run_udp_association;
 use super::super::VectorInner;
 use super::super::flow::{open_tcp, relay_tcp, to_target};
 use super::super::udp_flow::{UdpTunnel, open_udp};
 
-#[path = "udp.rs"]
-mod udp;
-
-use self::udp::run_udp_association;
 const TCP_LISTEN_BACKLOG: i32 = 1024;
 const SOCKS_UDP_PACKET_MAX: usize = u16::MAX as usize + 3 + 1 + 1 + 255 + 2;
 

@@ -19,12 +19,6 @@ use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-pub(crate) use self::client::PortalClient;
-pub(crate) use self::config::PortalClientConfig;
-use self::config::VectorConfig;
-pub(crate) use self::flow::{BoxReader, BoxWriter, OpenFlowError, TcpTunnel, TcpTunnelGuard};
-pub(crate) use self::tls::fetch_certificate_fingerprint;
-pub(crate) use self::udp_flow::{ReceivedUdpPacket, UdpTunnel, UdpTunnelReceiver, UdpTunnelSender};
 use crate::common::{
     Logger, ShutdownSignals, rate_limit_bytes_per_second, shutdown_timeout, tcp_data_buf_size,
     udp_data_buf_size,
@@ -34,15 +28,25 @@ use crate::telemetry::InstanceRole;
 use crate::telemetry::TelemetryServer;
 use crate::transport::{Buffers, RateLimiter, Stats};
 
+use self::config::VectorConfig;
+
+pub(crate) use self::client::PortalClient;
+pub(crate) use self::config::PortalClientConfig;
+pub(crate) use self::flow::{BoxReader, BoxWriter, OpenFlowError, TcpTunnel, TcpTunnelGuard};
+pub(crate) use self::tls::fetch_certificate_fingerprint;
+pub(crate) use self::udp_flow::{ReceivedUdpPacket, UdpTunnel, UdpTunnelReceiver, UdpTunnelSender};
+
 const SOCKS_CLIENT_RESOURCE_LIMIT: usize = 1024;
 const SOCKS_UDP_TARGET_RESOURCE_LIMIT: usize = 1024;
 
 pub struct Vector {
     runtime: ForwardVector,
 }
+
 struct ForwardVector {
     inner: Arc<VectorInner>,
 }
+
 impl Vector {
     pub fn new(parsed_url: Url, logger: Logger) -> Result<Self> {
         ForwardVector::new(parsed_url, logger).map(|runtime| Self { runtime })

@@ -4,20 +4,24 @@
 //! UDP tunnel handles, transport framing, payload ownership, and traffic accounting.
 
 mod framing;
-use super::PortalClient;
-use super::flow::{BoxReader, BoxWriter, FlowGuard, OpenFlowError, TcpTunnelGuard};
-use crate::common::{BudgetedDatagram, UdpDatagramSend};
-use crate::protocol::{FlowKind, Target, write_udp_packet};
-use crate::transport::{QuicConnection, Stats, UdpRoute};
-use anyhow::{Context, Result, bail};
-use bytes::Bytes;
-use framing::UotReadState;
+
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+
+use anyhow::{Context, Result, bail};
+use bytes::Bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
+use crate::common::{BudgetedDatagram, UdpDatagramSend};
+use crate::protocol::{FlowKind, Target, write_udp_packet};
+use crate::transport::{QuicConnection, Stats, UdpRoute};
+
+use super::PortalClient;
+use super::flow::{BoxReader, BoxWriter, FlowGuard, OpenFlowError, TcpTunnelGuard};
+use framing::UotReadState;
 
 pub(crate) struct UdpTunnel {
     sender: UdpTunnelSender,
@@ -27,18 +31,21 @@ pub(crate) struct UdpTunnel {
     _route: Option<UdpRoute>,
     cancel: CancellationToken,
 }
+
 pub(crate) struct UdpTunnelSender {
     transport: UdpSendTransport,
     stats: Arc<Stats>,
     account: bool,
     cancel: CancellationToken,
 }
+
 pub(crate) struct UdpTunnelReceiver {
     transport: UdpReceiveTransport,
     stats: Arc<Stats>,
     account: bool,
     cancel: CancellationToken,
 }
+
 enum UdpSendTransport {
     Stream(BoxWriter),
     Quic {
@@ -47,6 +54,7 @@ enum UdpSendTransport {
         packet_id: u32,
     },
 }
+
 enum UdpReceiveTransport {
     Stream {
         reader: BoxReader,
@@ -54,6 +62,7 @@ enum UdpReceiveTransport {
     },
     Quic(mpsc::Receiver<BudgetedDatagram>),
 }
+
 impl UdpTunnel {
     pub(crate) fn stream(
         reader: BoxReader,
@@ -177,11 +186,13 @@ impl UdpTunnel {
         }
     }
 }
+
 impl Drop for UdpTunnel {
     fn drop(&mut self) {
         self.cancel.cancel();
     }
 }
+
 impl UdpTunnelSender {
     pub(crate) async fn send(&mut self, payload: &[u8]) -> Result<bool> {
         if self.cancel.is_cancelled() {
@@ -210,6 +221,7 @@ impl UdpTunnelSender {
         Ok(sent)
     }
 }
+
 impl UdpTunnelReceiver {
     pub(crate) async fn recv_into(
         &mut self,
@@ -240,10 +252,12 @@ impl UdpTunnelReceiver {
         Ok(packet)
     }
 }
+
 pub(crate) enum ReceivedUdpPacket {
     Buffered(Range<usize>),
     Owned(BudgetedDatagram),
 }
+
 impl ReceivedUdpPacket {
     pub(crate) fn len(&self) -> usize {
         match self {
@@ -258,6 +272,7 @@ impl ReceivedUdpPacket {
         }
     }
 }
+
 pub(crate) async fn open_udp(
     client: Arc<PortalClient>,
     target: &Target,

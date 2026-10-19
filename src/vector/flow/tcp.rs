@@ -3,8 +3,9 @@
 
 //! TCP tunnel setup and bidirectional relay.
 
-use super::*;
 use crate::transport::{read_owned, read_owned_from, read_with_flush, write_owned, write_owned_to};
+
+use super::*;
 
 pub(crate) struct TcpTunnel {
     reader: BoxReader,
@@ -12,9 +13,11 @@ pub(crate) struct TcpTunnel {
     _guard: TcpTunnelGuard,
     carrier: Carrier,
 }
+
 pub(crate) struct TcpTunnelGuard {
     pub(crate) _flow: Option<FlowGuard>,
 }
+
 impl TcpTunnel {
     pub(crate) fn new(
         reader: BoxReader,
@@ -42,6 +45,7 @@ impl TcpTunnel {
         self.writer.shutdown().await
     }
 }
+
 impl AsyncRead for TcpTunnel {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -51,6 +55,7 @@ impl AsyncRead for TcpTunnel {
         self.reader.as_mut().poll_read(cx, buffer)
     }
 }
+
 impl AsyncWrite for TcpTunnel {
     fn poll_write(
         mut self: Pin<&mut Self>,
@@ -69,6 +74,7 @@ impl AsyncWrite for TcpTunnel {
         self.writer.as_mut().poll_shutdown(cx)
     }
 }
+
 pub(crate) async fn open_tcp(
     client: Arc<PortalClient>,
     target: &Target,

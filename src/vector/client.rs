@@ -3,21 +3,24 @@
 
 //! Vector carrier connections, exporter authentication, and QUIC connection reuse.
 
-use super::config::CarrierMode;
-use super::tls::{ClientTls, EXPORTER_LABEL, require_quic_nw3};
-use super::{BoxReader, BoxWriter, OpenFlowError, PortalClientConfig, TcpTunnel, TcpTunnelGuard};
+use std::sync::Arc;
+
+use anyhow::{Context, Result, anyhow, bail};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
+use tokio::time::{Instant, timeout};
+use tokio_util::sync::CancellationToken;
+
 use crate::common::handshake_timeout;
 use crate::protocol::{
     AuthTransport, Credentials, FlowKind, SetupResult, Target, encode_auth_frame,
     encode_flow_request_into,
 };
 use crate::transport::{QuicConnection, Stats};
-use anyhow::{Context, Result, anyhow, bail};
-use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
-use tokio::time::{Instant, timeout};
-use tokio_util::sync::CancellationToken;
+
+use super::config::CarrierMode;
+use super::tls::{ClientTls, EXPORTER_LABEL, require_quic_nw3};
+use super::{BoxReader, BoxWriter, OpenFlowError, PortalClientConfig, TcpTunnel, TcpTunnelGuard};
 
 pub(crate) struct PortalClient {
     pub(crate) config: PortalClientConfig,
@@ -28,6 +31,7 @@ pub(crate) struct PortalClient {
     quic: Mutex<Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
     pub(super) shutdown: CancellationToken,
 }
+
 pub(crate) struct QuicFlow {
     pub(crate) send: quinn::SendStream,
     pub(crate) recv: quinn::RecvStream,
@@ -36,7 +40,9 @@ pub(crate) struct QuicFlow {
         tokio::sync::mpsc::Receiver<crate::common::BudgetedDatagram>,
     )>,
 }
+
 struct ConnectionAttempt(Option<Arc<QuicConnection>>);
+
 impl Drop for ConnectionAttempt {
     fn drop(&mut self) {
         if let Some(q) = &self.0 {
@@ -44,6 +50,7 @@ impl Drop for ConnectionAttempt {
         }
     }
 }
+
 impl PortalClient {
     pub(crate) fn new(
         config: PortalClientConfig,
@@ -234,6 +241,7 @@ impl PortalClient {
         }
     }
 }
+
 fn ready_quic_flow(
     flow: QuicFlow,
     result: SetupResult,
@@ -244,6 +252,7 @@ fn ready_quic_flow(
         Err(OpenFlowError::Setup(result))
     }
 }
+
 pub(crate) async fn write_start(
     writer: &mut BoxWriter,
     kind: FlowKind,
@@ -255,6 +264,7 @@ pub(crate) async fn write_start(
     writer.flush().await?;
     Ok(())
 }
+
 pub(crate) async fn read_ready(reader: &mut BoxReader) -> std::result::Result<(), OpenFlowError> {
     let result = timeout(
         crate::common::flow_setup_timeout(),
@@ -268,6 +278,7 @@ pub(crate) async fn read_ready(reader: &mut BoxReader) -> std::result::Result<()
         result => Err(OpenFlowError::Setup(result)),
     }
 }
+
 pub(crate) async fn connect_quic(
     config: &PortalClientConfig,
     tls: &ClientTls,

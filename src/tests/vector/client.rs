@@ -3,12 +3,14 @@
 
 //! Vector QUIC first-flow pipelining and authenticated connection reuse tests.
 
-use super::*;
+use std::sync::atomic::Ordering;
+
 use crate::common::Logger;
 use crate::protocol::{
     ConnectionRole, FlowResult, read_auth_frame, read_request, write_flow_result,
 };
-use std::sync::atomic::Ordering;
+
+use super::*;
 
 fn quic_fixture() -> (quinn::Endpoint, Arc<PortalClient>) {
     let url = url::Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000").unwrap();

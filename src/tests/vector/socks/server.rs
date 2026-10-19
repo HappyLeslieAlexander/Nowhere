@@ -3,12 +3,15 @@
 
 //! SOCKS5 client admission, listener shutdown, and CONNECT setup cancellation tests.
 
-use super::*;
-use crate::common::Logger;
-use crate::vector::ForwardVector as Vector;
 use std::time::Duration;
+
 use tokio::io::AsyncWriteExt;
 use url::Url;
+
+use crate::common::Logger;
+use crate::vector::ForwardVector as Vector;
+
+use super::*;
 
 #[test]
 fn socks_client_resource_admission_is_process_wide_and_reusable() {

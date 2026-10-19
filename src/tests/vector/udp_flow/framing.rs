@@ -3,9 +3,11 @@
 
 //! UDP-over-stream reads retain partial framing state across cancellation.
 
-use super::*;
 use std::time::Duration;
+
 use tokio::io::AsyncWriteExt;
+
+use super::*;
 
 #[tokio::test]
 async fn cancelled_uot_read_retains_partial_length_header() {

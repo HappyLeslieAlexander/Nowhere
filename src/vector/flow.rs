@@ -3,6 +3,8 @@
 
 //! TCP flow setup, carrier ownership, and bidirectional relay.
 
+mod tcp;
+
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -20,9 +22,10 @@ use crate::common::{
 use crate::protocol::{Carrier, SetupResult, Target};
 
 use super::{PortalClient, VectorInner};
-mod tcp;
+
 pub(crate) use self::tcp::{TcpTunnel, TcpTunnelGuard};
 pub(super) use self::tcp::{open_tcp, relay_tcp};
+
 pub(crate) type BoxReader = Pin<Box<dyn crate::transport::AsyncReadAny>>;
 pub(crate) type BoxWriter = Pin<Box<dyn crate::transport::AsyncWriteAny>>;
 
