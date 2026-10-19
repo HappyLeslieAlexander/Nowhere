@@ -3,10 +3,13 @@
 
 //! Telemetry frame limits, cancellation-safe reads, write timeouts, and partial-frame deadline tests.
 
-use super::*;
-use crate::telemetry::{MAX_FRAME_SIZE, ServerMessage};
 use std::time::Duration;
+
 use tokio::io::AsyncWriteExt;
+
+use crate::telemetry::{MAX_FRAME_SIZE, ServerMessage};
+
+use super::*;
 
 #[tokio::test]
 async fn framing_round_trips_and_rejects_oversize_lengths() {

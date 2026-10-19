@@ -33,6 +33,7 @@ pub(super) fn random_id() -> Result<String> {
         .map_err(|e| anyhow::anyhow!("telemetry entropy unavailable: {e}"))?;
     Ok(hex(&bytes))
 }
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

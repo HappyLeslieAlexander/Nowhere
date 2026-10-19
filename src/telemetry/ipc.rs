@@ -3,12 +3,12 @@
 
 //! Protected local IPC transport and per-user registry discovery.
 
-use std::time::Duration;
-
 mod client;
 mod frame;
 mod registry;
 mod server;
+
+use std::time::Duration;
 
 pub(crate) use client::TelemetryClient;
 pub(crate) use registry::{DiscoveredInstance, discover_instances};

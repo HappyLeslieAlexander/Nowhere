@@ -10,9 +10,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use super::WRITE_TIMEOUT;
 use crate::telemetry::local::Reader;
 use crate::telemetry::{MAX_FRAME_SIZE, ServerMessage};
+
+use super::WRITE_TIMEOUT;
 
 pub(crate) struct TelemetryReader {
     pub(super) inner: FrameReader<Reader>,

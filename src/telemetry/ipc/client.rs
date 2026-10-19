@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::frame::{FrameReader, TelemetryReader};
-use super::registry::{DiscoveredInstance, RegistryEntry, registry_path, valid_instance};
 use crate::telemetry::local;
 use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL};
+
+use super::frame::{FrameReader, TelemetryReader};
+use super::registry::{DiscoveredInstance, RegistryEntry, registry_path, valid_instance};
 
 pub(crate) struct TelemetryClient {
     hello: Hello,

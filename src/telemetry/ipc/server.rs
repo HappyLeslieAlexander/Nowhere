@@ -11,11 +11,12 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+use crate::telemetry::local::{self, Listener, Stream};
+use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL};
+
 use super::MAX_CLIENTS;
 use super::frame::write_frame;
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path};
-use crate::telemetry::local::{self, Listener, Stream};
-use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL};
 
 pub(crate) struct TelemetryServer {
     listener: Listener,

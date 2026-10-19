@@ -3,13 +3,14 @@
 
 //! Protected Windows named pipes and per-user telemetry registry access.
 
-use anyhow::{Result, bail};
-use sha2::{Digest, Sha256};
 use std::{
     io,
     os::windows::{ffi::OsStrExt, fs::MetadataExt, io::AsRawHandle},
     path::{Path, PathBuf},
 };
+
+use anyhow::{Result, bail};
+use sha2::{Digest, Sha256};
 use tokio::net::windows::named_pipe::{
     ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
 };
@@ -21,18 +22,24 @@ use windows_sys::Win32::{
 };
 
 pub(in crate::telemetry) type Stream = Box<dyn LocalStream>;
+
 pub(in crate::telemetry) trait LocalStream:
     tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send
 {
 }
+
 impl LocalStream for NamedPipeServer {}
+
 impl LocalStream for NamedPipeClient {}
+
 fn wide(value: &std::ffi::OsStr) -> Vec<u16> {
     value.encode_wide().chain(Some(0)).collect()
 }
+
 fn sid() -> Result<String> {
     unsafe { sid_from_process(GetCurrentProcess()) }
 }
+
 fn sid_from_process(process: HANDLE) -> Result<String> {
     unsafe {
         let mut token = std::ptr::null_mut();
@@ -63,7 +70,9 @@ fn sid_from_process(process: HANDLE) -> Result<String> {
         result
     }
 }
+
 struct Security(PSECURITY_DESCRIPTOR);
+
 impl Security {
     fn new() -> Result<Self> {
         let sid = sid()?;
@@ -90,6 +99,7 @@ impl Security {
         }
     }
 }
+
 impl Drop for Security {
     fn drop(&mut self) {
         unsafe {
@@ -97,18 +107,21 @@ impl Drop for Security {
         }
     }
 }
+
 fn user_key() -> Result<String> {
     Ok(Sha256::digest(sid()?.as_bytes())[..16]
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect())
 }
+
 pub(in crate::telemetry) fn directory() -> PathBuf {
     std::env::temp_dir().join(format!(
         "nowhere-telemetry-{}",
         user_key().unwrap_or_else(|_| "unavailable".to_owned())
     ))
 }
+
 fn protect(path: &Path) -> Result<()> {
     let security = Security::new()?;
     let name = wide(path.as_os_str());
@@ -126,6 +139,7 @@ fn protect(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 fn descriptor_text(sd: PSECURITY_DESCRIPTOR) -> Result<String> {
     let mut text = std::ptr::null_mut();
     if unsafe {
@@ -152,6 +166,7 @@ fn descriptor_text(sd: PSECURITY_DESCRIPTOR) -> Result<String> {
     }
     Ok(value)
 }
+
 fn validate(path: &Path) -> Result<()> {
     let m = std::fs::symlink_metadata(path)?;
     if m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
@@ -186,6 +201,7 @@ fn validate(path: &Path) -> Result<()> {
     }
     result
 }
+
 pub(in crate::telemetry) fn validate_directory(path: &Path) -> Result<()> {
     validate(path)?;
     if !path.is_dir() {
@@ -193,6 +209,7 @@ pub(in crate::telemetry) fn validate_directory(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 pub(in crate::telemetry) fn prepare_directory() -> Result<PathBuf> {
     let path = directory();
     if !path.is_absolute() {
@@ -210,6 +227,7 @@ pub(in crate::telemetry) fn prepare_directory() -> Result<PathBuf> {
     validate_directory(&path)?;
     Ok(path)
 }
+
 pub(in crate::telemetry) fn read_registry(path: &Path) -> Result<Vec<u8>> {
     validate_directory(&directory())?;
     validate(path)?;
@@ -226,6 +244,7 @@ pub(in crate::telemetry) fn read_registry(path: &Path) -> Result<Vec<u8>> {
     }
     Ok(payload)
 }
+
 pub(in crate::telemetry) fn publish(path: &Path, payload: &[u8]) -> Result<()> {
     use std::io::Write;
     validate_directory(&directory())?;
@@ -266,12 +285,14 @@ pub(in crate::telemetry) fn publish(path: &Path, payload: &[u8]) -> Result<()> {
     }
     result
 }
+
 pub(in crate::telemetry) fn endpoint(id: &str) -> String {
     format!(
         r"\\.\pipe\nowhere-telemetry-{}-{id}",
         user_key().unwrap_or_default()
     )
 }
+
 fn valid_endpoint(value: &str) -> bool {
     value
         .strip_prefix(&format!(
@@ -280,6 +301,7 @@ fn valid_endpoint(value: &str) -> bool {
         ))
         .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
 }
+
 fn create(name: &str, first: bool) -> Result<NamedPipeServer> {
     let security = Security::new()?;
     let mut attrs = security.attrs();
@@ -296,10 +318,12 @@ fn create(name: &str, first: bool) -> Result<NamedPipeServer> {
             )?
     })
 }
+
 pub(in crate::telemetry) struct Listener {
     pending: Option<NamedPipeServer>,
     name: String,
 }
+
 impl Listener {
     pub(in crate::telemetry) fn bind(name: &str) -> Result<Self> {
         if !valid_endpoint(name) {
@@ -324,6 +348,7 @@ impl Listener {
         Ok(Box::new(stream))
     }
 }
+
 pub(in crate::telemetry) async fn connect(name: &str, pid: u32) -> Result<Stream> {
     if !valid_endpoint(name) {
         bail!("invalid endpoint");
@@ -359,7 +384,9 @@ pub(in crate::telemetry) async fn connect(name: &str, pid: u32) -> Result<Stream
         }
     }
 }
+
 pub(in crate::telemetry) fn namespace() -> String {
     user_key().unwrap_or_default()
 }
+
 pub(in crate::telemetry) fn cleanup(_endpoint: &str) {}

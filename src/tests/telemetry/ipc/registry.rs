@@ -3,9 +3,10 @@
 
 //! Telemetry discovery, namespace isolation, registry permissions, and symlink rejection tests.
 
-use super::*;
 use crate::telemetry::ipc::TelemetryServer;
 use crate::telemetry::{InstanceRole, TELEMETRY_PROTOCOL};
+
+use super::*;
 
 #[tokio::test]
 async fn registry_round_trips_and_endpoint_is_local() {

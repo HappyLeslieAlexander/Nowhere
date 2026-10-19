@@ -87,6 +87,7 @@ pub(crate) fn discover_instances() -> io::Result<Vec<DiscoveredInstance>> {
 pub(super) fn registry_directory() -> PathBuf {
     local::directory()
 }
+
 pub(super) fn valid_instance(instance: &DiscoveredInstance) -> bool {
     instance.pid > 0
         && (!cfg!(unix) || instance.pid <= i32::MAX as u32)

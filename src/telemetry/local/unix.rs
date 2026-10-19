@@ -3,20 +3,24 @@
 
 //! Protected Unix-domain sockets and per-user telemetry registry access.
 
-use anyhow::{Result, bail};
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+
+use anyhow::{Result, bail};
 use tokio::net::{UnixListener, UnixStream};
 
 pub(in crate::telemetry) type Stream = UnixStream;
+
 pub(in crate::telemetry) struct Listener(UnixListener);
+
 pub(in crate::telemetry) fn directory() -> PathBuf {
     std::env::temp_dir().join(format!(
         "nowhere-telemetry-{}",
         super::super::process::process_uid()
     ))
 }
+
 pub(in crate::telemetry) fn validate_directory(path: &Path) -> Result<()> {
     let m = std::fs::symlink_metadata(path)?;
     if !m.is_dir() || m.uid() != super::super::process::process_uid() || m.mode() & 0o777 != 0o700 {
@@ -24,6 +28,7 @@ pub(in crate::telemetry) fn validate_directory(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
 pub(in crate::telemetry) fn prepare_directory() -> Result<PathBuf> {
     if namespace() == "unavailable" {
         bail!("namespace identity unavailable");
@@ -40,6 +45,7 @@ pub(in crate::telemetry) fn prepare_directory() -> Result<PathBuf> {
     validate_directory(&path)?;
     Ok(path)
 }
+
 fn private_object(path: &Path, socket: bool) -> Result<()> {
     use std::os::unix::fs::FileTypeExt;
     validate_directory(&directory())?;
@@ -53,6 +59,7 @@ fn private_object(path: &Path, socket: bool) -> Result<()> {
     }
     Ok(())
 }
+
 pub(in crate::telemetry) fn read_registry(path: &Path) -> Result<Vec<u8>> {
     use std::io::Read;
     private_object(path, false)?;
@@ -72,6 +79,7 @@ pub(in crate::telemetry) fn read_registry(path: &Path) -> Result<Vec<u8>> {
     }
     Ok(data)
 }
+
 pub(in crate::telemetry) fn publish(path: &Path, payload: &[u8]) -> Result<()> {
     use std::io::Write;
     validate_directory(&directory())?;
@@ -97,12 +105,14 @@ pub(in crate::telemetry) fn publish(path: &Path, payload: &[u8]) -> Result<()> {
     }
     result
 }
+
 pub(in crate::telemetry) fn endpoint(id: &str) -> String {
     directory()
         .join(format!("{}.sock", &id[..16]))
         .to_string_lossy()
         .into_owned()
 }
+
 fn validate_endpoint(value: &str) -> Result<()> {
     let p = Path::new(value);
     if p.parent() != Some(directory().as_path())
@@ -112,6 +122,7 @@ fn validate_endpoint(value: &str) -> Result<()> {
     }
     Ok(())
 }
+
 impl Listener {
     pub(in crate::telemetry) fn bind(endpoint: &str) -> Result<Self> {
         validate_endpoint(endpoint)?;
@@ -130,6 +141,7 @@ impl Listener {
         Ok(stream)
     }
 }
+
 pub(in crate::telemetry) async fn connect(endpoint: &str, _pid: u32) -> Result<Stream> {
     validate_endpoint(endpoint)?;
     private_object(Path::new(endpoint), true)?;
@@ -143,11 +155,13 @@ pub(in crate::telemetry) async fn connect(endpoint: &str, _pid: u32) -> Result<S
     }
     Ok(stream)
 }
+
 pub(in crate::telemetry) fn cleanup(endpoint: &str) {
     if validate_endpoint(endpoint).is_ok() && validate_directory(&directory()).is_ok() {
         let _ = std::fs::remove_file(endpoint);
     }
 }
+
 pub(in crate::telemetry) fn namespace() -> String {
     #[cfg(target_os = "linux")]
     {

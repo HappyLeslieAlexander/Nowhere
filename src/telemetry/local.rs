@@ -9,7 +9,9 @@ mod platform;
 #[cfg(windows)]
 #[path = "local/windows.rs"]
 mod platform;
+
 pub(super) use platform::*;
+
 pub(super) type Reader = tokio::io::ReadHalf<Stream>;
 
 #[cfg(unix)]

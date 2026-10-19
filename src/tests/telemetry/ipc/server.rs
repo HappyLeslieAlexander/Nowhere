@@ -3,11 +3,14 @@
 
 //! Passive statistics, ignored input, connection limits and EOF cleanup.
 
-use super::*;
-use crate::telemetry::{InstanceRole, TelemetryClient};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+
 use tokio::io::AsyncWriteExt;
+
+use crate::telemetry::{InstanceRole, TelemetryClient};
+
+use super::*;
 
 impl TelemetryServer {
     pub(crate) fn discovered(&self) -> DiscoveredInstance {
