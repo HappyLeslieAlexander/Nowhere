@@ -26,6 +26,7 @@ impl Stats {
             udp_active: i64::from(self.udp_active.load(Ordering::Relaxed)),
         }
     }
+
     pub fn add_flow(&self, is_udp: bool) {
         if is_udp {
             self.udp_active.fetch_add(1, Ordering::Relaxed);
@@ -33,6 +34,7 @@ impl Stats {
             self.tcp_active.fetch_add(1, Ordering::Relaxed);
         }
     }
+
     pub fn remove_flow(&self, is_udp: bool) {
         if is_udp {
             self.udp_active.fetch_sub(1, Ordering::Relaxed);

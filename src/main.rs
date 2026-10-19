@@ -3,8 +3,7 @@
 
 //! Command-line entry point for Portal, Vector and Egress.
 
-use std::env;
-use std::{error, fmt};
+use std::{env, error, fmt};
 
 use anyhow::{Context, Result, bail};
 use nowhere::{

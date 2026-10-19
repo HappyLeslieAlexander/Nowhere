@@ -106,6 +106,7 @@ where
     pub(super) async fn next<T: DeserializeOwned>(&mut self) -> Result<T> {
         self.read_frame().await
     }
+
     async fn read_frame<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,

@@ -33,6 +33,7 @@ impl Egress {
             }
         }
     }
+
     pub(super) async fn run_connection(&self) -> Result<()> {
         let (endpoint, connection) = tokio::select! {
             biased;

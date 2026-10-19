@@ -16,13 +16,16 @@ impl Logger {
     pub fn info(&self, args: fmt::Arguments<'_>) {
         self.write(args, false);
     }
+
     pub fn error(&self, args: fmt::Arguments<'_>) {
         self.write(args, true);
     }
+
     pub fn flush(&self) {
         let _ = io::stdout().flush();
         let _ = io::stderr().flush();
     }
+
     fn write(&self, args: fmt::Arguments<'_>, error: bool) {
         let line = format!(
             "{} {}\n",

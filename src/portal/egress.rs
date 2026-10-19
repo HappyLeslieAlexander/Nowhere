@@ -25,6 +25,7 @@ impl EgressSlot {
         *slot = Some(connection);
         true
     }
+
     pub(crate) fn release(&self, connection: &Arc<QuicConnection>) -> bool {
         let mut slot = self.owner.lock().unwrap();
         if slot.as_ref().is_some_and(|q| Arc::ptr_eq(q, connection)) {
@@ -34,6 +35,7 @@ impl EgressSlot {
             false
         }
     }
+
     pub(crate) fn connection(&self) -> Result<Arc<QuicConnection>> {
         self.owner
             .lock()

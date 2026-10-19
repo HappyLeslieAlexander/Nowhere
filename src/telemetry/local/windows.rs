@@ -91,6 +91,7 @@ impl Security {
         }
         Ok(Self(sd))
     }
+
     fn attrs(&self) -> SECURITY_ATTRIBUTES {
         SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
@@ -334,6 +335,7 @@ impl Listener {
             name: name.to_owned(),
         })
     }
+
     pub(in crate::telemetry) async fn accept(&mut self) -> Result<Stream> {
         if self.pending.is_none() {
             self.pending = Some(create(&self.name, false)?);

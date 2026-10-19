@@ -42,6 +42,7 @@ impl Incoming {
             }
         }
     }
+
     pub(super) async fn result(&mut self, result: SetupResult) -> Result<()> {
         async fn write<W: tokio::io::AsyncWrite + Unpin>(
             writer: &mut W,
@@ -63,6 +64,7 @@ impl Incoming {
         .await
         .context("SetupResult write timeout")?
     }
+
     pub(super) async fn closed(&mut self) -> Result<()> {
         let mut byte = [0];
         let count = match self {
@@ -79,6 +81,7 @@ impl Incoming {
         }
         Ok(())
     }
+
     pub(super) fn into_tcp(self) -> (BoxReader, BoxWriter, TcpTunnelGuard) {
         match self {
             Self::Tls {
@@ -93,6 +96,7 @@ impl Incoming {
             ),
         }
     }
+
     pub(super) fn into_udp(
         self,
         stats: Arc<Stats>,

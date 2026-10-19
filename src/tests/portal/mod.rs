@@ -33,6 +33,7 @@ impl Harness {
     async fn new(out: &str, morph: bool) -> Self {
         Self::family(out, morph, "127.0.0.1").await
     }
+
     async fn family(out: &str, morph: bool, host: &str) -> Self {
         let portal = Portal::new(
             Url::parse(&format!(
@@ -68,6 +69,7 @@ impl Harness {
             tasks,
         }
     }
+
     fn url(&self, scheme: &str, net: &str, morph: bool) -> Url {
         let host = if self.tcp.is_ipv6() {
             format!("[{}]", self.tcp.ip())
@@ -86,6 +88,7 @@ impl Harness {
         ))
         .unwrap()
     }
+
     fn client(&self, net: &str, morph: bool) -> Arc<PortalClient> {
         let (config, creds) =
             PortalClientConfig::from_probe_url(&self.url("vector", net, morph)).unwrap();
@@ -98,6 +101,7 @@ impl Harness {
         )
         .unwrap()
     }
+
     async fn close(mut self) {
         self.stop.cancel();
         self.inner.forward.shutdown.cancel();

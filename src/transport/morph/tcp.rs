@@ -3,10 +3,9 @@
 
 //! Directional Morph masking for asynchronous TCP streams.
 
-use std::fmt;
-use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::{fmt, io};
 
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};

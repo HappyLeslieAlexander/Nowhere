@@ -32,15 +32,19 @@ impl TcpTunnel {
             carrier,
         }
     }
+
     pub(in crate::vector) fn socks_reply(&self) -> u8 {
         REPLY_SUCCEEDED
     }
+
     pub(crate) fn carrier(&self) -> Carrier {
         self.carrier
     }
+
     pub(crate) fn into_parts(self) -> (BoxReader, BoxWriter, TcpTunnelGuard) {
         (self.reader, self.writer, self._guard)
     }
+
     pub(crate) async fn close(mut self) -> std::io::Result<()> {
         self.writer.shutdown().await
     }
@@ -64,9 +68,11 @@ impl AsyncWrite for TcpTunnel {
     ) -> Poll<std::io::Result<usize>> {
         self.writer.as_mut().poll_write(cx, buffer)
     }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
         self.writer.as_mut().poll_flush(cx)
     }
+
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut TaskContext<'_>,

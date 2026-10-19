@@ -120,6 +120,7 @@ impl PortalClientConfig {
             dial_policy: DialPolicy::default(),
         })
     }
+
     pub(crate) fn from_probe_url(url: &Url) -> Result<(Self, crate::protocol::Credentials)> {
         if url.scheme() != "vector" {
             bail!("probe requires vector://");
@@ -134,6 +135,7 @@ impl PortalClientConfig {
             crate::protocol::Credentials::new(url)?,
         ))
     }
+
     pub(crate) fn from_fingerprint_url(url: &Url) -> Result<Self> {
         if url.scheme() != "nowhere" {
             bail!("fingerprint requires a nowhere:// share link");
@@ -150,15 +152,19 @@ impl PortalClientConfig {
         }
         Self::parse(&clean, &query)
     }
+
     pub(crate) fn endpoint(&self) -> String {
         self.remote.canonical()
     }
+
     pub(crate) fn host(&self) -> &str {
         &self.remote.host
     }
+
     pub(crate) fn tcp_endpoint(&self) -> Option<CarrierEndpoint> {
         self.remote.tcp
     }
+
     pub(crate) fn udp_endpoint(&self) -> Option<CarrierEndpoint> {
         self.remote.udp
     }
@@ -183,6 +189,7 @@ impl SocksListenConfig {
             credentials,
         })
     }
+
     pub(super) fn endpoint(&self) -> String {
         format_host_port(&self.host, self.port)
     }
@@ -214,9 +221,11 @@ impl VectorConfig {
             socks: SocksListenConfig::from_url(url)?,
         })
     }
+
     pub(crate) fn portal_client_config(&self) -> PortalClientConfig {
         self.portal.clone()
     }
+
     pub(super) fn effective_url(&self) -> String {
         format!(
             "vector://{}?in={}&sni={}&pin={}&morph={}&rate={}&etar={}",

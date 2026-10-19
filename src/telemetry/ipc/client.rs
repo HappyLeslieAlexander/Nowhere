@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use crate::telemetry::local;
-use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL};
+use crate::telemetry::{Hello, ServerMessage, TELEMETRY_PROTOCOL, local};
 
 use super::frame::{FrameReader, TelemetryReader};
 use super::registry::{DiscoveredInstance, RegistryEntry, registry_path, valid_instance};

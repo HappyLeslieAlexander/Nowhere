@@ -73,6 +73,7 @@ impl QuicConnection {
         });
         this
     }
+
     async fn dispatch(&self) {
         let mut expiry = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut processed = 0;
@@ -133,6 +134,7 @@ impl QuicConnection {
             }
         }
     }
+
     pub(crate) fn flow_id(self: &Arc<Self>, raw: u64) -> Result<u32> {
         if raw & 2 != 0 || (raw & 1 != 0) != self.server_initiated {
             self.close();
@@ -153,6 +155,7 @@ impl QuicConnection {
             }
         }
     }
+
     pub(crate) fn register(
         self: &Arc<Self>,
         id: u32,
@@ -185,6 +188,7 @@ impl QuicConnection {
             receiver,
         ))
     }
+
     pub(crate) fn remove(&self, id: u32) {
         let mut state = self.state.lock().unwrap();
         if let Some(route) = state.routes.remove(&id) {
@@ -192,6 +196,7 @@ impl QuicConnection {
         }
         state.reassembly.remove_flow(id);
     }
+
     pub(crate) fn close(&self) {
         self.cancel.cancel();
         self.connection.close(0u32.into(), b"shutdown");

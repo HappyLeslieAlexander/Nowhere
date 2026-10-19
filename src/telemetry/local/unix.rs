@@ -133,6 +133,7 @@ impl Listener {
         }
         Ok(Self(listener))
     }
+
     pub(in crate::telemetry) async fn accept(&mut self) -> Result<Stream> {
         let (stream, _) = self.0.accept().await?;
         if stream.peer_cred()?.uid() != super::super::process::process_uid() {

@@ -8,9 +8,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::telemetry::TELEMETRY_PROTOCOL;
-use crate::telemetry::local;
 use crate::telemetry::process::{process_is_alive, process_uid, read_process_incarnation};
+use crate::telemetry::{TELEMETRY_PROTOCOL, local};
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, Serialize)]
 pub(crate) struct DiscoveredInstance {

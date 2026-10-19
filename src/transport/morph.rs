@@ -6,8 +6,7 @@
 mod tcp;
 mod udp;
 
-use std::fmt;
-use std::io;
+use std::{fmt, io};
 
 use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
 use sha2::Sha256;
