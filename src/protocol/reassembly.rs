@@ -281,3 +281,7 @@ impl Default for DatagramReassembler<()> {
 #[cfg(test)]
 #[path = "../tests/protocol/reassembly_support.rs"]
 mod test_support;
+
+#[cfg(test)]
+#[path = "../tests/protocol/reassembly.rs"]
+mod tests;
