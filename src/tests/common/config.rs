@@ -3,8 +3,9 @@
 
 //! Configuration parsing tests.
 
-use super::*;
 use url::Url;
+
+use super::*;
 
 #[test]
 fn query_first_ignores_unknown_parameters_and_keeps_first_duplicate() {

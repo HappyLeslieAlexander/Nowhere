@@ -3,14 +3,14 @@
 
 //! Optional keyed wire transform below TLS and QUIC.
 
+mod tcp;
+mod udp;
+
 use std::fmt;
 use std::io;
 
 use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
 use sha2::Sha256;
-
-mod tcp;
-mod udp;
 
 pub(crate) use tcp::MorphTcpStream;
 pub(crate) use udp::{UdpRole, configure_morph_mtu, morph_endpoint_config, wrap_morph_udp_socket};

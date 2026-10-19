@@ -3,11 +3,14 @@
 
 //! Deterministic parser mutation corpus for Targets, DATAGRAMs, reassembly, and URLs.
 
-use super::*;
 use std::time::Duration;
+
 use url::Url;
 
+use super::*;
+
 const KEY: &str = "0123456789abcdef0123456789abcdef";
+
 #[test]
 fn deterministic_mutation_corpus_bounds_target_datagram_reassembly_and_urls() {
     use crate::protocol::{OwnedUdpFrame, ReassemblyConfig, ReassemblyOutcome};

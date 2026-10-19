@@ -24,11 +24,13 @@ pub(crate) use flow::{Carrier, FlowId, FlowKind, MAX_FLOW_ID, read_flow_start, u
 pub(crate) use request::{TARGET_MAX_ENCODED_LEN, Target, encode_flow_request_into, read_request};
 pub(crate) use result::{FlowResult, SetupResult, read_flow_result, write_flow_result};
 pub(crate) use uot::write_udp_packet;
+
 pub const ALPN: &[u8] = b"nw3";
 
 #[cfg(test)]
 #[path = "../tests/protocol/support.rs"]
 mod test_support;
+
 #[cfg(test)]
 pub(crate) use test_support::*;
 

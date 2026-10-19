@@ -17,9 +17,10 @@ use url::Url;
 
 use crate::protocol::ALPN;
 
-pub(crate) use self::tls_cert::certificate_sha256;
 use self::tls_cert::{ReloadingCertResolver, new_self_signed_cert};
 use super::{Logger, query_first};
+
+pub(crate) use self::tls_cert::certificate_sha256;
 
 const TLS_QUERY_PARAMETERS: &[&str] = &["tls", "crt", "key"];
 

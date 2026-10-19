@@ -10,6 +10,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use url::Url;
 
+use crate::protocol::Target;
+
 use super::super::protocol::{
     ADDRESS_IPV4, AUTH_NONE, AUTH_PASSWORD, SOCKS_VERSION, encode_address, parse_udp_header,
     read_address,
@@ -17,7 +19,6 @@ use super::super::protocol::{
 use super::super::test_support::parse;
 use super::super::{COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE};
 use super::*;
-use crate::protocol::Target;
 
 #[tokio::test]
 async fn tcp_connect_uses_only_no_auth_and_preserves_domain() {

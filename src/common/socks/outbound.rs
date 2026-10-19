@@ -9,14 +9,15 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use tokio::net::{TcpStream, lookup_host};
 
+use crate::common::network::{connect_tcp_addr, connect_udp_addr, filter_addrs_for_family};
+use crate::common::{AddressFamily, DialPolicy, dial_tcp_with_policy, dial_udp_with_policy};
+use crate::protocol::Target;
+
 use super::config::{SocksConfig, format_host_port};
 use super::protocol::{
     COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, SocksAddress, negotiate, send_command, udp_header,
 };
 use super::udp::{OutboundUdpSocket, SocksUdpAssociation};
-use crate::common::network::{connect_tcp_addr, connect_udp_addr, filter_addrs_for_family};
-use crate::common::{AddressFamily, DialPolicy, dial_tcp_with_policy, dial_udp_with_policy};
-use crate::protocol::Target;
 
 #[derive(Clone, Debug)]
 pub(crate) struct OutboundDialer {

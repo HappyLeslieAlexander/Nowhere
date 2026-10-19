@@ -3,9 +3,11 @@
 
 //! Outbound source policy configuration boundaries.
 
-use super::*;
-use crate::common::query_first;
 use url::Url;
+
+use crate::common::query_first;
+
+use super::*;
 
 impl From<&str> for DialPolicy {
     fn from(value: &str) -> Self {

@@ -3,8 +3,9 @@
 
 //! TLS configuration tests.
 
-use super::*;
 use crate::common::Logger;
+
+use super::*;
 
 fn new_server_configs(
     parsed_url: &Url,

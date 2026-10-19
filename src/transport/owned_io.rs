@@ -3,17 +3,24 @@
 
 //! Owned relay payloads and buffered asynchronous I/O with flush-aware reads.
 
-use super::Buffers;
-use bytes::Bytes;
 use std::future::{Future, poll_fn};
 use std::io;
 use std::pin::Pin;
 use std::task::Poll;
+
+use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+use super::Buffers;
+
 pub(crate) trait AsyncReadAny: AsyncRead + Send + Unpin {}
+
 impl<T: AsyncRead + Send + Unpin> AsyncReadAny for T {}
+
 pub(crate) trait AsyncWriteAny: AsyncWrite + Send + Unpin {}
+
 impl<T: AsyncWrite + Send + Unpin> AsyncWriteAny for T {}
+
 pub(crate) async fn read_with_flush<T>(
     read: impl Future<Output = io::Result<T>>,
     writer: &mut (impl AsyncWrite + Unpin),
@@ -34,6 +41,7 @@ pub(crate) async fn read_owned(
 ) -> io::Result<Option<Bytes>> {
     read_owned_from(reader, buffers).await
 }
+
 pub(crate) async fn read_owned_from<R: AsyncRead + Unpin>(
     reader: &mut R,
     buffers: &Buffers,
@@ -42,12 +50,14 @@ pub(crate) async fn read_owned_from<R: AsyncRead + Unpin>(
     let count = reader.read(&mut payload).await?;
     Ok((count != 0).then(|| Bytes::from_owner(payload).slice(..count)))
 }
+
 pub(crate) async fn write_owned(
     writer: &mut Pin<Box<dyn AsyncWriteAny>>,
     chunk: Bytes,
 ) -> io::Result<()> {
     writer.write_all(&chunk).await
 }
+
 pub(crate) async fn write_owned_to<W: AsyncWrite + Unpin>(
     writer: &mut W,
     chunk: Bytes,

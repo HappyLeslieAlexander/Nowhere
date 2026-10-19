@@ -4,6 +4,7 @@
 //! SetupResult byte vectors, round trips, and invalid or truncated input tests.
 
 use super::*;
+
 #[tokio::test]
 async fn fixed_results_roundtrip_and_reject_unknown_or_truncated() {
     for (byte, result) in [

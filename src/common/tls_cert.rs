@@ -9,13 +9,14 @@ use std::io::BufReader;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::common::Logger;
 use anyhow::{Context, Result, anyhow, bail};
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use sha2::{Digest, Sha256};
+
+use crate::common::Logger;
 
 pub(super) fn new_self_signed_cert()
 -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {

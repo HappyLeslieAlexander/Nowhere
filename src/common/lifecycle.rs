@@ -4,6 +4,7 @@
 //! Platform shutdown signals and cleanup outcomes.
 
 use anyhow::{Context, Result};
+
 pub(crate) struct ShutdownSignals {
     #[cfg(unix)]
     interrupt: tokio::signal::unix::Signal,

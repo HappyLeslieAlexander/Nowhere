@@ -3,9 +3,25 @@
 
 //! Shared SOCKS5 client/server negotiation, address, request, reply, and UDP codecs.
 
+#[path = "protocol/address.rs"]
+mod address;
+#[path = "protocol/handshake.rs"]
+mod handshake;
+#[path = "protocol/request.rs"]
+mod request;
+#[path = "protocol/udp.rs"]
+mod udp;
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use crate::protocol::Target;
+
+use address::decode_address;
+
+pub(crate) use address::{encode_address, read_address};
+pub(crate) use handshake::{authenticate, negotiate};
+pub(crate) use request::{read_request, send_command, write_reply};
+pub(crate) use udp::{decode_udp_packet, encode_udp_packet_into, parse_udp_header, udp_header};
 
 pub(crate) const SOCKS_VERSION: u8 = 5;
 const AUTH_VERSION: u8 = 1;
@@ -71,21 +87,6 @@ impl std::fmt::Display for SocksAddress {
         }
     }
 }
-
-#[path = "protocol/address.rs"]
-mod address;
-#[path = "protocol/handshake.rs"]
-mod handshake;
-#[path = "protocol/request.rs"]
-mod request;
-#[path = "protocol/udp.rs"]
-mod udp;
-
-use address::decode_address;
-pub(crate) use address::{encode_address, read_address};
-pub(crate) use handshake::{authenticate, negotiate};
-pub(crate) use request::{read_request, send_command, write_reply};
-pub(crate) use udp::{decode_udp_packet, encode_udp_packet_into, parse_udp_header, udp_header};
 
 #[cfg(test)]
 #[path = "../../tests/common/socks/protocol.rs"]

@@ -100,6 +100,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
     mac.update(data);
     mac.finalize().into_bytes().into()
 }
+
 fn derive_key(shared_key: &[u8], info: &[u8]) -> AuthKey {
     let salt = Sha256::digest(AUTH_ROOT_SALT_LABEL);
     let root = hmac_sha256(&salt, shared_key);
@@ -107,6 +108,7 @@ fn derive_key(shared_key: &[u8], info: &[u8]) -> AuthKey {
     input.push(1);
     hmac_sha256(&root, &input)
 }
+
 pub fn encode_auth_frame(
     key: AuthKey,
     transport: AuthTransport,
@@ -119,6 +121,7 @@ pub fn encode_auth_frame(
         .try_into()
         .expect("fixed tag")
 }
+
 pub fn validate_auth_frame(
     frame: &[u8],
     credentials: &Credentials,
@@ -138,6 +141,7 @@ pub fn validate_auth_frame(
         _ => bail!("invalid authentication tag or role"),
     }
 }
+
 pub async fn read_auth_frame<R: AsyncRead + Unpin>(
     reader: &mut R,
     credentials: &Credentials,

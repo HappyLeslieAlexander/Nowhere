@@ -4,9 +4,11 @@
 //! Independent role-key and authentication-tag vectors and credential parsing tests.
 
 use super::*;
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
+
 #[test]
 fn fixed_role_keys_and_tags_match_independent_vectors() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!("vectors.json")).unwrap();
@@ -35,6 +37,7 @@ fn fixed_role_keys_and_tags_match_independent_vectors() {
         assert_eq!(hex(&frame), vector["auth_frame_hex"]);
     }
 }
+
 #[test]
 fn replay_transport_role_and_truncation_fail() {
     let creds = Credentials::from_shared_key(b"0123456789abcdef0123456789abcdef").unwrap();
@@ -59,6 +62,7 @@ fn replay_transport_role_and_truncation_fail() {
     let egress = encode_auth_frame(creds.egress_key, AuthTransport::TlsTcp, &exporter);
     assert!(validate_auth_frame(&egress, &creds, AuthTransport::TlsTcp, &exporter).is_err());
 }
+
 #[test]
 fn percent_decoding_is_once_and_text_is_not_hex_decoded() {
     let url = Url::parse("vector://a%2520b@localhost:2000").unwrap();

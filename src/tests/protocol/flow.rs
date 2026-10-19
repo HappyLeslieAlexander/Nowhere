@@ -4,6 +4,7 @@
 //! FlowStart validation and UDP Stream direction and ID boundary tests.
 
 use super::*;
+
 #[test]
 fn stream_direction_and_id_boundaries_are_checked_before_conversion() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!("vectors.json")).unwrap();
@@ -21,6 +22,7 @@ fn stream_direction_and_id_boundaries_are_checked_before_conversion() {
         assert!(udp_flow_id(raw, true).is_err());
     }
 }
+
 #[tokio::test]
 async fn flow_start_ignores_reserved_bits_and_preserves_auth_only_fin() {
     for byte in 0..=255 {

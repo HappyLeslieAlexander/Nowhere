@@ -8,7 +8,6 @@ mod morph;
 mod owned_io;
 mod quic;
 mod quic_runtime;
-pub(crate) use quic_runtime::{QuicConnection, UdpRoute};
 mod rate;
 mod stats;
 
@@ -22,5 +21,6 @@ pub(crate) use owned_io::{
     write_owned_to,
 };
 pub(crate) use quic::transport_flow_control;
+pub(crate) use quic_runtime::{QuicConnection, UdpRoute};
 pub(crate) use rate::RateLimiter;
 pub use stats::Stats;

@@ -8,6 +8,8 @@ use bytes::Bytes;
 
 use super::FlowId;
 
+pub use super::reassembly::{DatagramReassembler, ReassemblyConfig, ReassemblyOutcome};
+
 pub const UDP_FRAME_DATA: u8 = 0;
 pub const UDP_FRAME_FRAGMENT: u8 = 1;
 pub const UDP_FRAME_CLOSE: u8 = 2;
@@ -301,8 +303,6 @@ pub(super) fn validate_fragment_metadata(
     }
     Ok(())
 }
-
-pub use super::reassembly::{DatagramReassembler, ReassemblyConfig, ReassemblyOutcome};
 
 #[cfg(test)]
 #[path = "../tests/protocol/datagram.rs"]

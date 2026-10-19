@@ -3,26 +3,30 @@
 
 //! QUIC connection ownership, UDP routing, receive budgets, and bounded draining.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Result, bail};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio_util::sync::CancellationToken;
+
 use crate::common::{BudgetedDatagram, reserve_udp_budget};
 use crate::protocol::{
     DatagramReassembler, OwnedUdpFrame, ReassemblyConfig, ReassemblyOutcome, decode_udp_frame_owned,
 };
-use anyhow::{Result, bail};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
-use tokio_util::sync::CancellationToken;
 
 struct Route {
     sender: mpsc::Sender<BudgetedDatagram>,
     ready: Arc<AtomicBool>,
     cancel: CancellationToken,
 }
+
 struct UdpState {
     routes: HashMap<u32, Route>,
     reassembly: DatagramReassembler<OwnedSemaphorePermit>,
 }
+
 impl UdpState {
     fn new(bytes: usize) -> Self {
         Self {
@@ -34,6 +38,7 @@ impl UdpState {
         }
     }
 }
+
 pub(crate) struct QuicConnection {
     pub(crate) connection: quinn::Connection,
     pub(crate) server_initiated: bool,
@@ -42,6 +47,7 @@ pub(crate) struct QuicConnection {
     state: Mutex<UdpState>,
     budget: Arc<Semaphore>,
 }
+
 impl QuicConnection {
     pub(crate) fn new(connection: quinn::Connection, server_initiated: bool) -> Arc<Self> {
         let bytes = crate::common::env_int("NOW_QUIC_UDP_QUEUE_BYTES", 4 * 1024 * 1024)
@@ -191,17 +197,20 @@ impl QuicConnection {
         self.connection.close(0u32.into(), b"shutdown");
     }
 }
+
 pub(crate) struct UdpRoute {
     pub(crate) connection: Arc<QuicConnection>,
     pub(crate) id: u32,
     ready: Arc<AtomicBool>,
     pub(crate) cancel: CancellationToken,
 }
+
 impl UdpRoute {
     pub(crate) fn activate(&self) {
         self.ready.store(true, Ordering::Release);
     }
 }
+
 impl Drop for UdpRoute {
     fn drop(&mut self) {
         self.connection.remove(self.id);

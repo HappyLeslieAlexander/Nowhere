@@ -3,9 +3,10 @@
 
 //! Shared QUIC DATAGRAM packet sender.
 
+use std::sync::Arc;
+
 use anyhow::{Result, anyhow};
 use bytes::{Bytes, BytesMut};
-use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::protocol::{FlowId, UDP_HEADER_LEN, encode_udp_data_header, encode_udp_fragments};

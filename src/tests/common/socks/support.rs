@@ -3,9 +3,10 @@
 
 //! SOCKS5 outlet parsing fixture shared by configuration and dialing tests.
 
-use super::SocksConfig;
 use anyhow::Result;
 use url::Url;
+
+use super::SocksConfig;
 
 pub(super) fn parse(raw: &str) -> Result<Option<SocksConfig>> {
     SocksConfig::from_url(&Url::parse(raw).unwrap())

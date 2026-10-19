@@ -6,8 +6,9 @@
 #[path = "rate_bucket.rs"]
 mod rate_bucket;
 
-pub use self::rate_bucket::TokenBucket;
 use self::rate_bucket::token_bucket_now;
+
+pub use self::rate_bucket::TokenBucket;
 
 #[derive(Debug)]
 pub struct RateLimiter {
