@@ -35,6 +35,14 @@ impl Harness {
     }
 
     async fn family(out: &str, morph: bool, host: &str) -> Self {
+        Self::configured(out, morph, host, None).await
+    }
+
+    async fn with_handshake_timeout(morph: bool, timeout: Duration) -> Self {
+        Self::configured("direct", morph, "127.0.0.1", Some(timeout)).await
+    }
+
+    async fn configured(out: &str, morph: bool, host: &str, timeout: Option<Duration>) -> Self {
         let portal = Portal::new(
             Url::parse(&format!(
                 "portal://{KEY}@{host}:2000?out={out}&morph={}",
@@ -44,7 +52,13 @@ impl Harness {
             Logger,
         )
         .unwrap();
-        let inner = portal.inner;
+        let mut inner = portal.inner;
+        if let Some(timeout) = timeout {
+            let inner = Arc::get_mut(&mut inner).unwrap();
+            inner.runtime.handshake_timeout = timeout;
+            let forward = Arc::get_mut(&mut inner.forward).unwrap();
+            forward.runtime.handshake_timeout = timeout;
+        }
         let tcp_listener = listener::listen_tcp(format!("{host}:0").parse().unwrap()).unwrap();
         let tcp = tcp_listener.local_addr().unwrap();
         let quic = listener::listen_endpoint(

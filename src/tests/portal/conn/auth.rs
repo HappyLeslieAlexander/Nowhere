@@ -73,8 +73,14 @@ async fn connection_replay_authentication_failure_never_dials_or_claims_a_slot()
 
 #[tokio::test]
 async fn tls_replay_fails_on_fresh_and_resumed_connections() {
-    let h = Harness::new("direct", false).await;
-    let url = h.url("vector", "tcp", false);
+    for morph in [false, true] {
+        tls_replay(morph).await;
+    }
+}
+
+async fn tls_replay(morph: bool) {
+    let h = Harness::new("direct", morph).await;
+    let url = h.url("vector", "tcp", morph);
     let (config, credentials) = PortalClientConfig::from_probe_url(&url).unwrap();
     let tls = crate::vector::tls::ClientTls::new(&config).unwrap();
     let (mut first, exporter) = tls
@@ -119,6 +125,49 @@ async fn tls_replay_fails_on_fresh_and_resumed_connections() {
         .unwrap();
     assert!(ended.is_err() || ended.unwrap() == 0);
     drop(resumed);
+    let (mut authenticated, authenticated_exporter) = tls
+        .connect_tcp(
+            &h.tcp.to_string(),
+            &config.dial_policy,
+            crate::common::AddressFamily::Any,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        authenticated.get_ref().1.handshake_kind(),
+        Some(rustls::HandshakeKind::Resumed)
+    );
+    let mut authenticated_request = request.clone();
+    authenticated_request[..frame.len()].copy_from_slice(&encode_auth_frame(
+        credentials.vector_key,
+        AuthTransport::TlsTcp,
+        &authenticated_exporter,
+    ));
+    authenticated
+        .write_all(&authenticated_request)
+        .await
+        .unwrap();
+    assert_eq!(
+        SetupResult::from(
+            crate::protocol::read_flow_result(&mut authenticated)
+                .await
+                .unwrap()
+        ),
+        SetupResult::Ready
+    );
+    authenticated.write_all(b"resumed flow").await.unwrap();
+    let mut echoed = [0; 12];
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        authenticated.read_exact(&mut echoed),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(&echoed, b"resumed flow");
+    authenticated.shutdown().await.unwrap();
+    authenticated.read_to_end(&mut Vec::new()).await.unwrap();
+    drop(authenticated);
     let fresh_tls = crate::vector::tls::ClientTls::new(&config).unwrap();
     let (mut fresh, _) = fresh_tls
         .connect_tcp(

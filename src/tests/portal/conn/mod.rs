@@ -6,6 +6,7 @@
 mod auth;
 mod egress;
 mod flow;
+mod prehello;
 mod udp;
 
 use crate::protocol::{AuthTransport, encode_auth_frame};
