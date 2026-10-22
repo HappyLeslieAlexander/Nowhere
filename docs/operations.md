@@ -81,7 +81,7 @@ Registration ownership remains internal to forwarding. An idle registered
 Egress has no business Flow. Diagnostic stderr reports registration, reconnection
 and target failures. Use `nowhere probe` to test a real target setup; process
 `running` means the process is alive, not that every target is reachable.
-See [Egress](egress.md).
+See [Egress](extension.md).
 
 ## Understand failure boundaries
 

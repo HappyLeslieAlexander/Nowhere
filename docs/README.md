@@ -10,7 +10,7 @@ Start a trusted connection, choose a transport and place the exit.
 |---|---|
 | [Quick start](quick-start.md) | Build, connect applications and verify the first Flow |
 | [Configuration](configuration.md) | Role URLs, options, defaults and environment settings |
-| [Egress](egress.md) | Register a remote exit and understand its lifecycle |
+| [Egress](extension.md) | Register a remote exit and understand its lifecycle |
 
 ## Run and observe
 

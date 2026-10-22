@@ -162,7 +162,7 @@ and transport security still apply. See [Morph](docs/protocol.md#morph).
 ### Remote exits
 
 Place target access where it belongs. With `out=egress`, one registered exit serves
-Portal's clients over QUIC. Follow the [Egress guide](docs/egress.md) to set it up.
+Portal's clients over QUIC. Follow the [Egress guide](docs/extension.md) to set it up.
 
 ## Observability
 
@@ -187,7 +187,7 @@ nowhere "vector://<generated-key>@portal.example:2000?in=127.0.0.1:1080"
 | [Quick start](docs/quick-start.md) | First connection |
 | [Ecosystem](docs/ecosystem.md) | Clients, deployment and control |
 | [Configuration](docs/configuration.md) | URLs, defaults and runtime settings |
-| [Egress](docs/egress.md) | Remote exits and registration |
+| [Egress](docs/extension.md) | Remote exits and registration |
 | [Wire protocol](docs/protocol.md) | Authentication, framing and Morph |
 | [Security](docs/security.md) | Trust and resource boundaries |
 | [Operations](docs/operations.md) | Service lifecycle and diagnostics |
