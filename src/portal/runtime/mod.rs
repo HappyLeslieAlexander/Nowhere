@@ -99,31 +99,76 @@ pub(super) async fn tcp_loop(
     stop: CancellationToken,
 ) -> Result<()> {
     let mut tasks = JoinSet::new();
+    let mut rejected = SilentRejections::new();
     let result = loop {
         tokio::select! {
             _ = stop.cancelled() => break Ok(()),
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer)) => {
+                    let accepted_at = tokio::time::Instant::now();
                     let Some(admission) = portal.unauthenticated_admission.try_acquire(peer.ip()) else { continue; };
                     let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else { continue; };
                     let p = portal.clone();
                     tasks.spawn(async move {
                         let _permit = permit;
-                        if let Err(error) = conn::tcp(p.clone(), stream, admission).await && !crate::common::is_normal_close(&error) {
+                        let outcome = conn::tcp(p.clone(), stream, admission, accepted_at).await;
+                        if let Err(error) = &outcome && !crate::common::is_normal_close(error) {
                             p.forward.logger.error(format_args!("tls connection failed: {error:#}"));
                         }
+                        outcome.unwrap_or(conn::TcpOutcome::Closed)
                     });
                 }
                 Err(error) => break Err(error.into()),
             },
-            _ = tasks.join_next(), if !tasks.is_empty() => {},
+            joined = tasks.join_next(), if !tasks.is_empty() => {
+                if let Some(Ok(outcome)) = joined { rejected.record(outcome, &portal.forward.logger); }
+            },
         }
     };
     if result.is_err() {
         tasks.abort_all();
     }
-    while tasks.join_next().await.is_some() {}
+    while let Some(joined) = tasks.join_next().await {
+        if let Ok(outcome) = joined {
+            rejected.record(outcome, &portal.forward.logger);
+        }
+    }
+    rejected.report(&portal.forward.logger);
     result
+}
+
+struct SilentRejections {
+    count: u64,
+    reported_at: tokio::time::Instant,
+}
+
+impl SilentRejections {
+    fn new() -> Self {
+        Self {
+            count: 0,
+            reported_at: tokio::time::Instant::now(),
+        }
+    }
+
+    fn record(&mut self, outcome: conn::TcpOutcome, logger: &crate::common::Logger) {
+        if matches!(outcome, conn::TcpOutcome::SilentPreHello) {
+            self.count = self.count.saturating_add(1);
+        }
+        if self.reported_at.elapsed() >= std::time::Duration::from_secs(60) {
+            self.report(logger);
+        }
+    }
+
+    fn report(&mut self, logger: &crate::common::Logger) {
+        if self.count != 0 {
+            logger.info(format_args!(
+                "Morph TCP silent pre-hello rejections: {}",
+                self.count
+            ));
+            self.count = 0;
+        }
+        self.reported_at = tokio::time::Instant::now();
+    }
 }
 
 pub(super) async fn quic_loop(

@@ -135,15 +135,26 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         Ok(Self::initialized(inner, &keys, nonce, true))
     }
 
-    pub(crate) async fn accept(mut inner: S, keys: Option<MorphKeys>) -> io::Result<Self> {
+    pub(crate) async fn accept(
+        mut inner: S,
+        keys: Option<MorphKeys>,
+    ) -> Result<Self, (io::Error, S)> {
         let Some(keys) = keys else {
             return Ok(Self { inner, morph: None });
         };
         let mut prelude = [0u8; TCP_PRELUDE_LEN];
-        inner.read_exact(&mut prelude).await?;
+        if let Err(error) = inner.read_exact(&mut prelude).await {
+            return Err((error, inner));
+        }
         let mut nonce = [0u8; NONCE_LEN];
-        inner.read_exact(&mut nonce).await?;
+        if let Err(error) = inner.read_exact(&mut nonce).await {
+            return Err((error, inner));
+        }
         Ok(Self::initialized(inner, &keys, nonce, false))
+    }
+
+    pub(crate) fn into_inner(self) -> S {
+        self.inner
     }
 
     fn initialized(inner: S, keys: &MorphKeys, nonce: [u8; NONCE_LEN], client: bool) -> Self {

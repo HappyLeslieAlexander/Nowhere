@@ -3,29 +3,66 @@
 
 //! TLS and QUIC ingress authentication, role enforcement, and flow dispatch.
 
+use std::io::ErrorKind;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, ConnectionRole, read_auth_frame};
 use crate::transport::{MorphTcpStream, QuicConnection};
 use crate::vector::TcpTunnelGuard;
 
+use super::prehello;
 use super::{PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming};
+
+pub(super) enum TcpOutcome {
+    Closed,
+    SilentPreHello,
+}
 
 pub(super) async fn tcp(
     portal: Arc<PortalInner>,
     stream: tokio::net::TcpStream,
     admission: UnauthenticatedGuard,
-) -> Result<()> {
-    let authentication = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+    accepted_at: Instant,
+) -> Result<TcpOutcome> {
+    let morph = portal.morph_keys.is_some();
+    let started_at = if morph { accepted_at } else { Instant::now() };
+    let deadline = started_at + portal.runtime.handshake_timeout;
+    if morph && Instant::now() >= deadline {
+        return Ok(TcpOutcome::SilentPreHello);
+    }
+    let mut before_hello = morph;
+    let authentication = tokio::time::timeout_at(deadline, async {
         stream.set_nodelay(true)?;
-        let stream = MorphTcpStream::accept(stream, portal.morph_keys.clone()).await?;
-        let mut tls = tokio_rustls::TlsAcceptor::from(portal.tls_server_config.clone())
-            .accept(stream)
-            .await?;
+        let mut stream = match MorphTcpStream::accept(stream, portal.morph_keys.clone()).await {
+            Ok(stream) => stream,
+            Err((error, stream)) if morph && error.kind() == ErrorKind::UnexpectedEof => {
+                prehello::discard(stream).await?;
+                return Ok(None);
+            }
+            Err((error, _stream)) => return Err(error.into()),
+        };
+        let mut tls = if morph {
+            let Some(accepted) = prehello::accept(&mut stream).await? else {
+                prehello::discard(stream.into_inner()).await?;
+                return Ok(None);
+            };
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+            before_hello = false;
+            tokio_rustls::StartHandshake::from_parts(accepted, stream)
+                .into_stream(portal.tls_server_config.clone())
+                .await?
+        } else {
+            tokio_rustls::TlsAcceptor::from(portal.tls_server_config.clone())
+                .accept(stream)
+                .await?
+        };
         if tls.get_ref().1.alpn_protocol() != Some(crate::protocol::ALPN) {
             bail!("invalid ALPN");
         }
@@ -43,12 +80,23 @@ pub(super) async fn tcp(
         if role != ConnectionRole::Vector {
             bail!("invalid TLS role");
         }
-        Ok::<_, anyhow::Error>(tls)
+        Ok::<_, anyhow::Error>(Some(tls))
     });
     let stream = tokio::select! {
         biased;
-        _ = portal.forward.shutdown.cancelled() => return Ok(()),
-        result = authentication => result.context("TLS authentication timeout")??,
+        _ = portal.forward.shutdown.cancelled() => return Ok(TcpOutcome::Closed),
+        result = authentication => match result {
+            Err(_) if before_hello => return Ok(TcpOutcome::SilentPreHello),
+            Ok(Err(error)) if before_hello && error.chain().any(|cause| {
+                cause.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                    matches!(error.kind(), ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted | ErrorKind::BrokenPipe)
+                })
+            }) => return Ok(TcpOutcome::SilentPreHello),
+            result => match result.context("TLS authentication timeout")?? {
+                Some(stream) => stream,
+                None => return Ok(TcpOutcome::SilentPreHello),
+            },
+        },
     };
     drop(admission);
     let (read, write) = tokio::io::split(stream);
@@ -64,7 +112,7 @@ pub(super) async fn tcp(
             CancellationToken::new(),
         )
         .await;
-    Ok(())
+    Ok(TcpOutcome::Closed)
 }
 
 struct SlotOwner {
