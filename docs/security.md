@@ -1,12 +1,13 @@
 # Security
 
-Understand certificate trust, connection authentication and the boundaries that
-protect service resources and local observations.
+Understand certificate trust, connection authentication, transport masking and
+the boundaries that protect service resources and local observations.
 
 ## Contents
 
 - [Certificate trust](#certificate-trust)
 - [Connection authentication](#connection-authentication)
+- [Morph transport protection](#morph-transport-protection)
 - [Admission and Flow resources](#admission-and-flow-resources)
 - [Flow lifetime and exit ownership](#flow-lifetime-and-exit-ownership)
 - [Local IPC](#local-ipc)
@@ -28,11 +29,6 @@ A pin is 64 lowercase hexadecimal characters. A missing, empty or `none` pin
 uses normal certificate verification. Explicit fingerprint inspection does
 not establish trust; compare its result through a trusted channel before use.
 
-Morph masks the transport wire image. TLS/QUIC provides authenticated encryption
-and integrity. Nowhere limits each TCP cipher direction to `2^38 - 64` bytes
-to prevent keystream reuse. See the [Core specification](protocol.md) for the
-Morph contract.
-
 ## Connection authentication
 
 Authentication is a 16-byte HMAC tag over the transport byte and normal TLS
@@ -47,6 +43,40 @@ Egress require exactly 32 lowercase hexadecimal text characters.
 providing 128 bits of entropy. Key derivation does not increase that entropy.
 One credential derives both Vector and Egress role keys; sharing it shares its
 authority. Role derivation does not provide independent credential permissions.
+
+## Morph transport protection
+
+Morph masks the transport wire image. TLS/QUIC provides authenticated encryption
+and integrity. Nowhere limits each TCP cipher direction to `2^38 - 64` bytes
+to prevent keystream reuse. See the [Core specification](protocol.md) for the
+Morph contract.
+
+For Morph TCP ingress, Portal reads ClientHello through rustls without sending
+parser alerts. Incomplete or rejected input, including a peer's write-side FIN,
+is held silently until the authentication deadline. That deadline starts when
+TCP accept completes and covers the prelude, nonce, ClientHello, TLS handshake
+and AuthFrame together. `NOW_HANDSHAKE_TIMEOUT` controls it (default `5s`).
+Shutdown, resets and unrecoverable I/O failures may end the connection earlier.
+
+The silent boundary ends when rustls Acceptor accepts ClientHello. This is not
+authentication: configuration-dependent ClientHello checks, the remaining TLS
+handshake and exporter-bound AuthFrame validation still run normally. Those
+later checks can send TLS alerts. A replayed valid Morph ClientHello can also
+trigger normal TLS handshake responses; Morph has no replay cache.
+Morph's XOR layer also has no integrity tag: an observer who knows a captured
+ClientHello field's position and original value can modify its ciphertext
+without the Shared Key. Such modified replays may still pass Acceptor and
+trigger later alerts. This does not bypass TLS or AuthFrame authentication.
+
+Rejected connections retain their admission permits. Portal discards further
+TCP input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then
+stops reading while retaining the original deadline. It does not send filler
+data or introduce random delays. Unread data beyond this budget, data arriving
+near closure and operating-system TCP behavior can still affect FIN/RST.
+Admission exhaustion can cause immediate rejection. This protection removes
+early parser responses to invalid Morph TCP probes; it does not eliminate all
+active-probing or traffic-analysis fingerprints. Standard TLS and QUIC ingress
+do not use this silent ClientHello stage.
 
 ## Admission and Flow resources
 
