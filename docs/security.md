@@ -29,13 +29,16 @@ uses normal certificate verification. Explicit fingerprint inspection does
 not establish trust; compare its result through a trusted channel before use.
 
 Morph masks the transport wire image. TLS/QUIC provides authenticated encryption
-and integrity. See [Morph](protocol.md#morph) for its complete contract.
+and integrity. Nowhere limits each TCP cipher direction to `2^38 - 64` bytes
+to prevent keystream reuse. See the [Core specification](protocol.md) for the
+Morph contract.
 
 ## Connection authentication
 
 Authentication is a 16-byte HMAC tag over the transport byte and normal TLS
-exporter, using the [role KDF](protocol.md#authentication). Tags are compared in
-constant time. They cannot authenticate another connection, resumed connection,
+exporter. The [Core specification](protocol.md) defines Vector authentication;
+the [Egress Extension](extension.md#authentication) defines its additional role
+key. Tags are compared in constant time. They cannot authenticate another connection, resumed connection,
 transport or role.
 
 Shared Key is percent-decoded once and used as text bytes. Portal, Vector and
@@ -62,9 +65,12 @@ Business resources remain bounded by target Flow permits, Stream credit,
 UDP queues, reassembly reservations and transport receive buffers.
 
 UDP DATAGRAM bypasses Stream flow control. Unknown, pre-READY and unauthenticated
-IDs are discarded. Reassembly has slot, byte and TTL limits; queued datagrams
-retain reservations until delivery or cleanup. Full Flow queues use nonblocking
-dispatch so one slow Flow cannot stall the connection.
+IDs are discarded. Reassembly permits 64 partial packets per connection with a
+ten-second TTL. Queued datagrams and fragments share the per-connection
+`NOW_QUIC_UDP_QUEUE_BYTES` budget (default 4 MiB), separate from QUIC's DATAGRAM
+receive and send buffers (4 MiB each). Reservations remain held until delivery
+or cleanup. Full Flow queues use nonblocking dispatch so one slow Flow cannot
+stall the connection.
 
 ## Flow lifetime and exit ownership
 

@@ -10,7 +10,7 @@ Start a trusted connection, choose a transport and place the exit.
 |---|---|
 | [Quick start](quick-start.md) | Build, connect applications and verify the first Flow |
 | [Configuration](configuration.md) | Role URLs, options, defaults and environment settings |
-| [Egress](extension.md) | Register a remote exit and understand its lifecycle |
+| [Egress Extension](extension.md) | Remote-exit deployment, lifecycle and Wire rules |
 
 ## Run and observe
 
@@ -29,7 +29,7 @@ Implement a peer, connect an observer or work on the Rust runtime.
 
 | Reference | Purpose |
 |---|---|
-| [Wire protocol](protocol.md) | Authentication, framing, UDP and Morph |
+| [Wire protocol](protocol.md) | Independent NW3 Core specification entry |
 | [Interoperability](interoperability.md) | Requirements for compatible peers |
 | [Integrations](integrations.md) | Process supervision and independent subscribers |
 | [Ecosystem](ecosystem.md) | Clients, deployment tools, controllers and share links |

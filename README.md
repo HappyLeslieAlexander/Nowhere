@@ -144,20 +144,20 @@ families through the endpoint path. See [Configuration](docs/configuration.md).
 ### Connection and flow
 
 Ingress and exit can live on different hosts. Egress opens an outbound connection,
-so its host needs no inbound relay port. See [Architecture](docs/protocol.md#roles-and-connections)
+so its host needs no inbound relay port. See [Architecture](docs/extension.md#roles-and-connections)
 for the connection model.
 
 ## Wire design
 
 Connection-bound authentication and explicit Flow setup give every transfer a
-clear beginning and lifetime. The [wire specification](docs/protocol.md) describes
-the complete contract for independent implementations.
+clear beginning and lifetime. The [wire specification](https://github.com/NodePassProject/Nowhere-Protocol/blob/main/PROTOCOL.md) describes
+the Core contract for independent implementations.
 
 ### Wire masking
 
 Morph is enabled by default (`morph=1`) for shared-key masking below TLS and QUIC.
 Use `morph=0` to disable it. Certificate verification
-and transport security still apply. See [Morph](docs/protocol.md#morph).
+and transport security still apply. See [Morph](https://github.com/NodePassProject/Nowhere-Protocol/blob/main/PROTOCOL.md#12-morph).
 
 ### Remote exits
 

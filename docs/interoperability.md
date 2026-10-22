@@ -1,8 +1,10 @@
 # Interoperability
 
-Implement compatible Vector, Portal and Egress peers using the transport,
-ordering and lifetime requirements below. The [Nowhere Wire Protocol](protocol.md)
-defines the exact byte layouts, cryptographic labels and encoding rules.
+Validate independent Nowhere Protocol implementations against Nowhere's Rust
+runtime. The [Core specification entry](protocol.md) identifies the Wire
+baseline; the [Egress Extension](extension.md) defines Nowhere's remote-exit
+behavior. This guide describes integration and validation, not a second Wire
+specification.
 
 ## Contents
 
@@ -14,138 +16,54 @@ defines the exact byte layouts, cryptographic labels and encoding rules.
 
 ## Transport and authentication
 
-| Requirement | Contract |
-|---|---|
-| TLS | TLS 1.3 with system CA trust and hostname verification, or an exact certificate SHA-256 pin |
-| ALPN | `nw3` only; missing or other values are rejected without negotiation or fallback |
-| Early data | 0-RTT is disabled, including on resumed connections |
-| Shared Key | Exactly 32 lowercase hexadecimal text characters after one percent decode; no password component |
-| Authentication | Exactly one 16-byte tag bound to role, transport and the normal TLS exporter |
+Follow [Core transport and authentication](protocol.md).
+When connecting to Nowhere, use its [certificate trust](security.md#certificate-trust)
+and [Shared Key provisioning](configuration.md) interfaces. Configuration URL
+parsing is independent of the authenticated Wire frames.
 
-Shared Key enters the KDF as text bytes, without hexadecimal decoding. Malformed
-percent escapes are invalid. Authentication uses the normal TLS exporter rather
-than the early exporter; tags are compared in constant time and cannot be reused
-across connections, resumed connections, roles or transports.
-
-The [role KDF](protocol.md#authentication) distinguishes Vector and Egress. TLS
-permits Vector only; QUIC permits either role. One Shared Key derives both role
-keys and grants both authorities; derivation does not create independent
-permissions.
+Test fresh and resumed connections, invalid credentials and replayed tags. A
+failed connection must not dial a target or claim Egress registration ownership.
+The original authentication fixtures also contain Egress/TLS as a negative case;
+Egress does not support that carrier.
 
 ## Flow direction and framing
 
-### Connection establishment
+Exercise both TLS and QUIC with TCP and UDP payloads. Include authentication-only
+Stream 0, a pipelined first request, partial reads, reserved-bit decoding, TCP
+half-close, rejection before READY and failure isolation after READY.
 
-Transport roles and business Flow directions are fixed for each connection:
-
-| Connection | Transport initiator | Business Flow initiator |
-|---|---|---|
-| Vector to Portal over TLS or QUIC | Vector | Vector |
-| Egress to Portal over QUIC | Egress | Portal |
-
-QUIC authenticates on client bidirectional Stream 0. Later business Streams
-carry FlowStart and Target without another AuthFrame.
-
-| Path | Initial request | Response |
-|---|---|---|
-| Vector TLS | AuthFrame + FlowStart + Target | SetupResult |
-| Vector QUIC Stream 0 | AuthFrame, optionally followed by FlowStart + Target | SetupResult only when a Flow exists |
-| Egress QUIC Stream 0 | AuthFrame + FIN | RegistrationResult + FIN |
-| Portal to Egress business Stream | FlowStart + Target | SetupResult |
-
-Vector has no authentication ACK. An authentication-only QUIC Stream finishes
-without a SetupResult, Flow permit or UDP route; authentication remains valid
-for later Streams on that connection.
-
-Egress registration requires Portal's `out=egress` policy and a vacant Egress
-Slot. Egress waits for ACCEPTED before processing Portal business Streams or
-dialing targets, even if a Stream arrives before the registration response.
-BUSY does not authorize target work. See
-[Connection establishment](protocol.md#connection-establishment).
-
-### Flow framing and failure scope
-
-Each Flow starts with one FlowStart byte followed immediately by the
-[Target encoding](protocol.md#flowstart-and-target). Bit 0 selects TCP (`0`)
-or UDP (`1`). Senders MUST set reserved Bits 1–7 to zero; receivers MUST ignore
-them. Target has no additional outer length prefix.
-
-Target payload waits for READY. TLS dedicates one connection to each Flow;
-QUIC dedicates one bidirectional Stream to each TCP Flow or UDP control Flow.
-TCP preserves half-close and per-Flow cancellation.
-
-Authentication and role-direction violations close the connection. Invalid
-Targets, truncated requests and ordinary resource or dial failures end only the
-affected Flow. Each Flow sends at most one SetupResult; failures after READY
-close or reset the Flow. Other QUIC Flows remain independent.
+A standard Vector uses the same Core protocol when Portal selects Egress as its
+exit. It does not implement registration or reverse Stream initiation. Egress
+peers separately test the [registration barrier](extension.md#registration),
+role-direction rejection and [Slot ownership](extension.md#registration-ownership-and-lifetime).
 
 ## UDP delivery and lifetime
 
-### Payload and identity
+Validate empty packets, Stream-derived ID boundaries, fragmented payloads,
+out-of-order delivery, duplicate/conflicting fragments and unknown or not-yet-ready
+routes. Missing QUIC DATAGRAM capability must not trigger a hidden carrier fallback.
 
-| Carrier | UDP payload | Empty packet |
-|---|---|---|
-| TLS | Two-byte big-endian length followed by one complete payload | Zero length is an empty datagram, not closure |
-| QUIC | DATA or FRAGMENT DATAGRAMs on the control Stream's connection | DATA with an empty payload is valid |
-
-QUIC UDP requires DATAGRAM support; there is no carrier fallback. Derive its
-Flow ID as `(quic_stream_id >> 2) + 1` after checking that the raw Stream is
-bidirectional and has the correct initiator. Compute in a wide integer and
-require `1 <= flow_id <= 2^30 - 1` before conversion. Never truncate or wrap.
-IDs are scoped to their connection and cannot identify a Flow on another one.
-
-Deliver complete UDP packets only. Unknown, unauthenticated and not-yet-READY
-IDs are discarded without allocating routes or reassembly state. Fragment
-metadata, payload size, queues and reassembly reservations remain bounded.
-
-### Lifetime and bridging
-
-After READY, both directions of a QUIC UDP control Stream stay open without
-business bytes. FIN, RESET, STOP_SENDING, idle timeout or connection loss
-reclaims its routes, tasks, permits and reassembly state once. DATAGRAM CLOSE is
-auxiliary; its loss cannot keep the Flow alive. TLS UDP ends at packet-boundary
-EOF; EOF inside a length or payload is truncation.
-
-Portal bridges complete business packets. Each leg uses its own connection,
-Stream-derived ID, fragmentation and path MTU. Losing a registered Egress
-connection ends all dependent Flows. Reconnection starts new Flows; an offline
-Egress Slot fails new requests immediately without queuing or local fallback.
-See [Connection lifecycle](protocol.md#connection-lifecycle),
-[UDP flows](protocol.md#udp-flows) and [QUIC datagrams](protocol.md#quic-datagrams).
+Exercise control-stream FIN, reset and STOP_SENDING without relying on a CLOSE
+DATAGRAM. Reassembly and queue pressure must not prevent unrelated Flows from
+making progress. For Egress, validate both bridge legs and disconnect cleanup;
+reconnection must not recover a previous Flow.
 
 ## Morph
 
-Morph operates below TLS/QUIC and defaults to enabled. Peers agree on Shared Key
-and the Morph setting; there is no in-band detection or switch. Derivation uses
-`nowhere/nw3/morph` as the root domain and `tcp c2s`, `tcp s2c`, `udp c2s`,
-`udp s2c` as direction info. Directions follow the transport initiator and
-acceptor: on an Egress connection, Egress sends with `udp c2s` and Portal sends
-with `udp s2c`.
-
-TCP starts with a 64-byte client prelude and a 12-byte client nonce. The receiver
-consumes the prelude without interpreting it, and the server sends no bootstrap.
-Prelude generation supports `fade` (default), `full8` and `low7`; this local
-policy is not negotiated and need not match the receiver's generation policy.
-Each direction starts IETF ChaCha20 at block zero with its own key and the same
-client nonce. Cipher positions advance continuously by bytes actually consumed
-or written, independently by direction, and fail before keystream reuse.
-
-UDP prefixes each transformed datagram with its own fresh unpredictable 12-byte
-nonce and restarts the cipher at block zero. Include the prefix in path-MTU
-accounting. Segment/GSO/GRO handling preserves each datagram's nonce and boundary.
-Follow the [Morph specification](protocol.md#morph) for exact derivation and
-encapsulation rules. TLS/QUIC supplies authentication and integrity.
+Use the [Core Morph contract](protocol.md). Test both enabled and disabled
+configurations, TCP partial reads/writes and continuous cipher offsets, UDP
+segmentation boundaries and nonce overhead. The receive path must accept the
+64-byte prelude independently of the sender's generation policy. Nowhere's
+[prelude policies](configuration.md#tcp-morph-prelude) do not require a matching
+policy on the peer.
 
 ## Reference vectors and observation
 
-Use the independent [wire vectors](../src/tests/protocol/vectors.json) and
-[Morph vectors](../src/tests/transport/morph.rs) when validating a peer.
-Validate connection ordering, reserved-bit decoding, failure isolation, UDP
-cleanup and partial Morph I/O alongside the fixed byte vectors. See
-[Testing](testing.md) for boundary, replay and lifecycle coverage.
+The original [wire fixtures](../src/tests/protocol/vectors.json) and
+[Morph fixtures](../src/tests/transport/morph.rs) remain part of Nowhere's test
+suite, including extension coverage. Fixed byte agreement complements live
+transport and lifecycle tests; it does not replace them. See [Testing](testing.md).
 
-Third-party observers implement the [Telemetry JSON contract](telemetry.md).
-They validate discovery and instance identity, then consume the six logical
-traffic and active-Flow statistics over protected local IPC. Observation uses
-the public JSON contract independently of forwarding frames, Rust modules and
-status text.
+Third-party observers use the separate [Telemetry JSON contract](telemetry.md).
+Local IPC, discovery, process identity and statistics are implementation
+interfaces, not requirements for a forwarding protocol peer.

@@ -45,7 +45,7 @@ nowhere probe "vector://KEY@relay.example:2000?pin=TRUSTED_SHA256" "example.com:
 
 `in` is optional for probe. READY verifies the selected Portal output; probe
 sends no target payload. Output failures return the fixed SetupResult described
-in the [wire specification](protocol.md#setup-results).
+in the [wire specification](protocol.md).
 
 Read a presented certificate over TCP/TLS:
 

@@ -247,7 +247,7 @@ values; duration settings use values such as `5s` or `250ms`.
 | `NOW_RELOAD_INTERVAL` | `1h` | Supplied certificate reload |
 | `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect backoff |
 | `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
-| `NOW_MORPH_TCP_PRELUDE` | `fade` | [Morph prelude mode](protocol.md#tcp-encapsulation): `fade`, `full8` or `low7` |
+| `NOW_MORPH_TCP_PRELUDE` | `fade` | [Morph prelude mode](#tcp-morph-prelude): `fade`, `full8` or `low7` |
 
 ### QUIC window profiles
 
@@ -260,3 +260,20 @@ values; duration settings use values such as `5s` or `250ms`.
 Portal uses a 64 KiB connection receive window before authentication and raises
 it after success. Transport windows are separate from UDP application budgets
 and do not represent total process memory.
+
+### TCP Morph prelude
+
+`NOW_MORPH_TCP_PRELUDE` selects Nowhere's sender policy. The receiver consumes
+the 64-byte prelude without interpreting its contents; this setting is not
+negotiated and need not match the peer's generation policy.
+
+- `fade` (default): independently sample uniform A in `[8,12]` and B in `[16,32]`.
+  Bytes `[0,A)` are uniform printable ASCII (`0x20–0x7E`), `[A,B)` are uniform
+  low7 (`0x00–0x7F`), and `[B,64)` are uniform full8 (`0x00–0xFF`).
+- `full8`: use all random bits throughout the prelude.
+- `low7`: clear each random byte's high bit.
+
+All modes use a secure random source. Fade uses rejection sampling for its
+boundaries and printable ASCII to avoid modulo bias. These distributions are
+implementation policy; the [Morph Wire contract](protocol.md) fixes the
+bootstrap length, directional cipher behavior and decoding semantics.
