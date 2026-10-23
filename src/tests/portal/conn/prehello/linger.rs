@@ -3,9 +3,6 @@
 
 //! Morph socket close policy and TLS handoff regressions.
 
-use std::future::{Future, poll_fn};
-use std::task::Poll;
-
 use super::*;
 
 #[tokio::test]
@@ -54,6 +51,43 @@ async fn burst_and_segmented_input_share_silent_close_policy() {
 
 #[tokio::test]
 async fn accepted_hello_restores_linger_before_normal_authentication() {
+    let h = Harness::new("direct", true).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (client, accepted) = tokio::join!(
+        TcpStream::connect(listener.local_addr().unwrap()),
+        listener.accept()
+    );
+    let (server, _) = accepted.unwrap();
+    server.set_zero_linger().unwrap();
+    assert_eq!(server.linger().unwrap(), Some(Duration::ZERO));
+    let mut client = MorphTcpStream::connect(client.unwrap(), h.inner.morph_keys.clone())
+        .await
+        .unwrap();
+    let config = Arc::new(tls_config(&h, crate::protocol::ALPN));
+    let mut tls = rustls::ClientConnection::new(config, "localhost".try_into().unwrap()).unwrap();
+    let mut hello = Vec::new();
+    tls.write_tls(&mut hello).unwrap();
+    client.write_all(&hello).await.unwrap();
+    let deadline = Instant::now() + h.inner.runtime.handshake_timeout;
+    let mut stream = MorphTcpStream::accept(server, h.inner.morph_keys.clone())
+        .await
+        .unwrap();
+    let accepted = tokio::time::timeout_at(deadline, crate::portal::prehello::accept(&mut stream))
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(stream.get_ref().linger().unwrap(), Some(Duration::ZERO));
+    assert!(crate::portal::prehello::finish(stream.get_ref(), deadline).unwrap());
+    assert_eq!(stream.get_ref().linger().unwrap(), None);
+    accepted
+        .into_connection(h.inner.tls_server_config.clone())
+        .unwrap();
+    h.close().await;
+}
+
+#[tokio::test]
+async fn accepted_hello_continues_normal_authentication_and_close() {
     for morph in [false, true] {
         let h = Harness::new("direct", morph).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -62,7 +96,6 @@ async fn accepted_hello_restores_linger_before_normal_authentication() {
             listener.accept()
         );
         let (server, peer) = accepted.unwrap();
-        let observer = socket2::SockRef::from(&server).try_clone().unwrap();
         let admission = h
             .inner
             .unauthenticated_admission
@@ -70,15 +103,9 @@ async fn accepted_hello_restores_linger_before_normal_authentication() {
             .unwrap();
         let portal = h.inner.clone();
         let accepted_at = Instant::now();
-        let connection = crate::portal::conn::tcp(portal, server, admission, accepted_at);
-        let mut connection = Box::pin(connection);
-        poll_fn(|cx| {
-            assert!(connection.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
-        assert_eq!(observer.linger().unwrap(), morph.then_some(Duration::ZERO));
-        let connection = tokio::spawn(connection);
+        let connection = tokio::spawn(async move {
+            crate::portal::conn::tcp(portal, server, admission, accepted_at).await
+        });
         let stream = MorphTcpStream::connect(client.unwrap(), h.inner.morph_keys.clone())
             .await
             .unwrap();
@@ -87,8 +114,6 @@ async fn accepted_hello_restores_linger_before_normal_authentication() {
             .connect("localhost".try_into().unwrap(), stream)
             .await
             .unwrap();
-        assert_eq!(observer.linger().unwrap(), None);
-        drop(observer);
         let mut exporter = [0; 32];
         tls.get_ref()
             .1
