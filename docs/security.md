@@ -57,6 +57,14 @@ is held silently until the authentication deadline. That deadline starts when
 TCP accept completes and covers the prelude, nonce, ClientHello, TLS handshake
 and AuthFrame together. `NOW_HANDSHAKE_TIMEOUT` controls it (default `5s`).
 Shutdown, resets and unrecoverable I/O failures may end the connection earlier.
+Portal enables zero linger before reading the Morph prelude, requesting an
+abortive close for rejected or incomplete input at the deadline. On Linux this
+uses RST even when the bounded input-disposal budget leaves unread data.
+Before continuing an accepted ClientHello, Portal disables linger and rechecks
+the deadline; an expired connection retains zero linger. Socket-option failures
+terminate the connection without continuing TLS. They are outside this close
+policy's guarantees, as are shutdown and resource rejection. Packet-level
+behavior on other operating systems depends on the kernel.
 
 The silent boundary ends when rustls Acceptor accepts ClientHello. This is not
 authentication: configuration-dependent ClientHello checks, the remaining TLS
@@ -71,8 +79,8 @@ trigger later alerts. This does not bypass TLS or AuthFrame authentication.
 Rejected connections retain their admission permits. Portal discards further
 TCP input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then
 stops reading while retaining the original deadline. It does not send filler
-data or introduce random delays. Unread data beyond this budget, data arriving
-near closure and operating-system TCP behavior can still affect FIN/RST.
+data or introduce random delays. Zero linger removes the Linux FIN/RST split
+caused by unread input at this boundary; RST and the deadline remain observable.
 Admission exhaustion can cause immediate rejection. This protection removes
 early parser responses to invalid Morph TCP probes; it does not eliminate all
 active-probing or traffic-analysis fingerprints. Standard TLS and QUIC ingress
