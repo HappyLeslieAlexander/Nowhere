@@ -3,6 +3,9 @@
 
 //! Morph socket close policy and TLS handoff regressions.
 
+use std::future::{Future, poll_fn};
+use std::task::Poll;
+
 use super::*;
 
 #[tokio::test]
@@ -17,10 +20,12 @@ async fn burst_and_segmented_input_share_silent_close_policy() {
                 let start = Instant::now();
                 let mut stream = TcpStream::connect(address).await.unwrap();
                 stream.set_nodelay(true).unwrap();
+                let mut next_write = Instant::now();
                 for bytes in vec![0xff; size].chunks(chunk) {
                     stream.write_all(bytes).await.unwrap();
                     if chunk < size {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        next_write += Duration::from_millis(1);
+                        tokio::time::sleep_until(next_write).await;
                     }
                 }
                 if fin {
@@ -65,20 +70,15 @@ async fn accepted_hello_restores_linger_before_normal_authentication() {
             .unwrap();
         let portal = h.inner.clone();
         let accepted_at = Instant::now();
-        let connection = tokio::spawn(async move {
-            crate::portal::conn::tcp(portal, server, admission, accepted_at).await
-        });
-        if morph {
-            tokio::time::timeout(Duration::from_secs(1), async {
-                while observer.linger().unwrap() != Some(Duration::ZERO) {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-        } else {
-            assert_eq!(observer.linger().unwrap(), None);
-        }
+        let connection = crate::portal::conn::tcp(portal, server, admission, accepted_at);
+        let mut connection = Box::pin(connection);
+        poll_fn(|cx| {
+            assert!(connection.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(observer.linger().unwrap(), morph.then_some(Duration::ZERO));
+        let connection = tokio::spawn(connection);
         let stream = MorphTcpStream::connect(client.unwrap(), h.inner.morph_keys.clone())
             .await
             .unwrap();
