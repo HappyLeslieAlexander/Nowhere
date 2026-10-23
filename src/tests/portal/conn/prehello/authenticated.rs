@@ -1,0 +1,308 @@
+// Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! Authenticated prelude commit boundaries, silent replay rejection and transitional downgrade.
+
+use crate::transport::{AuthenticatedPrelude, ClientPrelude};
+
+use super::*;
+
+fn authentication(counter: u64) -> AuthenticatedPrelude {
+    AuthenticatedPrelude {
+        identity: 0x0123_4567_89ab_cdef,
+        counter,
+    }
+}
+
+fn hello(h: &Harness, alpn: &[u8]) -> Vec<u8> {
+    let mut client = rustls::ClientConnection::new(
+        Arc::new(tls_config(h, alpn)),
+        "localhost".try_into().unwrap(),
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    client.write_tls(&mut bytes).unwrap();
+    bytes
+}
+
+async fn capture(h: &Harness, authentication: AuthenticatedPrelude, payload: &[u8]) -> Vec<u8> {
+    let (sender, mut capture) = tokio::io::duplex(76 + payload.len());
+    let mut sender = MorphTcpStream::connect_authenticated_for_test(
+        sender,
+        h.inner.morph_keys.clone().unwrap(),
+        [0x55; 64],
+        [0x23; 12],
+        authentication,
+    )
+    .await
+    .unwrap();
+    sender.write_all(payload).await.unwrap();
+    let mut bytes = vec![0; 76 + payload.len()];
+    capture.read_exact(&mut bytes).await.unwrap();
+    bytes
+}
+
+async fn silent(h: &Harness, bytes: &[u8], split: bool) {
+    let start = Instant::now();
+    let mut stream = TcpStream::connect(h.tcp).await.unwrap();
+    if split {
+        write_segments(&mut stream, bytes).await;
+    } else {
+        stream.write_all(bytes).await.unwrap();
+    }
+    stream.shutdown().await.unwrap();
+    let mut response = Vec::new();
+    let result = tokio::time::timeout(
+        TIMEOUT + Duration::from_secs(2),
+        stream.read_to_end(&mut response),
+    )
+    .await
+    .unwrap();
+    assert_silent_close(result);
+    assert!(response.is_empty());
+    assert!(start.elapsed() >= TIMEOUT);
+}
+
+async fn receives_tls(h: &Harness, bytes: &[u8]) {
+    let mut stream = TcpStream::connect(h.tcp).await.unwrap();
+    write_segments(&mut stream, bytes).await;
+    let mut byte = [0];
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), stream.read(&mut byte))
+            .await
+            .unwrap()
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn accepted_authenticated_hello_commits_before_response_and_replay_stays_silent() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let token = authentication(1);
+    let bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
+    assert!(h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    receives_tls(&h, &bytes).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    silent(&h, &bytes, false).await;
+    silent(&h, &bytes, true).await;
+    wait_active(&h, 0).await;
+    h.close().await;
+}
+
+#[tokio::test]
+async fn bootstrap_and_malformed_or_truncated_hello_never_register() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let hello = hello(&h, crate::protocol::ALPN);
+    for (index, payload) in [&[][..], &[0xff][..], &hello[..1], &hello[..hello.len() - 1]]
+        .into_iter()
+        .enumerate()
+    {
+        let token = authentication(index as u64 + 1);
+        let bytes = capture(&h, token, payload).await;
+        silent(&h, &bytes, true).await;
+        assert!(h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    }
+    h.close().await;
+}
+
+#[tokio::test]
+async fn authenticated_counter_zero_never_falls_back_even_with_valid_hello() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let bytes = capture(&h, authentication(0), &hello(&h, crate::protocol::ALPN)).await;
+    silent(&h, &bytes, false).await;
+    h.close().await;
+}
+
+#[tokio::test]
+async fn accepted_hello_consumes_counter_when_later_alpn_check_fails() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let token = authentication(9);
+    let bytes = capture(&h, token, &hello(&h, b"bad")).await;
+    receives_tls(&h, &bytes).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    silent(&h, &bytes, false).await;
+    h.close().await;
+}
+
+#[tokio::test]
+async fn concurrent_authenticated_connections_only_one_enters_tls() {
+    let h = Harness::with_handshake_timeout(true, Duration::from_secs(2)).await;
+    let token = authentication(100);
+    let bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
+    let mut streams = Vec::new();
+    for _ in 0..16 {
+        let mut stream = TcpStream::connect(h.tcp).await.unwrap();
+        stream.write_all(&bytes[..76]).await.unwrap();
+        streams.push(stream);
+    }
+    wait_active(&h, 16).await;
+    assert!(h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    let mut tasks = tokio::task::JoinSet::new();
+    for mut stream in streams {
+        let payload = bytes[76..].to_vec();
+        tasks.spawn(async move {
+            stream.write_all(&payload).await.unwrap();
+            let mut byte = [0];
+            matches!(
+                tokio::time::timeout(Duration::from_secs(3), stream.read(&mut byte))
+                    .await
+                    .unwrap(),
+                Ok(1)
+            )
+        });
+    }
+    let mut accepted = 0;
+    while let Some(result) = tasks.join_next().await {
+        accepted += usize::from(result.unwrap());
+    }
+    assert_eq!(accepted, 1);
+    wait_active(&h, 0).await;
+    assert_eq!(h.inner.connection_admission.available_permits(), 1024);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn transition_allows_modified_prelude_to_bypass_replay_check() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let token = authentication(5);
+    let mut bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
+    receives_tls(&h, &bytes).await;
+    silent(&h, &bytes, false).await;
+    bytes[0] ^= 1;
+    receives_tls(&h, &bytes).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn unbound_client_hello_can_be_modified_before_first_commit() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let token = authentication(6);
+    let original = hello(&h, crate::protocol::ALPN);
+    let offset = original
+        .windows(9)
+        .position(|bytes| bytes == [0, 16, 0, 6, 0, 4, 3, b'n', b'w'])
+        .unwrap()
+        + 7;
+    let mut bytes = capture(&h, token, &original).await;
+    for (index, (&before, &after)) in b"nw3".iter().zip(b"bad").enumerate() {
+        bytes[76 + offset + index] ^= before ^ after;
+    }
+    receives_tls(&h, &bytes).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn fifo_eviction_preserves_established_flow_and_allows_identity_reregistration() {
+    let h = Harness::new("direct", true).await;
+    let client = h.client("tcp", true);
+    let (target, echo) = tcp_echo().await;
+    let mut tunnel = client.open_tcp(&target).await.unwrap();
+    let replay = h.inner.prelude_replay.as_ref().unwrap();
+    for identity in 0..16_385 {
+        assert!(replay.commit(AuthenticatedPrelude {
+            identity,
+            counter: 1
+        }));
+    }
+    tunnel.write_all(b"after eviction").await.unwrap();
+    let mut received = [0; 14];
+    tokio::time::timeout(Duration::from_secs(2), tunnel.read_exact(&mut received))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&received, b"after eviction");
+    drop(tunnel);
+    assert!(replay.commit(AuthenticatedPrelude {
+        identity: 0,
+        counter: 1
+    }));
+    client.close(Instant::now() + Duration::from_secs(1)).await;
+    h.close().await;
+    echo.abort();
+}
+
+#[tokio::test]
+async fn authenticated_bootstrap_timeout_releases_admission_without_registration() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let identity = ClientPrelude::for_test(42, 0);
+    let stream = TcpStream::connect(h.tcp).await.unwrap();
+    let mut stream = MorphTcpStream::connect(stream, h.inner.morph_keys.clone(), &identity)
+        .await
+        .unwrap();
+    let mut bytes = Vec::new();
+    let result = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
+        .await
+        .unwrap();
+    assert_silent_close(result);
+    assert!(bytes.is_empty());
+    assert!(
+        h.inner
+            .prelude_replay
+            .as_ref()
+            .unwrap()
+            .precheck(AuthenticatedPrelude {
+                identity: 42,
+                counter: 1
+            })
+    );
+    wait_active(&h, 0).await;
+    h.close().await;
+}
+
+#[tokio::test]
+async fn portal_instance_restart_discards_replay_history() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let token = authentication(77);
+    let bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
+    receives_tls(&h, &bytes).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    h.close().await;
+    let restarted = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    assert!(
+        restarted
+            .inner
+            .prelude_replay
+            .as_ref()
+            .unwrap()
+            .precheck(token)
+    );
+    receives_tls(&restarted, &bytes).await;
+    assert!(
+        !restarted
+            .inner
+            .prelude_replay
+            .as_ref()
+            .unwrap()
+            .precheck(token)
+    );
+    restarted.close().await;
+}
+
+#[tokio::test]
+async fn portal_tcp_listeners_share_one_replay_registry() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let listener_task = tokio::spawn(crate::portal::runtime::tcp_loop(
+        h.inner.clone(),
+        listener,
+        h.stop.clone(),
+    ));
+    let bytes = capture(&h, authentication(88), &hello(&h, crate::protocol::ALPN)).await;
+    receives_tls(&h, &bytes).await;
+    let start = Instant::now();
+    let mut replay = TcpStream::connect(address).await.unwrap();
+    replay.write_all(&bytes).await.unwrap();
+    let mut response = Vec::new();
+    let result = tokio::time::timeout(Duration::from_secs(2), replay.read_to_end(&mut response))
+        .await
+        .unwrap();
+    assert_silent_close(result);
+    assert!(response.is_empty());
+    assert!(start.elapsed() >= TIMEOUT);
+    h.close().await;
+    listener_task.await.unwrap().unwrap();
+}

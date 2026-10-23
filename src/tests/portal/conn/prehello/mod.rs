@@ -4,6 +4,7 @@
 //! Shared Morph TCP probe and handshake fixtures.
 
 mod admission;
+mod authenticated;
 mod handshake;
 mod linger;
 mod probes;
