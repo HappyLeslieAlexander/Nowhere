@@ -351,7 +351,7 @@ async fn tcp_uses_one_client_nonce_and_independent_directions() {
     let keys = MorphKeys::derive(b"shared");
     let (client_io, server_io) = tokio::io::duplex(4096);
     let (client, server) = tokio::join!(
-        MorphTcpStream::connect(client_io, Some(keys.clone())),
+        MorphTcpStream::connect_legacy(client_io, Some(keys.clone())),
         MorphTcpStream::accept(server_io, Some(keys)),
     );
     let mut client = client.unwrap();
@@ -373,7 +373,7 @@ async fn tcp_bootstrap_finishes_before_either_side_is_exposed() {
     let keys = MorphKeys::derive(b"shared");
     let (client_io, server_io) = tokio::io::duplex(4096);
     let (client, server) = tokio::join!(
-        MorphTcpStream::connect(client_io, Some(keys.clone())),
+        MorphTcpStream::connect_legacy(client_io, Some(keys.clone())),
         MorphTcpStream::accept(server_io, Some(keys)),
     );
     let mut client = client.unwrap();
@@ -396,7 +396,7 @@ async fn tcp_preserves_offsets_across_small_io_chunks() {
     let keys = MorphKeys::derive(b"shared");
     let (client_io, server_io) = tokio::io::duplex(1024);
     let (client, server) = tokio::join!(
-        MorphTcpStream::connect(client_io, Some(keys.clone())),
+        MorphTcpStream::connect_legacy(client_io, Some(keys.clone())),
         MorphTcpStream::accept(server_io, Some(keys)),
     );
     let mut client = client.unwrap();
@@ -425,4 +425,127 @@ async fn tcp_write_processes_the_full_available_buffer() {
         client.morph.as_ref().unwrap().write_buffer.len(),
         buffer_len
     );
+}
+
+#[tokio::test]
+async fn authenticated_bootstrap_roundtrips_without_changing_ciphertext() {
+    let keys = MorphKeys::derive(b"shared");
+    for policy in [
+        TcpPreludePolicy::Fade,
+        TcpPreludePolicy::Full8,
+        TcpPreludePolicy::Low7,
+    ] {
+        let prelude = policy.generate().unwrap();
+        let nonce = [0x23; NONCE_LEN];
+        let authentication = AuthenticatedPrelude {
+            identity: 0x0123_4567_89ab_cdef,
+            counter: 0x1234_5678_9abc,
+        };
+        let (client_io, server_io) = tokio::io::duplex(4096);
+        let (client, server) = tokio::join!(
+            MorphTcpStream::connect_authenticated_for_test(
+                client_io,
+                keys.clone(),
+                prelude,
+                nonce,
+                authentication
+            ),
+            MorphTcpStream::accept_bootstrap(server_io, Some(keys.clone())),
+        );
+        let mut client = client.unwrap();
+        let (mut server, token) = server.unwrap();
+        assert!(token == Some(authentication));
+        client.write_all(b"hello").await.unwrap();
+        let mut received = [0; 5];
+        server.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"hello");
+        server.write_all(b"reply").await.unwrap();
+        client.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"reply");
+        let mut encoded = prelude;
+        keys.encode_prelude(&mut encoded, &nonce, authentication);
+        assert_eq!(encoded[..32], prelude[..32]);
+        for (encoded, original) in encoded.iter().zip(prelude) {
+            assert_eq!(encoded & 0x80, original & 0x80);
+        }
+    }
+}
+
+#[tokio::test]
+async fn cancelled_and_failed_bootstrap_never_return_counter() {
+    let keys = MorphKeys::derive(b"shared");
+    let identity = ClientPrelude::for_test(42, 0);
+    let (inner, _peer) = tokio::io::duplex(1);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            MorphTcpStream::connect(inner, Some(keys.clone()), &identity)
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(identity.allocated_for_test(), 1);
+    let (inner, peer) = tokio::io::duplex(76);
+    drop(peer);
+    assert!(
+        MorphTcpStream::connect(inner, Some(keys.clone()), &identity)
+            .await
+            .is_err()
+    );
+    assert_eq!(identity.allocated_for_test(), 2);
+    let (inner, peer) = tokio::io::duplex(76);
+    let (_, accepted) = tokio::join!(
+        MorphTcpStream::connect(inner, Some(keys.clone()), &identity),
+        MorphTcpStream::accept_bootstrap(peer, Some(keys)),
+    );
+    assert_eq!(accepted.unwrap().1.unwrap().counter, 3);
+}
+
+#[tokio::test]
+async fn disabled_morph_does_not_initialize_identity() {
+    let identity = ClientPrelude::default();
+    let (inner, _peer) = tokio::io::duplex(76);
+    MorphTcpStream::connect(inner, None, &identity)
+        .await
+        .unwrap();
+    assert_eq!(identity.allocated_for_test(), 0);
+}
+
+#[test]
+fn randomized_prelude_policies_preserve_prefix_and_high_bits_after_authentication() {
+    let keys = MorphKeys::derive(b"0123456789abcdef0123456789abcdef");
+    for policy in [
+        TcpPreludePolicy::Fade,
+        TcpPreludePolicy::Full8,
+        TcpPreludePolicy::Low7,
+    ] {
+        let mut counts = [0usize; 128];
+        let mut high = 0;
+        for counter in 1..=2048 {
+            let mut prelude = policy.generate().unwrap();
+            let original = prelude;
+            let mut nonce = [0; 12];
+            getrandom::fill(&mut nonce).unwrap();
+            let mut identity = [0; 8];
+            getrandom::fill(&mut identity).unwrap();
+            let authentication = AuthenticatedPrelude {
+                identity: u64::from_be_bytes(identity),
+                counter,
+            };
+            keys.encode_prelude(&mut prelude, &nonce, authentication);
+            assert!(keys.decode_prelude(&prelude, &nonce) == Some(authentication));
+            assert_eq!(prelude[..32], original[..32]);
+            for index in 32..64 {
+                assert_eq!(prelude[index] & 0x80, original[index] & 0x80);
+                counts[usize::from(prelude[index] & 0x7f)] += 1;
+                high += usize::from(prelude[index] >> 7);
+            }
+        }
+        assert!(counts.iter().all(|&count| (350..700).contains(&count)));
+        if policy == TcpPreludePolicy::Low7 {
+            assert_eq!(high, 0);
+        } else {
+            assert!((30_000..35_500).contains(&high));
+        }
+    }
 }

@@ -11,7 +11,9 @@ use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
-use super::{MorphKeys, NONCE_LEN, TCP_PRELUDE_LEN, exhausted};
+use super::{
+    AuthenticatedPrelude, ClientPrelude, MorphKeys, NONCE_LEN, TCP_PRELUDE_LEN, exhausted,
+};
 
 const TCP_STREAM_LIMIT: u64 = (1u64 << 38) - 64;
 const TCP_PRELUDE_ENV: &str = "NOW_MORPH_TCP_PRELUDE";
@@ -114,13 +116,18 @@ where
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
-    pub(crate) async fn connect(inner: S, keys: Option<MorphKeys>) -> io::Result<Self> {
+    pub(crate) async fn connect(
+        inner: S,
+        keys: Option<MorphKeys>,
+        identity: &ClientPrelude,
+    ) -> io::Result<Self> {
         let Some(keys) = keys else {
             return Ok(Self { inner, morph: None });
         };
-        let prelude = TcpPreludePolicy::from_env()?.generate()?;
+        let mut prelude = TcpPreludePolicy::from_env()?.generate()?;
         let mut nonce = [0u8; NONCE_LEN];
         getrandom::fill(&mut nonce).map_err(io::Error::other)?;
+        keys.encode_prelude(&mut prelude, &nonce, identity.allocate()?);
         Self::connect_with_bootstrap(inner, keys, prelude, nonce).await
     }
 
@@ -135,12 +142,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         Ok(Self::initialized(inner, &keys, nonce, true))
     }
 
-    pub(crate) async fn accept(
+    pub(crate) async fn accept_bootstrap(
         mut inner: S,
         keys: Option<MorphKeys>,
-    ) -> Result<Self, (io::Error, S)> {
+    ) -> Result<(Self, Option<AuthenticatedPrelude>), (io::Error, S)> {
         let Some(keys) = keys else {
-            return Ok(Self { inner, morph: None });
+            return Ok((Self { inner, morph: None }, None));
         };
         let mut prelude = [0u8; TCP_PRELUDE_LEN];
         if let Err(error) = inner.read_exact(&mut prelude).await {
@@ -150,7 +157,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         if let Err(error) = inner.read_exact(&mut nonce).await {
             return Err((error, inner));
         }
-        Ok(Self::initialized(inner, &keys, nonce, false))
+        let authentication = keys.decode_prelude(&prelude, &nonce);
+        Ok((
+            Self::initialized(inner, &keys, nonce, false),
+            authentication,
+        ))
     }
 
     pub(crate) fn get_ref(&self) -> &S {

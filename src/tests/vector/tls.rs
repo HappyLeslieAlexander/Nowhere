@@ -305,3 +305,57 @@ async fn wrong_or_uppercase_pin_is_rejected() {
             .is_err()
     );
 }
+
+#[test]
+fn tls_clones_share_prelude_state_and_quic_configuration_does_not_allocate() {
+    let tls = ClientTls::new(&config(
+        "vector://0123456789abcdef0123456789abcdef@127.0.0.1:2000?in=127.0.0.1:1080",
+    ))
+    .unwrap();
+    let clone = tls.clone();
+    assert!(Arc::ptr_eq(&tls.prelude, &clone.prelude));
+    assert_eq!(tls.prelude.allocated_for_test(), 0);
+    clone.quic_client_config().unwrap();
+    assert_eq!(tls.prelude.allocated_for_test(), 0);
+}
+
+#[tokio::test]
+async fn cloned_tls_clients_send_one_identity_and_distinct_counters_after_failure() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = listener.local_addr().unwrap();
+    let keys = MorphKeys::derive(b"0123456789abcdef0123456789abcdef");
+    let server = tokio::spawn(async move {
+        let mut tokens = Vec::new();
+        for _ in 0..2 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (_stream, authentication) =
+                MorphTcpStream::accept_bootstrap(stream, Some(keys.clone()))
+                    .await
+                    .unwrap();
+            tokens.push(authentication.unwrap());
+        }
+        tokens
+    });
+    let tls = ClientTls::new(&config(&format!(
+        "vector://0123456789abcdef0123456789abcdef@{endpoint}?in=127.0.0.1:1080",
+    )))
+    .unwrap();
+    let clone = tls.clone();
+    for client in [&tls, &clone] {
+        assert!(
+            client
+                .connect_tcp(
+                    &endpoint.to_string(),
+                    &"auto".into(),
+                    crate::common::AddressFamily::Any
+                )
+                .await
+                .is_err()
+        );
+    }
+    let tokens = server.await.unwrap();
+    assert!(tokens[0].identity == tokens[1].identity);
+    assert_eq!(tokens[0].counter, 1);
+    assert_eq!(tokens[1].counter, 2);
+    assert_eq!(tls.prelude.allocated_for_test(), 2);
+}

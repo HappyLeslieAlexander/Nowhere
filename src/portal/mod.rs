@@ -10,6 +10,7 @@ mod egress;
 pub(crate) mod forward;
 mod listener;
 mod prehello;
+mod replay;
 mod runtime;
 mod setup;
 
@@ -32,6 +33,7 @@ pub struct Portal {
 struct PortalInner {
     credentials: Credentials,
     morph_keys: Option<MorphKeys>,
+    prelude_replay: Option<replay::ReplayProtection>,
     tcp_bind_addrs: Vec<std::net::SocketAddr>,
     udp_bind_addrs: Vec<std::net::SocketAddr>,
     allow_tcp_family_degrade: bool,

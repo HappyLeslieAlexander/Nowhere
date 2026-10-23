@@ -111,6 +111,8 @@ impl Portal {
         Ok(Self {
             inner: Arc::new(PortalInner {
                 credentials,
+                prelude_replay: (morph_keys.is_some() && endpoint.tcp.is_some())
+                    .then(super::replay::ReplayProtection::new),
                 morph_keys,
                 tcp_bind_addrs: endpoint
                     .tcp

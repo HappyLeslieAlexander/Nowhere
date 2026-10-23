@@ -202,6 +202,33 @@ fn fade_propagates_random_source_errors_at_every_generation_stage() {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
+    pub(crate) async fn connect_authenticated_for_test(
+        inner: S,
+        keys: MorphKeys,
+        mut prelude: [u8; TCP_PRELUDE_LEN],
+        nonce: [u8; NONCE_LEN],
+        authentication: AuthenticatedPrelude,
+    ) -> io::Result<Self> {
+        keys.encode_prelude(&mut prelude, &nonce, authentication);
+        Self::connect_with_bootstrap(inner, keys, prelude, nonce).await
+    }
+
+    pub(crate) async fn connect_legacy(inner: S, keys: Option<MorphKeys>) -> io::Result<Self> {
+        let Some(keys) = keys else {
+            return Ok(Self { inner, morph: None });
+        };
+        let prelude = TcpPreludePolicy::from_env()?.generate()?;
+        let mut nonce = [0; NONCE_LEN];
+        getrandom::fill(&mut nonce).map_err(io::Error::other)?;
+        Self::connect_with_bootstrap(inner, keys, prelude, nonce).await
+    }
+
+    pub(crate) async fn accept(inner: S, keys: Option<MorphKeys>) -> Result<Self, (io::Error, S)> {
+        Self::accept_bootstrap(inner, keys)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
     pub(in crate::transport::morph) fn initialized_for_test(
         inner: S,
         keys: &MorphKeys,

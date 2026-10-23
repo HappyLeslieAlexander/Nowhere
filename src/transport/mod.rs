@@ -13,8 +13,8 @@ mod stats;
 
 pub(crate) use buffers::Buffers;
 pub(crate) use morph::{
-    MorphKeys, MorphTcpStream, UdpRole, configure_morph_mtu, morph_endpoint_config,
-    wrap_morph_udp_socket,
+    AuthenticatedPrelude, ClientPrelude, MorphKeys, MorphTcpStream, UdpRole, configure_morph_mtu,
+    morph_endpoint_config, wrap_morph_udp_socket,
 };
 pub(crate) use owned_io::{
     AsyncReadAny, AsyncWriteAny, read_owned, read_owned_from, read_with_flush, write_owned,

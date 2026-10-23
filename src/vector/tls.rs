@@ -21,7 +21,7 @@ use tokio_rustls::{TlsConnector, client::TlsStream};
 
 use crate::common::{AddressFamily, certificate_sha256, dial_tcp_with_policy, handshake_timeout};
 use crate::protocol::{ALPN, TLS_EXPORTER_LEN, TlsExporter};
-use crate::transport::{MorphKeys, MorphTcpStream};
+use crate::transport::{ClientPrelude, MorphKeys, MorphTcpStream};
 
 use super::config::PortalClientConfig;
 
@@ -32,6 +32,7 @@ pub(crate) struct ClientTls {
     rustls: Arc<rustls::ClientConfig>,
     server_name: ServerName<'static>,
     morph_keys: Option<MorphKeys>,
+    prelude: Arc<ClientPrelude>,
 }
 
 impl ClientTls {
@@ -81,6 +82,7 @@ impl ClientTls {
             rustls: Arc::new(client),
             server_name,
             morph_keys: config.morph_keys.clone(),
+            prelude: Arc::new(ClientPrelude::default()),
         })
     }
 
@@ -112,7 +114,8 @@ impl ClientTls {
             .context("vector::tls::connect_tcp: failed to set TCP_NODELAY")?;
         let connector = TlsConnector::from(self.rustls.clone());
         let tls = timeout(handshake_timeout(), async {
-            let stream = MorphTcpStream::connect(stream, self.morph_keys.clone()).await?;
+            let stream =
+                MorphTcpStream::connect(stream, self.morph_keys.clone(), &self.prelude).await?;
             connector.connect(self.server_name.clone(), stream).await
         })
         .await

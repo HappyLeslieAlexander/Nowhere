@@ -3,6 +3,7 @@
 
 //! Optional keyed wire transform below TLS and QUIC.
 
+mod prelude;
 mod tcp;
 mod udp;
 
@@ -11,6 +12,7 @@ use std::{fmt, io};
 use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
 use sha2::Sha256;
 
+pub(crate) use prelude::{AuthenticatedPrelude, ClientPrelude};
 pub(crate) use tcp::MorphTcpStream;
 pub(crate) use udp::{UdpRole, configure_morph_mtu, morph_endpoint_config, wrap_morph_udp_socket};
 
@@ -21,6 +23,8 @@ const TCP_C2S_INFO: &[u8] = b"tcp c2s";
 const TCP_S2C_INFO: &[u8] = b"tcp s2c";
 const UDP_C2S_INFO: &[u8] = b"udp c2s";
 const UDP_S2C_INFO: &[u8] = b"udp s2c";
+const TCP_PRELUDE_AUTH_INFO: &[u8] = b"tcp prelude auth";
+const TCP_PRELUDE_MASK_INFO: &[u8] = b"tcp prelude mask";
 
 type MorphKeyBytes = [u8; 32];
 
@@ -30,6 +34,8 @@ pub(crate) struct MorphKeys {
     tcp_s2c: MorphKeyBytes,
     udp_c2s: MorphKeyBytes,
     udp_s2c: MorphKeyBytes,
+    tcp_prelude_auth: MorphKeyBytes,
+    tcp_prelude_mask: MorphKeyBytes,
 }
 
 impl fmt::Debug for MorphKeys {
@@ -52,6 +58,8 @@ impl MorphKeys {
             tcp_s2c: hkdf_expand_one(root, TCP_S2C_INFO),
             udp_c2s: hkdf_expand_one(root, UDP_C2S_INFO),
             udp_s2c: hkdf_expand_one(root, UDP_S2C_INFO),
+            tcp_prelude_auth: hkdf_expand_one(root, TCP_PRELUDE_AUTH_INFO),
+            tcp_prelude_mask: hkdf_expand_one(root, TCP_PRELUDE_MASK_INFO),
         }
     }
 

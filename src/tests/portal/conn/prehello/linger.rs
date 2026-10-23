@@ -60,7 +60,7 @@ async fn accepted_hello_restores_linger_before_normal_authentication() {
     let (server, _) = accepted.unwrap();
     server.set_zero_linger().unwrap();
     assert_eq!(server.linger().unwrap(), Some(Duration::ZERO));
-    let mut client = MorphTcpStream::connect(client.unwrap(), h.inner.morph_keys.clone())
+    let mut client = MorphTcpStream::connect_legacy(client.unwrap(), h.inner.morph_keys.clone())
         .await
         .unwrap();
     let config = Arc::new(tls_config(&h, crate::protocol::ALPN));
@@ -106,7 +106,7 @@ async fn accepted_hello_continues_normal_authentication_and_close() {
         let connection = tokio::spawn(async move {
             crate::portal::conn::tcp(portal, server, admission, accepted_at).await
         });
-        let stream = MorphTcpStream::connect(client.unwrap(), h.inner.morph_keys.clone())
+        let stream = MorphTcpStream::connect_legacy(client.unwrap(), h.inner.morph_keys.clone())
             .await
             .unwrap();
         let config = Arc::new(tls_config(&h, crate::protocol::ALPN));

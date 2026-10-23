@@ -14,7 +14,7 @@ async fn shutdown_cancels_tls_after_accepted_hello_and_before_auth_frame() {
         let inner = h.inner.clone();
         let config = Arc::new(tls_config(&h, crate::protocol::ALPN));
         let stream = TcpStream::connect(h.tcp).await.unwrap();
-        let mut stream = MorphTcpStream::connect(stream, h.inner.morph_keys.clone())
+        let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
             .await
             .unwrap();
         if complete_tls {
@@ -64,7 +64,7 @@ async fn standard_tls_and_post_accept_alpn_rejection_still_respond_immediately()
     let mut hello = Vec::new();
     connection.write_tls(&mut hello).unwrap();
     let stream = TcpStream::connect(h.tcp).await.unwrap();
-    let mut stream = MorphTcpStream::connect(stream, h.inner.morph_keys.clone())
+    let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
         .await
         .unwrap();
     stream.write_all(&hello).await.unwrap();
@@ -105,7 +105,7 @@ async fn captured_hello_with_modified_ciphertext_can_trigger_post_accept_respons
     let offset = positions[0];
     assert_eq!(&hello[offset..offset + 3], b"nw3");
     let (sender, mut capture) = tokio::io::duplex(hello.len() + 76);
-    let mut sender = MorphTcpStream::connect(sender, h.inner.morph_keys.clone())
+    let mut sender = MorphTcpStream::connect_legacy(sender, h.inner.morph_keys.clone())
         .await
         .unwrap();
     sender.write_all(&hello).await.unwrap();
@@ -173,7 +173,7 @@ async fn fragmented_client_hello_continues_authentication_and_bidirectional_flow
         hello.extend_from_slice(&[20, 3, 3, 0, 1, 1]);
         let stream = TcpStream::connect(h.tcp).await.unwrap();
         stream.set_nodelay(true).unwrap();
-        let mut stream = MorphTcpStream::connect(stream, h.inner.morph_keys.clone())
+        let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
             .await
             .unwrap();
         let start = Instant::now();
@@ -272,7 +272,7 @@ async fn bootstrap_prehello_tls_and_auth_share_one_deadline() {
     let config = Arc::new(tls_config(&h, crate::protocol::ALPN));
     let start = Instant::now();
     let stream = TcpStream::connect(h.tcp).await.unwrap();
-    let stream = MorphTcpStream::connect(stream, h.inner.morph_keys.clone())
+    let stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(150)).await;

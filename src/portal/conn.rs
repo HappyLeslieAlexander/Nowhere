@@ -15,8 +15,9 @@ use crate::protocol::{AUTH_EXPORTER_LABEL, AuthTransport, ConnectionRole, read_a
 use crate::transport::{MorphTcpStream, QuicConnection};
 use crate::vector::TcpTunnelGuard;
 
-use super::prehello;
-use super::{PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming};
+use super::{
+    PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming, prehello,
+};
 
 pub(super) enum TcpOutcome {
     Closed,
@@ -43,19 +44,41 @@ pub(super) async fn tcp(
     let mut before_hello = morph;
     let authentication = tokio::time::timeout_at(deadline, async {
         stream.set_nodelay(true)?;
-        let mut stream = match MorphTcpStream::accept(stream, portal.morph_keys.clone()).await {
-            Ok(stream) => stream,
-            Err((error, stream)) if morph && error.kind() == ErrorKind::UnexpectedEof => {
-                prehello::discard(stream).await?;
-                return Ok(None);
-            }
-            Err((error, _stream)) => return Err(error.into()),
-        };
+        let (mut stream, authentication) =
+            match MorphTcpStream::accept_bootstrap(stream, portal.morph_keys.clone()).await {
+                Ok(bootstrap) => bootstrap,
+                Err((error, stream)) if morph && error.kind() == ErrorKind::UnexpectedEof => {
+                    prehello::discard(stream).await?;
+                    return Ok(None);
+                }
+                Err((error, _stream)) => return Err(error.into()),
+            };
+        if let Some(authentication) = authentication
+            && !portal
+                .prelude_replay
+                .as_ref()
+                .is_some_and(|replay| replay.precheck(authentication))
+        {
+            prehello::discard(stream.into_inner()).await?;
+            return Ok(None);
+        }
         let mut tls = if morph {
             let Some(accepted) = prehello::accept(&mut stream).await? else {
                 prehello::discard(stream.into_inner()).await?;
                 return Ok(None);
             };
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+            if let Some(authentication) = authentication
+                && !portal
+                    .prelude_replay
+                    .as_ref()
+                    .is_some_and(|replay| replay.commit(authentication))
+            {
+                prehello::discard(stream.into_inner()).await?;
+                return Ok(None);
+            }
             if !prehello::finish(stream.get_ref(), deadline)
                 .context("restore Morph socket linger")?
             {
