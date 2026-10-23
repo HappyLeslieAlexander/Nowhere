@@ -31,11 +31,11 @@ not establish trust; compare its result through a trusted channel before use.
 
 ## Connection authentication
 
-Authentication is a 16-byte HMAC tag over the transport byte and normal TLS
+AuthFrame is a 16-byte HMAC tag over the transport byte and normal TLS
 exporter. The [Core specification](protocol.md) defines Vector authentication;
 the [Egress Extension](egress.md#authentication) defines its additional role
-key. Tags are compared in constant time. They cannot authenticate another connection, resumed connection,
-transport or role.
+key. AuthFrame tags are compared in constant time and are bound to the
+connection, transport and role, including on resumed TLS connections.
 
 Shared Key is percent-decoded once and used as text bytes. Portal, Vector and
 Egress require exactly 32 lowercase hexadecimal text characters.
@@ -44,12 +44,21 @@ providing 128 bits of entropy. Key derivation does not increase that entropy.
 One credential derives both Vector and Egress role keys; sharing it shares its
 authority. Role derivation does not provide independent credential permissions.
 
+A captured Morph TCP bootstrap permits offline verification of candidate Shared
+Keys through its Prelude Tag. The hexadecimal format does not guarantee
+entropy; use the random output of `nowhere generate-key`. Prelude masking has
+no forward secrecy: disclosure of the Shared Key permits decoding captured
+Identity and Counter metadata. TLS session encryption is a separate boundary.
+
 ## Morph transport protection
 
 Morph masks the transport wire image. TLS/QUIC provides authenticated encryption
 and integrity. Nowhere limits each TCP cipher direction to `2^38 - 64` bytes
-to prevent keystream reuse. See the [Core specification](protocol.md) for the
-Morph contract.
+to prevent cipher block-counter wrap within a connection. The 96-bit TCP Nonce
+is randomly generated, so uniqueness across connections sharing a key is
+probabilistic. A repeated Nonce reuses the outer Morph keystream; Prelude
+counters do not prevent that collision. TLS encryption is a separate boundary.
+See the [Core specification](protocol.md) for the Morph contract.
 
 For Morph TCP ingress, Portal reads ClientHello through rustls without sending
 parser alerts. Incomplete or rejected input, including a peer's write-side FIN,
@@ -66,15 +75,26 @@ terminate the connection without continuing TLS. They are outside this close
 policy's guarantees, as are shutdown and resource rejection. Packet-level
 behavior on other operating systems depends on the kernel.
 
-The silent boundary ends when rustls Acceptor accepts ClientHello. This is not
-authentication: configuration-dependent ClientHello checks, the remaining TLS
-handshake and exporter-bound AuthFrame validation still run normally. Those
-later checks can send TLS alerts. A replayed valid Morph ClientHello can also
-trigger normal TLS handshake responses; Morph has no replay cache.
-Morph's XOR layer also has no integrity tag: an observer who knows a captured
-ClientHello field's position and original value can modify its ciphertext
-without the Shared Key. Such modified replays may still pass Acceptor and
-trigger later alerts. This does not bypass TLS or AuthFrame authentication.
+The [Prelude Extension](prelude.md) adds a 14-byte Tag over Morph TCP bootstrap
+metadata. A matching Tag requires a valid Counter and successful replay commit
+before any TLS response. A nonmatching Tag takes the silent ClientHello path
+without replay state. The silent boundary ends after rustls Acceptor accepts
+ClientHello, replay commit succeeds when applicable, and the linger/deadline
+handoff completes. Configuration-dependent ClientHello checks, TLS completion
+and AuthFrame validation follow; those checks can send TLS alerts.
+
+The 1024-bit replay window applies while an Identity is in the 16,384-entry FIFO.
+Eviction or Portal restart removes its history. Modifying captured Prelude
+metadata can invalidate the Tag and enter the path without replay checks.
+Prelude authentication is therefore not enforced for every Morph TCP connection.
+
+The Prelude Tag does not authenticate the encrypted TLS stream. An observer
+who knows a captured ClientHello field's position and value can modify its
+Morph ciphertext without the Shared Key. Modified input may pass Acceptor and
+trigger later alerts; a captured bootstrap can race its first use with a
+modified ClientHello and consume its Counter. TLS and AuthFrame authentication
+still have to succeed. Shared Key holders can churn the FIFO or advance replay
+windows. Random 64-bit Identity collisions can cause unwanted window sharing.
 
 Rejected connections retain their admission permits. Portal discards further
 TCP input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then

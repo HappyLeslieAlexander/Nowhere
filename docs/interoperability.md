@@ -2,9 +2,9 @@
 
 Validate independent Nowhere Protocol implementations against Nowhere's Rust
 runtime. The [Core specification entry](protocol.md) identifies the Wire
-baseline; the [Egress Extension](egress.md) defines Nowhere's remote-exit
-behavior. This guide describes integration and validation, not a second Wire
-specification.
+baseline. The [Prelude Extension](prelude.md) defines Morph TCP bootstrap
+authentication; the [Egress Extension](egress.md) defines remote-exit behavior.
+This guide describes integration and validation, not a second Wire specification.
 
 ## Contents
 
@@ -17,13 +17,13 @@ specification.
 ## Transport and authentication
 
 Follow [Core transport and authentication](protocol.md).
-When connecting to Nowhere, use its [certificate trust](security.md#certificate-trust)
-and [Shared Key provisioning](configuration.md) interfaces. Configuration URL
+When connecting to Nowhere, use its [Shared Key provisioning](configuration.md)
+and [certificate trust](security.md#certificate-trust) interfaces. Configuration URL
 parsing is independent of the authenticated Wire frames.
 
 Test fresh and resumed connections, invalid credentials and replayed tags. A
 failed connection must not dial a target or claim Egress registration ownership.
-The original authentication fixtures also contain Egress/TLS as a negative case;
+The authentication fixtures include Egress/TLS as a negative case;
 Egress does not support that carrier.
 
 ## Flow direction and framing
@@ -57,11 +57,20 @@ segmentation boundaries and nonce overhead. The receive path must accept the
 [prelude policies](configuration.md#tcp-morph-prelude) do not require a matching
 policy on the peer.
 
+Morph TCP senders encode the [Prelude Extension](prelude.md). Portal verifies
+Tags independently of the generation policy. A nonmatching Tag permits silent
+ClientHello parsing without replay state. A matching Tag requires a valid
+Counter and successful replay checks before any TLS response. Test all three
+policies, matching and nonmatching tags, Counter rejection and the commit
+boundary after ClientHello acceptance. An input rejected by replay checks must
+not enter the Tag-mismatch path.
+
 ## Reference vectors and observation
 
-The original [wire fixtures](../src/tests/protocol/vectors.json) and
-[Morph fixtures](../src/tests/transport/morph.rs) remain part of Nowhere's test
-suite, including extension coverage. Fixed byte agreement complements live
+The [wire fixtures](../src/tests/protocol/vectors.json),
+[Morph fixtures](../src/tests/transport/morph.rs) and
+[Prelude fixtures](../src/tests/transport/morph/prelude.rs) cover Core and
+extension encoding. Fixed byte agreement complements live
 transport and lifecycle tests; it does not replace them. See [Testing](testing.md).
 
 Third-party observers use the separate [Telemetry JSON contract](telemetry.md).
