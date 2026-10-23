@@ -41,7 +41,7 @@ async fn probe(address: std::net::SocketAddr, size: usize, decoded: bool, split:
     )
     .await
     .unwrap();
-    assert!(result.is_ok() || result.unwrap_err().kind() == std::io::ErrorKind::ConnectionReset);
+    assert_silent_close(result);
     assert!(
         bytes.is_empty(),
         "size={size}, decoded={decoded}, split={split}, fin={fin}"
@@ -119,10 +119,10 @@ async fn truncated_valid_client_hello_with_fin_keeps_original_deadline() {
         stream.write_all(&hello[..length]).await.unwrap();
         stream.shutdown().await.unwrap();
         let mut bytes = Vec::new();
-        tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
+        let result = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
             .await
-            .unwrap()
             .unwrap();
+        assert_silent_close(result);
         assert!(bytes.is_empty());
         assert!(start.elapsed() >= TIMEOUT);
     }
@@ -161,7 +161,7 @@ async fn excess_rejected_input_remains_silent_and_keeps_the_deadline() {
     )
     .await
     .unwrap();
-    assert!(result.is_ok() || result.unwrap_err().kind() == std::io::ErrorKind::ConnectionReset);
+    assert_silent_close(result);
     assert!(bytes.is_empty());
     assert!(start.elapsed() >= TIMEOUT);
     wait_active(&h, 0).await;

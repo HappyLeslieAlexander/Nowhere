@@ -260,10 +260,10 @@ async fn bootstrap_prehello_tls_and_auth_share_one_deadline() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     stream.write_all(&[0xff]).await.unwrap();
     let mut bytes = Vec::new();
-    tokio::time::timeout(Duration::from_millis(250), stream.read_to_end(&mut bytes))
+    let result = tokio::time::timeout(Duration::from_millis(250), stream.read_to_end(&mut bytes))
         .await
-        .unwrap()
         .unwrap();
+    assert_silent_close(result);
     assert!(bytes.is_empty());
     assert!(start.elapsed() >= TIMEOUT);
     h.close().await;
@@ -311,14 +311,13 @@ async fn morph_deadline_includes_time_before_connection_task_starts() {
     let connection = tokio::spawn(async move {
         crate::portal::conn::tcp(portal, server, admission, accepted_at).await
     });
-    let mut byte = [0];
-    assert_eq!(
-        tokio::time::timeout(Duration::from_millis(350), client.read(&mut byte))
+    let mut bytes = Vec::new();
+    assert_silent_close(
+        tokio::time::timeout(Duration::from_millis(350), client.read_to_end(&mut bytes))
             .await
-            .unwrap()
             .unwrap(),
-        0
     );
+    assert!(bytes.is_empty());
     assert!(accepted_at.elapsed() >= TIMEOUT);
     assert!(matches!(
         connection.await.unwrap().unwrap(),

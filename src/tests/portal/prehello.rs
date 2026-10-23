@@ -10,6 +10,37 @@ use std::time::Duration;
 use super::*;
 
 #[tokio::test]
+async fn linger_handoff_preserves_abortive_close_when_expired() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (client, accepted) = tokio::join!(
+        TcpStream::connect(listener.local_addr().unwrap()),
+        listener.accept()
+    );
+    let _client = client.unwrap();
+    let (stream, _) = accepted.unwrap();
+    for _ in 0..100 {
+        for offset in [
+            Duration::ZERO,
+            Duration::from_nanos(1),
+            Duration::from_secs(1),
+        ] {
+            stream.set_zero_linger().unwrap();
+            let deadline = Instant::now() + offset;
+            let continued = finish(&stream, deadline).unwrap();
+            assert_eq!(
+                stream.linger().unwrap(),
+                (!continued).then_some(Duration::ZERO)
+            );
+            if offset.is_zero() {
+                assert!(!continued);
+            } else if offset == Duration::from_secs(1) {
+                assert!(continued);
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn accepted_preserves_following_tls_record() {
     let url = url::Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000").unwrap();
     let (_, config, _) = crate::common::new_server_configs_with_reload_interval(

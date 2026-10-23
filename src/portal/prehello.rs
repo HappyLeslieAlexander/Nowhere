@@ -10,6 +10,8 @@ use std::task::{Context, Poll};
 
 use rustls::server::{Accepted, Acceptor};
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+use tokio::net::TcpStream;
+use tokio::time::Instant;
 
 const READ_CHUNK: usize = 4096;
 const DISCARD_BYTES: usize = 64 * 1024;
@@ -53,6 +55,18 @@ pub(super) async fn accept<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<O
         }
         tokio::task::yield_now().await;
     }
+}
+
+pub(super) fn finish(stream: &TcpStream, deadline: Instant) -> io::Result<bool> {
+    if Instant::now() >= deadline {
+        return Ok(false);
+    }
+    socket2::SockRef::from(stream).set_linger(None)?;
+    if Instant::now() >= deadline {
+        stream.set_zero_linger()?;
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 pub(super) async fn discard<R: AsyncRead + Unpin>(mut stream: R) -> io::Result<()> {

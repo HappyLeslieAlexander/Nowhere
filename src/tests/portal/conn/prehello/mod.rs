@@ -5,6 +5,7 @@
 
 mod admission;
 mod handshake;
+mod linger;
 mod probes;
 
 use tokio::net::TcpStream;
@@ -15,6 +16,19 @@ use crate::transport::{MorphKeys, MorphTcpStream};
 use super::*;
 
 const TIMEOUT: Duration = Duration::from_millis(400);
+
+fn assert_silent_close(result: std::io::Result<usize>) {
+    if cfg!(target_os = "linux") {
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::ConnectionReset
+        );
+    } else {
+        assert!(
+            result.is_ok() || result.unwrap_err().kind() == std::io::ErrorKind::ConnectionReset
+        );
+    }
+}
 
 async fn wait_active(h: &Harness, count: usize) {
     tokio::time::timeout(Duration::from_secs(2), async {

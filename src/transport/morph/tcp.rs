@@ -153,6 +153,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         Ok(Self::initialized(inner, &keys, nonce, false))
     }
 
+    pub(crate) fn get_ref(&self) -> &S {
+        &self.inner
+    }
+
     pub(crate) fn into_inner(self) -> S {
         self.inner
     }
