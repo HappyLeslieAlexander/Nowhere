@@ -190,8 +190,10 @@ Egress connects to Portal over QUIC and provides target access.
 | `etar` | `0..=2147483647` Mbps | `0` | Target-to-Vector download limit; `0` disables it |
 
 Egress's `dial`, `dial4` and `dial6` follow the same mutual-exclusion and
-explicit-bind rules as Portal. They apply to target DNS and outbound work;
-Egress-to-Portal connections use automatic source selection.
+explicit-bind rules as Portal. They bind outbound target sockets and filter
+resolved target addresses. DNS lookup uses the host resolver; these options
+do not select the DNS query's source address. Egress-to-Portal connections
+use automatic source selection.
 
 ## Parsing configuration
 
@@ -263,17 +265,25 @@ and do not represent total process memory.
 
 ### TCP Morph prelude
 
-`NOW_MORPH_TCP_PRELUDE` selects Nowhere's sender policy. The receiver consumes
-the 64-byte prelude without interpreting its contents; this setting is not
+Morph TCP emits an [Authenticated Prelude](prelude.md). After
+generating the base prelude, it replaces the last 32 bytes' low seven bits with
+masked authentication data; the first 32 bytes and all highest bits retain the
+selected policy.
+
+`NOW_MORPH_TCP_PRELUDE` selects the base Prelude generation policy. The receiver
+consumes the 64-byte prelude independently of that policy; this setting is not
 negotiated and need not match the peer's generation policy.
 
 - `fade` (default): independently sample uniform A in `[8,12]` and B in `[16,32]`.
   Bytes `[0,A)` are uniform printable ASCII (`0x20–0x7E`), `[A,B)` are uniform
   low7 (`0x00–0x7F`), and `[B,64)` are uniform full8 (`0x00–0xFF`).
-- `full8`: use all random bits throughout the prelude.
+- `full8`: generate all eight bits randomly throughout the base prelude.
 - `low7`: clear each random byte's high bit.
 
 All modes use a secure random source. Fade uses rejection sampling for its
-boundaries and printable ASCII to avoid modulo bias. These distributions are
-implementation policy; the [Morph Wire contract](protocol.md) fixes the
-bootstrap length, directional cipher behavior and decoding semantics.
+boundaries and printable ASCII to avoid modulo bias. The distributions above
+describe the base Prelude before authentication encoding. The encoded tail
+preserves highest bits and carries masked payload in its low seven bits.
+The [Core Morph contract](protocol.md) defines the envelope and directional
+cipher; the [Prelude Extension](prelude.md) defines authentication encoding
+and acceptance.

@@ -11,8 +11,9 @@ Launch Nowhere services and observe them through public process and IPC interfac
 
 ## Service processes
 
-Each Portal, Vector or Egress runs as a service process with local statistics. Configure it with a [role URL](configuration.md), supervise its
-lifetime and allow the bounded shutdown to complete.
+Each Portal, Vector or Egress runs as a service process with local statistics.
+Configure it with a [role URL](configuration.md), supervise its lifetime and
+allow the bounded shutdown to complete.
 
 | Role | Integration point |
 |---|---|
@@ -21,8 +22,8 @@ lifetime and allow the bounded shutdown to complete.
 | Egress | Outbound QUIC registration; target dialing when selected by Portal |
 
 `nowhere probe` performs a one-shot setup check without an ingress listener.
-`nowhere status` reads a local snapshot and exits. See [Operations](operations.md)
-for diagnostics and [Platforms](platforms.md#process-control) for process signals.
+`nowhere status` reads a local snapshot and exits. See [Platforms](platforms.md#process-control)
+for process signals and [Operations](operations.md) for diagnostics.
 
 ## Local observation
 
@@ -42,7 +43,8 @@ and Egress reconnection do not change process state.
 3. Connect and validate Hello; send no command.
 4. Read the immediate Snapshot and subsequent one-second snapshots.
 5. On a five-second read timeout or disconnect, reconnect; keep cumulative totals
-   and clear stale active counts.
+   for the same instance without adding repeated samples. Clear stale active
+   counts; a different instance ID starts a separate counter lifetime.
 
 The [contract and JSON messages](telemetry.md#messages) and
 [JSON Schema](telemetry.md#json-schema) define the wire interface.
