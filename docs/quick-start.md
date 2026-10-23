@@ -96,5 +96,5 @@ register a remote Egress with `out=egress`.
 | Next step | Guide |
 |---|---|
 | Choose listeners, transports or a SOCKS5 upstream | [Configuration](configuration.md) |
-| Place target access on another host | [Egress](extension.md) |
+| Place target access on another host | [Egress](egress.md) |
 | Diagnose setup or observe a service | [Operations](operations.md) |

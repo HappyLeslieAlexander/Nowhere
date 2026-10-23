@@ -1,12 +1,12 @@
 # Egress Extension
 
-Egress is a Nowhere-specific compatible extension to
+Egress is a Nowhere-specific extension to
 [Nowhere Protocol (NW3)](protocol.md). It is not part of NW3 Core. The extension
 preserves the Core Vector/Portal contract and uses a separately authenticated
-QUIC connection for a registered remote exit. No new ALPN, version negotiation
-or capability frame is introduced.
+QUIC connection for a registered remote exit. It uses ALPN `nw3` without
+version negotiation or a capability frame.
 
-An ordinary Vector uses the unchanged Core authentication and Flow format even
+An ordinary Vector uses Core authentication and Flow framing even
 when Portal forwards through Egress. Vector does not send registration messages,
 derive the Egress role key or understand the Portal-to-Egress connection.
 
@@ -76,7 +76,7 @@ See [Configuration](configuration.md) for option defaults and binding rules.
 
 Core TLS 1.3, ALPN `nw3`, certificate verification and disabled 0-RTT requirements
 apply. Shared Key has the same validation and text-byte interpretation as Core.
-The extension uses the existing authentication root and its own role label:
+The extension uses the Core authentication root and an Egress role label:
 
 ```text
 salt       = SHA256("nowhere/nw3/auth-root")
@@ -127,7 +127,7 @@ Egress is the transport client; Portal initiates business Streams:
 ```
 
 A BUSY result ends registration and does not authorize target work. Business
-Streams can arrive before the registration response; the ACCEPTED barrier still
+Streams can arrive before the registration response; the ACCEPTED barrier
 applies to their processing.
 
 Registration uses client bidirectional Stream 0, never a later Stream that
@@ -156,7 +156,7 @@ role-direction violations and close the connection.
 
 FlowStart reserved-bit handling, Target validation, payload waiting for READY,
 TCP half-close, UDP control lifetime, datagram framing and fragmentation use
-Core rules unchanged. Unidirectional Streams have no application messages.
+Core rules. Unidirectional Streams have no application messages.
 Each Flow sends at most one SetupResult. Invalid or truncated requests and
 ordinary resource/dial failures affect only that Flow; failures after READY
 close/reset it without another result. There is no carrier fallback.
@@ -174,7 +174,7 @@ flow_id = (quic_stream_id >> 2) + 1
 The last usable raw Egress Stream ID is `4294967289`. Never truncate or wrap.
 The authentication Stream creates no UDP route. Each ID is local to its own
 connection. At exhaustion stop admitting Flows, drain for the configured bounded
-deadline, close and reconnect; no control frame resumes old Flows.
+deadline, close and reconnect. No control frame resets the ID space.
 
 After READY, UDP control Streams remain open in both directions without business
 bytes. FIN, RESET, STOP_SENDING, idle timeout or connection loss performs
@@ -231,7 +231,7 @@ Stale owner's cleanup          Cannot release a different connection's Slot.
 
 ## Morph
 
-The Core Morph transform applies unchanged when enabled. Directional keys follow
+When enabled, the Core UDP Morph transform masks Egress QUIC packets. Directional keys follow
 **transport roles**, not business-Stream initiation: Egress sends with `udp_c2s`
 and Portal sends with `udp_s2c`. Each outgoing UDP datagram has its own nonce;
 segmentation and MTU accounting retain Core behavior. Both peers must agree on
@@ -243,12 +243,12 @@ The Slot's registration ownership is internal. IPC reports only logical TCP/UDP
 traffic and active business Flows; an idle registration does not add a Flow.
 Egress connection or registration failures are emitted to stderr as raw errors.
 The service retries while running. `nowhere probe` checks target setup through
-the configured Portal output. See [Telemetry](telemetry.md) and [Operations](operations.md).
+the configured Portal output. See [Operations](operations.md) and [Telemetry](telemetry.md).
 
 ## Validation
 
-The original [authentication and role fixtures](../src/tests/protocol/vectors.json)
-remain in the GPL-3.0-only Nowhere test suite, including Egress key/tag and
+The [authentication and role fixtures](../src/tests/protocol/vectors.json)
+are part of the GPL-3.0-only Nowhere test suite, including Egress key/tag and
 RegistrationResult values. The Egress/TLS tag is a negative role-validation
 fixture, not a supported carrier.
 

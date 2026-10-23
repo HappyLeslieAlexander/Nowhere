@@ -2,7 +2,7 @@
 
 Validate independent Nowhere Protocol implementations against Nowhere's Rust
 runtime. The [Core specification entry](protocol.md) identifies the Wire
-baseline; the [Egress Extension](extension.md) defines Nowhere's remote-exit
+baseline; the [Egress Extension](egress.md) defines Nowhere's remote-exit
 behavior. This guide describes integration and validation, not a second Wire
 specification.
 
@@ -34,8 +34,8 @@ half-close, rejection before READY and failure isolation after READY.
 
 A standard Vector uses the same Core protocol when Portal selects Egress as its
 exit. It does not implement registration or reverse Stream initiation. Egress
-peers separately test the [registration barrier](extension.md#registration),
-role-direction rejection and [Slot ownership](extension.md#registration-ownership-and-lifetime).
+peers separately test the [registration barrier](egress.md#registration),
+role-direction rejection and [Slot ownership](egress.md#registration-ownership-and-lifetime).
 
 ## UDP delivery and lifetime
 

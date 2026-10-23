@@ -10,7 +10,8 @@ Start a trusted connection, choose a transport and place the exit.
 |---|---|
 | [Quick start](quick-start.md) | Build, connect applications and verify the first Flow |
 | [Configuration](configuration.md) | Role URLs, options, defaults and environment settings |
-| [Egress Extension](extension.md) | Remote-exit deployment, lifecycle and Wire rules |
+| [Prelude Extension](prelude.md) | Morph TCP bootstrap authentication and replay protection |
+| [Egress Extension](egress.md) | Remote-exit deployment, lifecycle and Wire rules |
 
 ## Run and observe
 

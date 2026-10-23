@@ -57,7 +57,7 @@ Manage
 Anywhere connects directly to Portal and imports `nowhere://` links. Vector
 ships in the `nowhere` binary and exposes a local SOCKS5 endpoint. Client peers
 implement [Nowhere Protocol (NW3)](protocol.md) independently of the Rust runtime.
-Nowhere also provides an [Egress Extension](extension.md); ordinary client peers
+Nowhere also provides an [Egress Extension](egress.md); ordinary client peers
 do not need that extension when connecting to a Portal using a remote exit.
 
 ### Deploy

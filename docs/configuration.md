@@ -125,7 +125,7 @@ Portal listens on `ENDPOINT` and uses one fixed `out` for all Flows.
 | `etar` | `0..=2147483647` Mbps | `0` | Target-to-Vector download limit; `0` disables it |
 
 `out=egress` requires a QUIC listener and conflicts with explicit `dial`, `dial4`
-or `dial6`, including `auto`. See [Egress](extension.md) for registration and offline
+or `dial6`, including `auto`. See [Egress](egress.md) for registration and offline
 behavior.
 
 ### Target source selection

@@ -1,6 +1,6 @@
 # Nowhere Protocol
 
-Nowhere is a Rust implementation of **Nowhere Protocol**. The current Wire
+Nowhere is a Rust implementation of **Nowhere Protocol**. The Wire
 version is **NW3**, with ALPN `nw3`.
 
 The independent [Core specification](https://github.com/NodePassProject/Nowhere-Protocol/blob/main/PROTOCOL.md)
@@ -8,11 +8,12 @@ defines Vector/Portal connections, authentication, Flow framing, UDP and Morph.
 
 | Nowhere documentation | Purpose |
 | --- | --- |
-| [Egress Extension](extension.md) | Optional remote exits: deployment, authentication, registration and Wire rules |
 | [Configuration](configuration.md) | Service URLs, runtime defaults and Morph prelude policy |
+| [Prelude Extension](prelude.md) | Morph TCP bootstrap authentication and replay protection |
+| [Egress Extension](egress.md) | Optional remote exits: deployment, authentication, registration and Wire rules |
 | [Security](security.md) | Certificate trust and implementation resource protection |
 | [Interoperability](interoperability.md) | Compatible peer requirements and validation cases |
 | [Testing](testing.md) | Implementation regression coverage and checks |
 
 The independent specification uses CC BY 4.0.
-Nowhere's Rust implementation and original tests remain GPL-3.0-only.
+Nowhere's Rust implementation and tests use GPL-3.0-only.

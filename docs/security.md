@@ -33,7 +33,7 @@ not establish trust; compare its result through a trusted channel before use.
 
 Authentication is a 16-byte HMAC tag over the transport byte and normal TLS
 exporter. The [Core specification](protocol.md) defines Vector authentication;
-the [Egress Extension](extension.md#authentication) defines its additional role
+the [Egress Extension](egress.md#authentication) defines its additional role
 key. Tags are compared in constant time. They cannot authenticate another connection, resumed connection,
 transport or role.
 

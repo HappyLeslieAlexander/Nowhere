@@ -144,25 +144,26 @@ families through the endpoint path. See [Configuration](docs/configuration.md).
 ### Connection and flow
 
 Ingress and exit can live on different hosts. Egress opens an outbound connection,
-so its host needs no inbound relay port. See [Architecture](docs/extension.md#roles-and-connections)
+so its host needs no inbound relay port. See [Architecture](docs/egress.md)
 for the connection model.
 
 ## Wire design
 
 Connection-bound authentication and explicit Flow setup give every transfer a
-clear beginning and lifetime. The [wire specification](https://github.com/NodePassProject/Nowhere-Protocol/blob/main/PROTOCOL.md) describes
-the Core contract for independent implementations.
+clear beginning and lifetime. The [protocol reference](docs/protocol.md) links
+the Core contract and documents Nowhere's extensions.
 
 ### Wire masking
 
 Morph is enabled by default (`morph=1`) for shared-key masking below TLS and QUIC.
-Use `morph=0` to disable it. Certificate verification
-and transport security still apply. See [Morph](https://github.com/NodePassProject/Nowhere-Protocol/blob/main/PROTOCOL.md#12-morph).
+Use `morph=0` to disable it. TLS/QUIC provides certificate verification and
+authenticated encryption. Morph TCP carries bootstrap authentication data
+through the [Prelude Extension](docs/prelude.md).
 
 ### Remote exits
 
 Place target access where it belongs. With `out=egress`, one registered exit serves
-Portal's clients over QUIC. Follow the [Egress guide](docs/extension.md) to set it up.
+Portal's clients over QUIC. Follow the [Egress guide](docs/egress.md) to set it up.
 
 ## Observability
 
@@ -185,14 +186,18 @@ nowhere "vector://<generated-key>@portal.example:2000?in=127.0.0.1:1080"
 | Guide | Focus |
 | --- | --- |
 | [Quick start](docs/quick-start.md) | First connection |
-| [Ecosystem](docs/ecosystem.md) | Clients, deployment and control |
 | [Configuration](docs/configuration.md) | URLs, defaults and runtime settings |
-| [Egress](docs/extension.md) | Remote exits and registration |
-| [Wire protocol](docs/protocol.md) | Authentication, framing and Morph |
-| [Security](docs/security.md) | Trust and resource boundaries |
-| [Operations](docs/operations.md) | Service lifecycle and diagnostics |
+| [Prelude Extension](docs/prelude.md) | Morph TCP authentication and replay protection |
+| [Egress Extension](docs/egress.md) | Remote exits and registration |
 | [Platforms](docs/platforms.md) | Native targets and containers |
+| [Operations](docs/operations.md) | Service lifecycle and diagnostics |
+| [Security](docs/security.md) | Trust and resource boundaries |
 | [Telemetry](docs/telemetry.md) | Discovery, schemas and messages |
+| [Wire protocol](docs/protocol.md) | Authentication, framing and Morph |
+| [Interoperability](docs/interoperability.md) | Compatible peer requirements |
+| [Integrations](docs/integrations.md) | Supervision and independent subscribers |
+| [Ecosystem](docs/ecosystem.md) | Clients, deployment and control |
+| [Testing](docs/testing.md) | Regression coverage and validation |
 
 Explore the complete [documentation index](docs/README.md).
 
@@ -207,9 +212,9 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo build --release --locked
 ```
 
-CI runs on Linux, macOS and Windows. The [testing guide](docs/testing.md) covers
-native checks, Linux containers and performance measurements; [Platforms](docs/platforms.md)
-provides build and deployment details.
+CI runs on Linux, macOS and Windows. [Platforms](docs/platforms.md) provides build
+and deployment details; the [testing guide](docs/testing.md) covers native checks,
+Linux containers and performance measurements.
 
 ## License
 
