@@ -157,10 +157,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         if let Err(error) = inner.read_exact(&mut nonce).await {
             return Err((error, inner));
         }
-        let authentication = keys.decode_prelude(&prelude, &nonce);
+        let Some(authentication) = keys
+            .decode_prelude(&prelude, &nonce)
+            .filter(|authentication| authentication.is_valid())
+        else {
+            return Err((
+                io::Error::new(io::ErrorKind::InvalidData, "invalid Morph prelude"),
+                inner,
+            ));
+        };
         Ok((
             Self::initialized(inner, &keys, nonce, false),
-            authentication,
+            Some(authentication),
         ))
     }
 

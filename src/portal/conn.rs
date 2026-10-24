@@ -47,7 +47,13 @@ pub(super) async fn tcp(
         let (mut stream, authentication) =
             match MorphTcpStream::accept_bootstrap(stream, portal.morph_keys.clone()).await {
                 Ok(bootstrap) => bootstrap,
-                Err((error, stream)) if morph && error.kind() == ErrorKind::UnexpectedEof => {
+                Err((error, stream))
+                    if morph
+                        && matches!(
+                            error.kind(),
+                            ErrorKind::UnexpectedEof | ErrorKind::InvalidData
+                        ) =>
+                {
                     prehello::discard(stream).await?;
                     return Ok(None);
                 }
@@ -79,9 +85,7 @@ pub(super) async fn tcp(
                 prehello::discard(stream.into_inner()).await?;
                 return Ok(None);
             }
-            if !prehello::finish(stream.get_ref(), deadline)
-                .context("restore Morph socket linger")?
-            {
+            if Instant::now() >= deadline {
                 return Ok(None);
             }
             before_hello = false;
@@ -109,6 +113,12 @@ pub(super) async fn tcp(
         .await?;
         if role != ConnectionRole::Vector {
             bail!("invalid TLS role");
+        }
+        if morph
+            && !prehello::finish_authentication(tls.get_ref().0.get_ref(), deadline)
+                .context("restore Morph socket linger")?
+        {
+            bail!("TLS authentication deadline expired");
         }
         Ok::<_, anyhow::Error>(Some(tls))
     });

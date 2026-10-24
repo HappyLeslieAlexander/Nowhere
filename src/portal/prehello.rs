@@ -57,7 +57,7 @@ pub(super) async fn accept<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<O
     }
 }
 
-pub(super) fn finish(stream: &TcpStream, deadline: Instant) -> io::Result<bool> {
+pub(super) fn finish_authentication(stream: &TcpStream, deadline: Instant) -> io::Result<bool> {
     if Instant::now() >= deadline {
         return Ok(false);
     }
