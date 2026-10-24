@@ -113,8 +113,8 @@ When wire bytes change, update the specification, vectors and codec tests togeth
 | Area | Required cases |
 |---|---|
 | Wire contract | KDF/Auth/Morph vectors, FlowStart, Target, SetupResult and DATAGRAM bytes; reserved bits and truncated inputs |
-| Authenticated Prelude | Fixed Tag/tail, every Bootstrap bit, policy/high-bit preservation, shared Counter exhaustion/cancellation, FIFO/window reference model, concurrent commit, silent rejection and Tag-mismatch bypass |
-| Authentication | ALPN, role and transport mismatch; fresh/resumed replay; pre-authentication admission and post-authentication windows |
+| Authenticated Prelude | Fixed Tag/tail, every Bootstrap bit, policy/high-bit preservation, shared Counter exhaustion/cancellation, FIFO/window reference model, concurrent commit, strict Tag/Counter rejection, Legacy rejection and unbound ClientHello behavior |
+| Authentication | ALPN, role and transport mismatch; fresh/resumed replay; pre-authentication admission, zero linger through Vector AuthFrame validation and post-authentication windows |
 | Forwarding | TLS/QUIC × direct/SOCKS5/Egress × TCP/UDP, IPv4/IPv6, Morph and concurrent Vectors |
 | Lifetime | Half-close, handshake/authentication/registration cancellation, setup cancellation, idle timeout, UDP control FIN/reset/stop, late DATAGRAMs and bounded drain |
 | Egress | ACCEPTED ordering, BUSY, immediate offline failure, reconnect and stale-owner cleanup |

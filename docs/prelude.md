@@ -2,9 +2,9 @@
 
 Authenticated Prelude is a Nowhere-specific extension to
 [Nowhere Protocol (NW3)](protocol.md). It carries Shared Key authentication data
-in the 64-byte Morph TCP Prelude. Portal verifies each Tag and checks replay
-state for matching tags before sending a TLS response. Nonmatching tags follow
-the acceptance policy below.
+in the 64-byte Morph TCP Prelude. Authenticated Prelude is mandatory for Morph
+TCP ingress. Portal verifies the Tag and Counter before parsing ClientHello,
+and commits replay state before sending a TLS response.
 
 The extension uses the Core TCP envelope, Nonce and directional cipher keys.
 It requires no additional message, ALPN, negotiation or round trip. TLS 1.3,
@@ -142,8 +142,8 @@ memory. A new Portal instance starts with an empty registry.
 ## Silent admission
 
 Portal applies the accept-time handshake deadline, admission limits, bounded
-discard budget and socket close policy. For a matching Tag, Prelude verification
-precedes ClientHello parsing; successful parsing precedes replay commit:
+discard budget and socket close policy. Prelude verification precedes
+ClientHello parsing; successful parsing precedes replay commit:
 
 ```text
       Vector                                            Portal
@@ -155,9 +155,11 @@ precedes ClientHello parsing; successful parsing precedes replay commit:
          |-------------- Masked ClientHello -------------->|
          |                              Silent Acceptor    |
          |                          Replay recheck/commit  |
-         |                          Linger/deadline check  |
+         |                                 Deadline check  |
          |<-------------- TLS 1.3 response ----------------|
          |------------------- AuthFrame ------------------>|
+         |                          Verify Vector identity |
+         |                          Linger/deadline check  |
          |<================== Flow data ==================>|
          |                                                 |
 ```
@@ -169,9 +171,18 @@ TLS response. Concurrent copies can commit only once while their Identity
 remains registered. A mutex protects registry operations and is released before
 network IO or TLS work. Poisoned state rejects authenticated inputs.
 
-Replay rejection stays on the silent discard path and cannot use the
-Tag-mismatch path. Later socket, TLS, ALPN or AuthFrame failures do not undo a commit.
-Configuration-dependent TLS checks after the silent boundary can send alerts.
+Invalid Tags, invalid Counters and replay rejection stay on the silent discard
+path without TLS responses. Later socket, TLS, ALPN or AuthFrame failures do not
+undo a commit. Configuration-dependent TLS checks after the silent boundary
+can send alerts.
+
+Portal enables zero linger before reading the bootstrap and retains it through
+Prelude validation, TLS, ALPN and AuthFrame verification. Only a complete,
+valid Vector AuthFrame permits restoration of normal linger. The absolute
+deadline is checked before and after restoration; expiry retains zero linger.
+Timeouts, cancellation and failures before this point retain abortive close.
+Authenticated Flows use normal close and half-close behavior. Packet-level
+FIN/RST behavior depends on the operating system.
 
 ## Acceptance policy and limits
 
@@ -179,17 +190,18 @@ Portal applies these rules to every complete Morph TCP bootstrap:
 
 | Tag and Counter | Result |
 |---|---|
-| Nonmatching Tag | Parse ClientHello silently; do not access replay state |
+| Nonmatching Tag | Reject silently before ClientHello parsing |
 | Matching Tag, valid unused Counter | Precheck, parse ClientHello, then atomically recheck and commit |
-| Matching Tag, zero, duplicate or out-of-window Counter | Reject silently; no fallback |
+| Matching Tag, zero, duplicate or out-of-window Counter | Reject silently before TLS responses |
 
-A receiver that ignores Prelude contents can consume this envelope. No
-negotiated policy or additional configuration is needed.
+There is no Legacy Prelude fallback or compatibility switch. A sender that
+omits Prelude authentication cannot connect to this Portal. See
+[Interoperability](interoperability.md#morph) for the compatibility boundary.
+A receiver that ignores Prelude contents can still consume an authenticated
+sender's envelope; no negotiated policy or additional configuration is needed.
 
-The Tag-mismatch path permits an observer to modify a captured Prelude,
-invalidate its Tag and bypass replay checks. The Tag does not bind the complete
-ClientHello: a captured bootstrap can race its first use with a modified hello
-and consume its Counter. FIFO eviction and Portal restart discard history.
+The Tag does not bind the complete ClientHello: a captured bootstrap can race
+its first use with a modified hello and consume its Counter. FIFO eviction and Portal restart discard history.
 Shared Key holders can churn the FIFO or advance windows; random 64-bit
 Identity collisions can cause unwanted window sharing.
 

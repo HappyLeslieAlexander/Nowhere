@@ -57,13 +57,27 @@ segmentation boundaries and nonce overhead. The receive path must accept the
 [prelude policies](configuration.md#tcp-morph-prelude) do not require a matching
 policy on the peer.
 
-Morph TCP senders encode the [Prelude Extension](prelude.md). Portal verifies
-Tags independently of the generation policy. A nonmatching Tag permits silent
-ClientHello parsing without replay state. A matching Tag requires a valid
-Counter and successful replay checks before any TLS response. Test all three
-policies, matching and nonmatching tags, Counter rejection and the commit
-boundary after ClientHello acceptance. An input rejected by replay checks must
-not enter the Tag-mismatch path.
+Morph TCP senders must encode the [Prelude Extension](prelude.md). Portal
+requires a valid Tag and Counter independently of the generation policy.
+Invalid Tags are rejected before ClientHello parsing. Replay precheck precedes
+silent ClientHello acceptance; successful acceptance precedes atomic replay
+commit and TLS responses. There is no Legacy Prelude fallback.
+
+| Sender | This Portal's Morph TCP ingress |
+|---|---|
+| 3.0.x Vector without authenticated Prelude | Rejected silently |
+| 3.1.0 Vector with authenticated Prelude | Accepted subject to TLS, AuthFrame and replay checks |
+
+This table describes the current implementation. The published 3.1.0 Portal
+allowed Legacy Prelude fallback; this development code deliberately tightens
+that policy without changing the Prelude wire format.
+
+Test all three policies, invalid Tags, legacy input, invalid and replayed
+Counters, and the commit boundary after ClientHello acceptance. Verify that
+zero linger remains enabled through TLS and AuthFrame validation and is
+restored only after complete Vector authentication within the original
+deadline. Check normal authenticated close and half-close behavior and retain
+standard TLS (`morph=0`) coverage.
 
 ## Reference vectors and observation
 

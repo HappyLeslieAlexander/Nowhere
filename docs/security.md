@@ -44,67 +44,101 @@ providing 128 bits of entropy. Key derivation does not increase that entropy.
 One credential derives both Vector and Egress role keys; sharing it shares its
 authority. Role derivation does not provide independent credential permissions.
 
-A captured Morph TCP bootstrap permits offline verification of candidate Shared
-Keys through its Prelude Tag. The hexadecimal format does not guarantee
-entropy; use the random output of `nowhere generate-key`. Prelude masking has
-no forward secrecy: disclosure of the Shared Key permits decoding captured
-Identity and Counter metadata. TLS session encryption is a separate boundary.
-
 ## Morph transport protection
 
 Morph masks the transport wire image. TLS/QUIC provides authenticated encryption
-and integrity. Nowhere limits each TCP cipher direction to `2^38 - 64` bytes
-to prevent cipher block-counter wrap within a connection. The 96-bit TCP Nonce
-is randomly generated, so uniqueness across connections sharing a key is
-probabilistic. A repeated Nonce reuses the outer Morph keystream; Prelude
-counters do not prevent that collision. TLS encryption is a separate boundary.
-See the [Core specification](protocol.md) for the Morph contract.
+and integrity. The [Core specification](protocol.md) defines the Morph envelope;
+the [Prelude Extension](prelude.md) defines Morph TCP bootstrap authentication.
 
-For Morph TCP ingress, Portal reads ClientHello through rustls without sending
-parser alerts. Incomplete or rejected input, including a peer's write-side FIN,
-is held silently until the authentication deadline. That deadline starts when
-TCP accept completes and covers the prelude, nonce, ClientHello, TLS handshake
-and AuthFrame together. `NOW_HANDSHAKE_TIMEOUT` controls it (default `5s`).
-Shutdown, resets and unrecoverable I/O failures may end the connection earlier.
-Portal enables zero linger before reading the Morph prelude, requesting an
-abortive close for rejected or incomplete input at the deadline. On Linux this
-uses RST even when the bounded input-disposal budget leaves unread data.
-Before continuing an accepted ClientHello, Portal disables linger and rechecks
-the deadline; an expired connection retains zero linger. Socket-option failures
-terminate the connection without continuing TLS. They are outside this close
-policy's guarantees, as are shutdown and resource rejection. Packet-level
-behavior on other operating systems depends on the kernel.
+### Cipher and Nonce limits
 
-The [Prelude Extension](prelude.md) adds a 14-byte Tag over Morph TCP bootstrap
-metadata. A matching Tag requires a valid Counter and successful replay commit
-before any TLS response. A nonmatching Tag takes the silent ClientHello path
-without replay state. The silent boundary ends after rustls Acceptor accepts
-ClientHello, replay commit succeeds when applicable, and the linger/deadline
-handoff completes. Configuration-dependent ClientHello checks, TLS completion
-and AuthFrame validation follow; those checks can send TLS alerts.
+Nowhere limits each TCP cipher direction to `2^38 - 64` bytes to prevent cipher
+block-counter wrap within a connection. The 96-bit TCP Nonce is randomly
+generated, so uniqueness across connections sharing a key is probabilistic.
+A repeated Nonce reuses the outer Morph keystream; Prelude counters do not
+prevent that collision. TLS encryption is a separate boundary.
+
+### Prelude authentication and replay
+
+Morph TCP requires a valid 14-byte Prelude Tag and Counter. Invalid Tags and
+Counters are rejected before ClientHello parsing. There is no Legacy Prelude
+fallback. Invalidating a captured Prelude's Tag cannot bypass authentication
+or replay checks.
+
+Replay precheck precedes silent ClientHello parsing. After rustls Acceptor
+accepts ClientHello, Portal checks the deadline and atomically rechecks and
+commits replay state before any TLS response. Incomplete or malformed
+ClientHello does not reserve a Counter. Later TLS or AuthFrame failures do not
+undo a commit.
 
 The 1024-bit replay window applies while an Identity is in the 16,384-entry FIFO.
-Eviction or Portal restart removes its history. Modifying captured Prelude
-metadata can invalidate the Tag and enter the path without replay checks.
-Prelude authentication is therefore not enforced for every Morph TCP connection.
+Eviction or Portal restart removes its history. Shared Key holders can churn
+the FIFO or advance replay windows. Random 64-bit Identity collisions can cause
+unwanted window sharing.
+
+A captured bootstrap permits offline verification of candidate Shared Keys
+through its Tag. The hexadecimal key format does not guarantee entropy; use
+`nowhere generate-key`. Prelude masking has no forward secrecy: disclosure of
+the Shared Key permits decoding captured Identity and Counter metadata.
+
+### Silent ClientHello admission
+
+Portal reads ClientHello through rustls Acceptor without sending parser alerts.
+Before acceptance, incomplete or rejected input, including a peer's write-side
+FIN, is held silently until the authentication deadline. The absolute deadline
+starts when TCP accept completes and covers Prelude, Nonce, ClientHello, TLS
+and AuthFrame together. `NOW_HANDSHAKE_TIMEOUT` controls it (default `5s`).
+Shutdown, resets and unrecoverable I/O failures may end the connection earlier.
+
+Silent rejection retains the admission permit. Portal discards further TCP
+input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then stops
+reading while retaining the original deadline. It sends no filler data and
+introduces no random delays.
+
+The silent boundary ends after ClientHello acceptance, successful replay commit
+and the deadline check. Configuration-dependent ClientHello checks, TLS
+completion and AuthFrame validation follow. TLS processing can send alerts
+after this boundary. Standard TLS (`morph=0`) and QUIC ingress do not use the
+silent ClientHello stage.
+
+### Unauthenticated socket closure
+
+Portal enables `SO_LINGER=0` before reading the Morph bootstrap and retains it
+through TLS, ALPN and AuthFrame verification. The close policy follows the
+connection's authentication state:
+
+| Stage | Socket close policy |
+|---|---|
+| Prelude and replay verification | Zero linger; abortive close |
+| ClientHello parsing, TLS and ALPN verification | Zero linger; abortive close |
+| AuthFrame incomplete, invalid or wrong role | Zero linger; abortive close |
+| Complete Vector AuthFrame within the deadline | Restore normal linger; normal close and half-close |
+
+Portal checks the original deadline before and after restoring normal linger.
+Expiry retains zero linger; failure, timeout or cancellation before successful
+authentication does not restore normal linger. Socket-option failures terminate
+the connection without forwarding.
+
+On Linux, zero linger requests RST even when the bounded discard budget leaves
+unread data. Packet-level FIN/RST behavior on other operating systems depends
+on the kernel. Socket-option failures and resource rejection before connection
+authentication begins are outside this close policy's guarantees.
+
+### Observable boundaries
 
 The Prelude Tag does not authenticate the encrypted TLS stream. An observer
 who knows a captured ClientHello field's position and value can modify its
 Morph ciphertext without the Shared Key. Modified input may pass Acceptor and
 trigger later alerts; a captured bootstrap can race its first use with a
 modified ClientHello and consume its Counter. TLS and AuthFrame authentication
-still have to succeed. Shared Key holders can churn the FIFO or advance replay
-windows. Random 64-bit Identity collisions can cause unwanted window sharing.
+still have to succeed.
 
-Rejected connections retain their admission permits. Portal discards further
-TCP input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then
-stops reading while retaining the original deadline. It does not send filler
-data or introduce random delays. Zero linger removes the Linux FIN/RST split
-caused by unread input at this boundary; RST and the deadline remain observable.
-Admission exhaustion can cause immediate rejection. This protection removes
-early parser responses to invalid Morph TCP probes; it does not eliminate all
-active-probing or traffic-analysis fingerprints. Standard TLS and QUIC ingress
-do not use this silent ClientHello stage.
+Silent admission suppresses early parser responses to invalid Morph TCP probes.
+Zero linger removes the Linux FIN/RST split caused by unread input at that
+boundary. RST and the deadline remain observable, and admission exhaustion can
+cause immediate rejection. Valid Prelude input can reach TLS responses after
+ClientHello acceptance and replay commit. These protections do not eliminate
+all active-probing or traffic-analysis fingerprints.
 
 ## Admission and Flow resources
 
@@ -156,8 +190,8 @@ Discovery and cleanup stay inside the documented IPC namespace.
 Administrators and compromised processes running as the same user are outside
 this isolation boundary.
 
-The 64 KiB server frame ceiling, 16-client limit, five-second write deadline,
-bounded frame writes disconnect blocked consumers. See
+A 64 KiB server frame ceiling, 16-client limit and bounded writes constrain
+resource use. A five-second write deadline disconnects blocked consumers. See
 [Telemetry](telemetry.md) for limits and identity requirements.
 
 ## Metadata and diagnostics
