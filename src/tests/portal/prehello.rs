@@ -26,7 +26,7 @@ async fn linger_handoff_preserves_abortive_close_when_expired() {
         ] {
             stream.set_zero_linger().unwrap();
             let deadline = Instant::now() + offset;
-            let continued = finish(&stream, deadline).unwrap();
+            let continued = finish_authentication(&stream, deadline).unwrap();
             assert_eq!(
                 stream.linger().unwrap(),
                 (!continued).then_some(Duration::ZERO)

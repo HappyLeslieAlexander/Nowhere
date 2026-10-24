@@ -351,7 +351,7 @@ async fn tcp_uses_one_client_nonce_and_independent_directions() {
     let keys = MorphKeys::derive(b"shared");
     let (client_io, server_io) = tokio::io::duplex(4096);
     let (client, server) = tokio::join!(
-        MorphTcpStream::connect_legacy(client_io, Some(keys.clone())),
+        MorphTcpStream::connect_current_for_test(client_io, Some(keys.clone())),
         MorphTcpStream::accept(server_io, Some(keys)),
     );
     let mut client = client.unwrap();
@@ -373,7 +373,7 @@ async fn tcp_bootstrap_finishes_before_either_side_is_exposed() {
     let keys = MorphKeys::derive(b"shared");
     let (client_io, server_io) = tokio::io::duplex(4096);
     let (client, server) = tokio::join!(
-        MorphTcpStream::connect_legacy(client_io, Some(keys.clone())),
+        MorphTcpStream::connect_current_for_test(client_io, Some(keys.clone())),
         MorphTcpStream::accept(server_io, Some(keys)),
     );
     let mut client = client.unwrap();
@@ -396,7 +396,7 @@ async fn tcp_preserves_offsets_across_small_io_chunks() {
     let keys = MorphKeys::derive(b"shared");
     let (client_io, server_io) = tokio::io::duplex(1024);
     let (client, server) = tokio::join!(
-        MorphTcpStream::connect_legacy(client_io, Some(keys.clone())),
+        MorphTcpStream::connect_current_for_test(client_io, Some(keys.clone())),
         MorphTcpStream::accept(server_io, Some(keys)),
     );
     let mut client = client.unwrap();
@@ -547,5 +547,37 @@ fn randomized_prelude_policies_preserve_prefix_and_high_bits_after_authenticatio
         } else {
             assert!((30_000..35_500).contains(&high));
         }
+    }
+}
+
+#[tokio::test]
+async fn invalid_bootstrap_returns_original_stream_without_reading_tls() {
+    let keys = MorphKeys::derive(b"shared");
+    for invalid_counter in [false, true] {
+        let mut prelude = [0x55; TCP_PRELUDE_LEN];
+        let nonce = [0x23; NONCE_LEN];
+        keys.encode_prelude(
+            &mut prelude,
+            &nonce,
+            AuthenticatedPrelude {
+                identity: 1,
+                counter: if invalid_counter { 0 } else { 1 },
+            },
+        );
+        if !invalid_counter {
+            prelude[0] ^= 1;
+        }
+        let (mut sender, receiver) = tokio::io::duplex(128);
+        sender.write_all(&prelude).await.unwrap();
+        sender.write_all(&nonce).await.unwrap();
+        sender.write_all(b"unparsed TLS").await.unwrap();
+        let (error, mut receiver) = MorphTcpStream::accept_bootstrap(receiver, Some(keys.clone()))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let mut unread = [0; 12];
+        receiver.read_exact(&mut unread).await.unwrap();
+        assert_eq!(&unread, b"unparsed TLS");
     }
 }

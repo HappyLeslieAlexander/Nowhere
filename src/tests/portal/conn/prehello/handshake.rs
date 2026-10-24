@@ -14,9 +14,10 @@ async fn shutdown_cancels_tls_after_accepted_hello_and_before_auth_frame() {
         let inner = h.inner.clone();
         let config = Arc::new(tls_config(&h, crate::protocol::ALPN));
         let stream = TcpStream::connect(h.tcp).await.unwrap();
-        let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
-            .await
-            .unwrap();
+        let mut stream =
+            MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
+                .await
+                .unwrap();
         if complete_tls {
             let _tls = tokio_rustls::TlsConnector::from(config)
                 .connect("localhost".try_into().unwrap(), stream)
@@ -64,15 +65,15 @@ async fn standard_tls_and_post_accept_alpn_rejection_still_respond_immediately()
     let mut hello = Vec::new();
     connection.write_tls(&mut hello).unwrap();
     let stream = TcpStream::connect(h.tcp).await.unwrap();
-    let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
+    let mut stream = MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
         .await
         .unwrap();
     stream.write_all(&hello).await.unwrap();
     let mut bytes = Vec::new();
-    tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
+    let result = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
         .await
-        .unwrap()
         .unwrap();
+    assert_silent_close(result);
     assert!(!bytes.is_empty());
     connection.read_tls(&mut Cursor::new(bytes)).unwrap();
     assert!(matches!(
@@ -105,7 +106,7 @@ async fn captured_hello_with_modified_ciphertext_can_trigger_post_accept_respons
     let offset = positions[0];
     assert_eq!(&hello[offset..offset + 3], b"nw3");
     let (sender, mut capture) = tokio::io::duplex(hello.len() + 76);
-    let mut sender = MorphTcpStream::connect_legacy(sender, h.inner.morph_keys.clone())
+    let mut sender = MorphTcpStream::connect_current_for_test(sender, h.inner.morph_keys.clone())
         .await
         .unwrap();
     sender.write_all(&hello).await.unwrap();
@@ -118,10 +119,10 @@ async fn captured_hello_with_modified_ciphertext_can_trigger_post_accept_respons
     let mut replay = TcpStream::connect(h.tcp).await.unwrap();
     replay.write_all(&captured).await.unwrap();
     let mut response = Vec::new();
-    tokio::time::timeout(Duration::from_secs(2), replay.read_to_end(&mut response))
+    let result = tokio::time::timeout(Duration::from_secs(2), replay.read_to_end(&mut response))
         .await
-        .unwrap()
         .unwrap();
+    assert_silent_close(result);
     assert!(!response.is_empty());
     wait_active(&h, 0).await;
     h.close().await;
@@ -173,9 +174,10 @@ async fn fragmented_client_hello_continues_authentication_and_bidirectional_flow
         hello.extend_from_slice(&[20, 3, 3, 0, 1, 1]);
         let stream = TcpStream::connect(h.tcp).await.unwrap();
         stream.set_nodelay(true).unwrap();
-        let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
-            .await
-            .unwrap();
+        let mut stream =
+            MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
+                .await
+                .unwrap();
         let start = Instant::now();
         write_segments(&mut stream, &hello).await;
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -272,7 +274,7 @@ async fn bootstrap_prehello_tls_and_auth_share_one_deadline() {
     let config = Arc::new(tls_config(&h, crate::protocol::ALPN));
     let start = Instant::now();
     let stream = TcpStream::connect(h.tcp).await.unwrap();
-    let stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
+    let stream = MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(150)).await;

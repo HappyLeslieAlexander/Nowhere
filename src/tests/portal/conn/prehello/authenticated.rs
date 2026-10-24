@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Authenticated prelude commit boundaries, silent replay rejection and transitional downgrade.
+//! Authenticated prelude commit boundaries, strict authentication and silent replay rejection.
 
 use crate::transport::{AuthenticatedPrelude, ClientPrelude};
 
@@ -107,7 +107,7 @@ async fn bootstrap_and_malformed_or_truncated_hello_never_register() {
 }
 
 #[tokio::test]
-async fn authenticated_counter_zero_never_falls_back_even_with_valid_hello() {
+async fn authenticated_counter_zero_is_rejected_before_valid_hello() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let bytes = capture(&h, authentication(0), &hello(&h, crate::protocol::ALPN)).await;
     silent(&h, &bytes, false).await;
@@ -163,15 +163,52 @@ async fn concurrent_authenticated_connections_only_one_enters_tls() {
 }
 
 #[tokio::test]
-async fn transition_allows_modified_prelude_to_bypass_replay_check() {
+async fn modified_prelude_prefix_and_tail_are_silent_even_with_valid_hello() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
-    let token = authentication(5);
-    let mut bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
-    receives_tls(&h, &bytes).await;
+    for (counter, offset) in [(5, 0), (6, 32), (7, 63)] {
+        let token = authentication(counter);
+        let bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
+        let mut modified = bytes.clone();
+        modified[offset] ^= 1;
+        silent(&h, &modified, false).await;
+        assert!(h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+        receives_tls(&h, &bytes).await;
+        silent(&h, &modified, true).await;
+    }
+    h.close().await;
+}
+
+#[tokio::test]
+async fn legacy_prelude_with_valid_hello_is_silently_rejected() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let payload = hello(&h, crate::protocol::ALPN);
+    let (sender, mut reader) = tokio::io::duplex(76 + payload.len());
+    let mut sender = MorphTcpStream::connect_legacy(sender, h.inner.morph_keys.clone())
+        .await
+        .unwrap();
+    sender.write_all(&payload).await.unwrap();
+    let mut bytes = vec![0; 76 + payload.len()];
+    reader.read_exact(&mut bytes).await.unwrap();
     silent(&h, &bytes, false).await;
-    bytes[0] ^= 1;
-    receives_tls(&h, &bytes).await;
-    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
+    silent(&h, &bytes, true).await;
+    wait_active(&h, 0).await;
+    assert_eq!(h.inner.connection_admission.available_permits(), 1024);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn out_of_window_counter_with_valid_hello_is_silently_rejected() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let token = authentication(1);
+    assert!(
+        h.inner
+            .prelude_replay
+            .as_ref()
+            .unwrap()
+            .commit(authentication(1025))
+    );
+    let bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
+    silent(&h, &bytes, false).await;
     h.close().await;
 }
 

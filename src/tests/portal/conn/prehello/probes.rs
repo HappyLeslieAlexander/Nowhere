@@ -10,10 +10,12 @@ async fn probe(address: std::net::SocketAddr, size: usize, decoded: bool, split:
     let mut stream = TcpStream::connect(address).await.unwrap();
     stream.set_nodelay(true).unwrap();
     if decoded && size >= 76 {
-        let mut morph =
-            MorphTcpStream::connect_legacy(stream, Some(MorphKeys::derive(KEY.as_bytes())))
-                .await
-                .unwrap();
+        let mut morph = MorphTcpStream::connect_current_for_test(
+            stream,
+            Some(MorphKeys::derive(KEY.as_bytes())),
+        )
+        .await
+        .unwrap();
         let bytes = vec![0xff; size - 76];
         if split {
             write_segments(&mut morph, &bytes).await;
@@ -114,9 +116,10 @@ async fn truncated_valid_client_hello_with_fin_keeps_original_deadline() {
     for length in [1, 5, hello.len() - 1] {
         let start = Instant::now();
         let stream = TcpStream::connect(h.tcp).await.unwrap();
-        let mut stream = MorphTcpStream::connect_legacy(stream, h.inner.morph_keys.clone())
-            .await
-            .unwrap();
+        let mut stream =
+            MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
+                .await
+                .unwrap();
         stream.write_all(&hello[..length]).await.unwrap();
         stream.shutdown().await.unwrap();
         let mut bytes = Vec::new();

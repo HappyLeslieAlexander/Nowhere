@@ -44,7 +44,16 @@ async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
         let keys = MorphKeys::derive(b"shared");
         let (client_io, server_io) = tokio::io::duplex(4096);
         let (client, server) = tokio::join!(
-            MorphTcpStream::connect_for_test(client_io, keys.clone(), prelude, [9; NONCE_LEN]),
+            MorphTcpStream::connect_authenticated_for_test(
+                client_io,
+                keys.clone(),
+                prelude,
+                [9; NONCE_LEN],
+                AuthenticatedPrelude {
+                    identity: 1,
+                    counter: 1
+                },
+            ),
             MorphTcpStream::accept(server_io, Some(keys)),
         );
         let mut client = client.unwrap();
@@ -60,7 +69,7 @@ async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
 }
 
 #[test]
-fn legacy_prelude_policies_preserve_every_input_byte_mapping() {
+fn base_prelude_policies_preserve_every_input_byte_mapping() {
     for value in 0..=u8::MAX {
         for policy in [TcpPreludePolicy::Full8, TcpPreludePolicy::Low7] {
             let mut calls = 0;
@@ -211,6 +220,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
     ) -> io::Result<Self> {
         keys.encode_prelude(&mut prelude, &nonce, authentication);
         Self::connect_with_bootstrap(inner, keys, prelude, nonce).await
+    }
+
+    pub(crate) async fn connect_current_for_test(
+        inner: S,
+        keys: Option<MorphKeys>,
+    ) -> io::Result<Self> {
+        Self::connect(inner, keys, &ClientPrelude::default()).await
     }
 
     pub(crate) async fn connect_legacy(inner: S, keys: Option<MorphKeys>) -> io::Result<Self> {
