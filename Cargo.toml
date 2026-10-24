@@ -18,6 +18,7 @@ humantime = "2.4.0"
 libc = "0.2.189"
 percent-encoding = "2.3.2"
 quinn = { version = "0.11.11", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"] }
+quinn-proto = { version = "0.11.16", default-features = false }
 rcgen = { version = "0.14.9", default-features = false, features = ["crypto", "ring"] }
 rustls = { version = "0.23.43", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = "0.8.4"

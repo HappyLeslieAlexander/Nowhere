@@ -41,6 +41,7 @@ pub(crate) fn wrap_morph_udp_socket(
                 inner,
                 tx_key,
                 rx_key,
+                role,
                 send: Mutex::new(UdpSendState::new()?),
                 receive: Mutex::new(UdpReceiveState::new()),
             }))
@@ -144,6 +145,7 @@ pub(super) struct MorphUdpSocket {
     pub(super) inner: Arc<dyn AsyncUdpSocket>,
     pub(super) tx_key: MorphKeyBytes,
     pub(super) rx_key: MorphKeyBytes,
+    pub(super) role: UdpRole,
     pub(super) send: Mutex<UdpSendState>,
     pub(super) receive: Mutex<UdpReceiveState>,
 }
@@ -300,12 +302,19 @@ impl AsyncUdpSocket for MorphUdpSocket {
                 cipher
                     .try_apply_keystream_b2b(encrypted, &mut target[decoded_len..end])
                     .map_err(|_| exhausted())?;
+                if matches!(self.role, UdpRole::Server)
+                    && !supported_quic_packet(&target[decoded_len..end])
+                {
+                    continue;
+                }
                 decoded_len = end;
             }
-            debug_assert_eq!(decoded_len, expected_len);
+            if decoded_len == 0 {
+                continue;
+            }
             meta[output] = RecvMeta {
                 len: decoded_len,
-                stride: decoded_stride,
+                stride: decoded_stride.min(decoded_len),
                 ..wire_meta
             };
             output += 1;
@@ -331,6 +340,18 @@ impl AsyncUdpSocket for MorphUdpSocket {
 
     fn may_fragment(&self) -> bool {
         self.inner.may_fragment()
+    }
+}
+
+fn supported_quic_packet(packet: &[u8]) -> bool {
+    match packet.first() {
+        Some(first) if first & 0x80 == 0 => true,
+        Some(_) => packet.get(1..5).is_some_and(|version| {
+            quinn_proto::DEFAULT_SUPPORTED_VERSIONS.contains(&u32::from_be_bytes(
+                version.try_into().expect("version length"),
+            ))
+        }),
+        None => false,
     }
 }
 

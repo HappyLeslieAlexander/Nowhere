@@ -619,6 +619,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "quinn",
+ "quinn-proto",
  "rcgen",
  "rustls",
  "rustls-native-certs",

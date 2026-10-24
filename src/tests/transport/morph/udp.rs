@@ -135,6 +135,7 @@ async fn udp_preserves_gso_datagram_boundaries() {
         inner: raw.clone(),
         tx_key: key,
         rx_key: key,
+        role: UdpRole::Client,
         send: Mutex::new(UdpSendState::from_seed([1; 32])),
         receive: Mutex::new(UdpReceiveState::new()),
     };
@@ -190,6 +191,7 @@ async fn udp_discards_invalid_wire_datagrams_before_returning_valid_data() {
         inner: raw.clone(),
         tx_key: key,
         rx_key: key,
+        role: UdpRole::Client,
         send: Mutex::new(UdpSendState::from_seed([2; 32])),
         receive: Mutex::new(UdpReceiveState::new()),
     };
@@ -261,6 +263,7 @@ async fn udp_reuses_buffers_without_relaxing_current_receive_bounds() {
         inner: raw.clone(),
         tx_key: key,
         rx_key: key,
+        role: UdpRole::Client,
         send: Mutex::new(UdpSendState::from_seed([5; 32])),
         receive: Mutex::new(UdpReceiveState::new()),
     };
