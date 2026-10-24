@@ -208,7 +208,7 @@ impl super::MorphWriteReady for PendingWriteStream {
 }
 
 #[tokio::test]
-async fn tcp_emits_fixed_prelude_nonce_and_ciphertext_vector() {
+async fn tcp_emits_fixed_authenticated_prelude_nonce_and_ciphertext_vector() {
     let written = Arc::new(std::sync::Mutex::new(Vec::new()));
     let inner = PendingWriteStream {
         ready: Arc::new(AtomicBool::new(true)),
@@ -219,13 +219,25 @@ async fn tcp_emits_fixed_prelude_nonce_and_ciphertext_vector() {
     let keys = MorphKeys::derive(b"shared");
     let prelude = [0x7f; TCP_PRELUDE_LEN];
     let nonce = [0x23; NONCE_LEN];
-    let mut stream = MorphTcpStream::connect_for_test(inner, keys.clone(), prelude, nonce)
-        .await
-        .unwrap();
+    let authentication = AuthenticatedPrelude {
+        identity: 1,
+        counter: 1,
+    };
+    let mut stream = MorphTcpStream::connect_authenticated_for_test(
+        inner,
+        keys.clone(),
+        prelude,
+        nonce,
+        authentication,
+    )
+    .await
+    .unwrap();
+    let mut expected_prelude = prelude;
+    keys.encode_prelude(&mut expected_prelude, &nonce, authentication);
     stream.write_all(b"hello").await.unwrap();
 
     let wire = written.lock().unwrap();
-    assert_eq!(&wire[..TCP_PRELUDE_LEN], &prelude);
+    assert_eq!(&wire[..TCP_PRELUDE_LEN], &expected_prelude);
     assert_eq!(&wire[TCP_PRELUDE_LEN..TCP_PRELUDE_LEN + NONCE_LEN], &nonce);
     let mut expected = b"hello".to_vec();
     apply_at(&keys.tcp_c2s, &nonce, 0, &mut expected).unwrap();
@@ -251,13 +263,25 @@ async fn fade_bootstrap_preserves_wire_layout_and_order_across_partial_writes() 
     let keys = MorphKeys::derive(b"shared");
     let prelude = TcpPreludePolicy::Fade.generate().unwrap();
     let nonce = [0x23; NONCE_LEN];
-    let mut stream = MorphTcpStream::connect_for_test(inner, keys.clone(), prelude, nonce)
-        .await
-        .unwrap();
+    let authentication = AuthenticatedPrelude {
+        identity: 1,
+        counter: 1,
+    };
+    let mut stream = MorphTcpStream::connect_authenticated_for_test(
+        inner,
+        keys.clone(),
+        prelude,
+        nonce,
+        authentication,
+    )
+    .await
+    .unwrap();
+    let mut expected_prelude = prelude;
+    keys.encode_prelude(&mut expected_prelude, &nonce, authentication);
     {
         let wire = written.lock().unwrap();
         assert_eq!(wire.len(), TCP_PRELUDE_LEN + NONCE_LEN);
-        assert_eq!(&wire[..TCP_PRELUDE_LEN], &prelude);
+        assert_eq!(&wire[..TCP_PRELUDE_LEN], &expected_prelude);
         assert_eq!(&wire[TCP_PRELUDE_LEN..], &nonce);
     }
     stream.write_all(b"hello").await.unwrap();

@@ -31,7 +31,7 @@ fn prelude_policy_defaults_to_fade_and_rejects_invalid_settings() {
 }
 
 #[tokio::test]
-async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
+async fn server_accepts_authenticated_preludes_for_every_base_policy() {
     let mut preludes = vec![[0xff; TCP_PRELUDE_LEN], [0; TCP_PRELUDE_LEN]];
     for policy in [
         TcpPreludePolicy::Fade,
@@ -65,6 +65,30 @@ async fn server_accepts_all_prelude_policies_without_interpreting_bytes() {
         server.write_all(b"reply").await.unwrap();
         client.read_exact(&mut payload).await.unwrap();
         assert_eq!(&payload, b"reply");
+    }
+}
+
+#[tokio::test]
+async fn server_rejects_unauthenticated_preludes_for_every_base_policy() {
+    let keys = MorphKeys::derive(b"shared");
+    for policy in [
+        TcpPreludePolicy::Fade,
+        TcpPreludePolicy::Full8,
+        TcpPreludePolicy::Low7,
+    ] {
+        let (client_io, server_io) = tokio::io::duplex(4096);
+        let (client, server) = tokio::join!(
+            MorphTcpStream::connect_with_bootstrap(
+                client_io,
+                keys.clone(),
+                policy.generate().unwrap(),
+                [9; NONCE_LEN],
+            ),
+            MorphTcpStream::accept_bootstrap(server_io, Some(keys.clone())),
+        );
+        let _client = client.unwrap();
+        let (error, _stream) = server.err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }
 
@@ -229,10 +253,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         Self::connect(inner, keys, &ClientPrelude::default()).await
     }
 
-    pub(crate) async fn connect_legacy(inner: S, keys: Option<MorphKeys>) -> io::Result<Self> {
-        let Some(keys) = keys else {
-            return Ok(Self { inner, morph: None });
-        };
+    pub(crate) async fn connect_legacy_for_test(inner: S, keys: MorphKeys) -> io::Result<Self> {
         let prelude = TcpPreludePolicy::from_env()?.generate()?;
         let mut nonce = [0; NONCE_LEN];
         getrandom::fill(&mut nonce).map_err(io::Error::other)?;
@@ -252,14 +273,5 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         client: bool,
     ) -> Self {
         Self::initialized(inner, keys, nonce, client)
-    }
-
-    pub(in crate::transport::morph) async fn connect_for_test(
-        inner: S,
-        keys: MorphKeys,
-        prelude: [u8; TCP_PRELUDE_LEN],
-        nonce: [u8; NONCE_LEN],
-    ) -> io::Result<Self> {
-        Self::connect_with_bootstrap(inner, keys, prelude, nonce).await
     }
 }

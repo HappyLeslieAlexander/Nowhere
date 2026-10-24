@@ -183,9 +183,10 @@ async fn legacy_prelude_with_valid_hello_is_silently_rejected() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let payload = hello(&h, crate::protocol::ALPN);
     let (sender, mut reader) = tokio::io::duplex(76 + payload.len());
-    let mut sender = MorphTcpStream::connect_legacy(sender, h.inner.morph_keys.clone())
-        .await
-        .unwrap();
+    let mut sender =
+        MorphTcpStream::connect_legacy_for_test(sender, h.inner.morph_keys.clone().unwrap())
+            .await
+            .unwrap();
     sender.write_all(&payload).await.unwrap();
     let mut bytes = vec![0; 76 + payload.len()];
     reader.read_exact(&mut bytes).await.unwrap();
