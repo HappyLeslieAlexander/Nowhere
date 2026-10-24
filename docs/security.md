@@ -1,13 +1,16 @@
 # Security
 
-Understand certificate trust, connection authentication, transport masking and
-the boundaries that protect service resources and local observations.
+Understand trust, authentication, transport admission and the limits of local
+and network isolation. Wire contracts follow the
+[Core specification](protocol.md), [Prelude Extension](prelude.md) and
+[Egress Extension](egress.md).
 
 ## Contents
 
 - [Certificate trust](#certificate-trust)
 - [Connection authentication](#connection-authentication)
 - [Morph transport protection](#morph-transport-protection)
+- [Observable boundaries](#observable-boundaries)
 - [Admission and Flow resources](#admission-and-flow-resources)
 - [Flow lifetime and exit ownership](#flow-lifetime-and-exit-ownership)
 - [Local IPC](#local-ipc)
@@ -15,55 +18,59 @@ the boundaries that protect service resources and local observations.
 
 ## Certificate trust
 
-Normal Vector and Egress connections require system CA trust with hostname
-validation, or an exact certificate SHA-256 pin. TLS 1.3 and ALPN `nw3` are
-mandatory. 0-RTT is disabled, including on resumed connections.
+Vector and Egress require system CA trust with hostname validation, or an exact
+certificate SHA-256 pin. TLS 1.3 and ALPN `nw3` are mandatory. 0-RTT is disabled,
+including on resumed connections.
 
 | Trust mode | Verification |
 |---|---|
 | System CA | The certificate chain is trusted and the server name matches |
 | Exact pin | The presented certificate matches the configured SHA-256 fingerprint |
-| Fingerprint inspection | Reads the presented certificate; trust must be checked separately |
+| Fingerprint inspection | Reads the presented certificate for separate trust verification |
 
 A pin is 64 lowercase hexadecimal characters. A missing, empty or `none` pin
 uses normal certificate verification. Explicit fingerprint inspection does
 not establish trust; compare its result through a trusted channel before use.
+See [Operations](operations.md#diagnose-target-setup) for inspection commands.
 
 ## Connection authentication
 
-AuthFrame is a 16-byte HMAC tag over the transport byte and normal TLS
-exporter. The [Core specification](protocol.md) defines Vector authentication;
-the [Egress Extension](egress.md#authentication) defines its additional role
-key. AuthFrame tags are compared in constant time and are bound to the
-connection, transport and role, including on resumed TLS connections.
+AuthFrame is a 16-byte HMAC tag over the transport byte and normal TLS exporter.
+Tags are compared in constant time and bind authentication to the connection,
+transport and role, including on resumed TLS connections. The
+[Core specification](protocol.md) defines Vector authentication; the
+[Egress Extension](egress.md#authentication) defines the additional role key.
 
-Shared Key is percent-decoded once and used as text bytes. Portal, Vector and
-Egress require exactly 32 lowercase hexadecimal text characters.
+### Shared Key authority
+
+Portal, Vector and Egress require exactly 32 lowercase hexadecimal text
+characters. Shared Key is percent-decoded once and used as text bytes.
 `nowhere generate-key` encodes 16 cryptographically random bytes as text,
-providing 128 bits of entropy. Key derivation does not increase that entropy.
-One credential derives both Vector and Egress role keys; sharing it shares its
-authority. Role derivation does not provide independent credential permissions.
+providing 128 bits of entropy. The accepted format alone does not guarantee
+entropy; key derivation does not increase it.
+
+One credential derives both Vector and Egress role keys. Sharing it shares its
+authority; role derivation does not provide independent credential permissions.
 
 ## Morph transport protection
 
-Morph masks the transport wire image. TLS/QUIC provides authenticated encryption
-and integrity. The [Core specification](protocol.md) defines the Morph envelope;
-the [Prelude Extension](prelude.md) defines Morph TCP bootstrap authentication.
+Morph masks the transport wire image. TLS/QUIC supplies authenticated encryption
+and integrity. TCP bootstrap authentication and UDP version filtering apply at
+different ingress stages; neither replaces AuthFrame authentication.
 
 ### Cipher and Nonce limits
 
-Nowhere limits each TCP cipher direction to `2^38 - 64` bytes to prevent cipher
+Each TCP cipher direction is limited to `2^38 - 64` bytes to prevent cipher
 block-counter wrap within a connection. The 96-bit TCP Nonce is randomly
 generated, so uniqueness across connections sharing a key is probabilistic.
 A repeated Nonce reuses the outer Morph keystream; Prelude counters do not
-prevent that collision. TLS encryption is a separate boundary.
+prevent that collision.
 
-### Prelude authentication and replay
+### TCP bootstrap and replay
 
-Morph TCP requires a valid 14-byte Prelude Tag and Counter. Invalid Tags and
-Counters are rejected before ClientHello parsing. There is no Legacy Prelude
-fallback. Invalidating a captured Prelude's Tag cannot bypass authentication
-or replay checks.
+Portal requires a valid 14-byte Prelude Tag and Counter before ClientHello
+parsing. All configured [Prelude policies](configuration.md#tcp-morph-prelude)
+use the same authentication and replay checks.
 
 Replay precheck precedes silent ClientHello parsing. After rustls Acceptor
 accepts ClientHello, Portal checks the deadline and atomically rechecks and
@@ -71,17 +78,12 @@ commits replay state before any TLS response. Incomplete or malformed
 ClientHello does not reserve a Counter. Later TLS or AuthFrame failures do not
 undo a commit.
 
-The 1024-bit replay window applies while an Identity is in the 16,384-entry FIFO.
-Eviction or Portal restart removes its history. Shared Key holders can churn
-the FIFO or advance replay windows. Random 64-bit Identity collisions can cause
-unwanted window sharing.
+Each Identity has a 1024-bit replay window while it remains in the
+16,384-entry FIFO registry. Eviction or Portal restart removes its history.
+Shared Key holders can churn the registry or advance replay windows; random
+64-bit Identity collisions can cause unwanted window sharing.
 
-A captured bootstrap permits offline verification of candidate Shared Keys
-through its Tag. The hexadecimal key format does not guarantee entropy; use
-`nowhere generate-key`. Prelude masking has no forward secrecy: disclosure of
-the Shared Key permits decoding captured Identity and Counter metadata.
-
-### Silent ClientHello admission
+### TCP ClientHello admission
 
 Portal reads ClientHello through rustls Acceptor without sending parser alerts.
 Before acceptance, incomplete or rejected input, including a peer's write-side
@@ -95,23 +97,20 @@ input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then stops
 reading while retaining the original deadline. It sends no filler data and
 introduces no random delays.
 
-The silent boundary ends after ClientHello acceptance, successful replay commit
+The silent stage ends after ClientHello acceptance, successful replay commit
 and the deadline check. Configuration-dependent ClientHello checks, TLS
-completion and AuthFrame validation follow. TLS processing can send alerts
-after this boundary. Standard TLS (`morph=0`) and QUIC ingress do not use the
-silent ClientHello stage.
+completion and AuthFrame validation follow; TLS processing can send alerts
+at this point. Standard TLS (`morph=0`) and QUIC do not use this stage.
 
-### Unauthenticated socket closure
+### TCP socket closure
 
 Portal enables `SO_LINGER=0` before reading the Morph bootstrap and retains it
-through TLS, ALPN and AuthFrame verification. The close policy follows the
-connection's authentication state:
+through TLS, ALPN and AuthFrame verification.
 
-| Stage | Socket close policy |
+| Authentication state | Socket close policy |
 |---|---|
-| Prelude and replay verification | Zero linger; abortive close |
-| ClientHello parsing, TLS and ALPN verification | Zero linger; abortive close |
-| AuthFrame incomplete, invalid or wrong role | Zero linger; abortive close |
+| Prelude, replay or ClientHello checks incomplete or rejected | Zero linger; abortive close |
+| TLS, ALPN or AuthFrame incomplete or rejected | Zero linger; abortive close |
 | Complete Vector AuthFrame within the deadline | Restore normal linger; normal close and half-close |
 
 Portal checks the original deadline before and after restoring normal linger.
@@ -121,24 +120,52 @@ the connection without forwarding.
 
 On Linux, zero linger requests RST even when the bounded discard budget leaves
 unread data. Packet-level FIN/RST behavior on other operating systems depends
-on the kernel. Socket-option failures and resource rejection before connection
-authentication begins are outside this close policy's guarantees.
+on the kernel. Resource rejection before connection authentication begins and
+socket-option failures are outside this close policy's guarantees.
 
-### Observable boundaries
+### UDP version handling
 
-The Prelude Tag does not authenticate the encrypted TLS stream. An observer
-who knows a captured ClientHello field's position and value can modify its
-Morph ciphertext without the Shared Key. Modified input may pass Acceptor and
-trigger later alerts; a captured bootstrap can race its first use with a
-modified ClientHello and consume its Counter. TLS and AuthFrame authentication
-still have to succeed.
+After unmasking, Portal checks the first QUIC packet in each UDP datagram before
+handing it to Quinn. A long header with an incomplete or unsupported Version,
+including Version 0, is silently discarded. Supported versions follow Quinn's
+default endpoint version list. Short headers continue to Quinn unchanged.
 
-Silent admission suppresses early parser responses to invalid Morph TCP probes.
-Zero linger removes the Linux FIN/RST split caused by unread input at that
-boundary. RST and the deadline remain observable, and admission exhaustion can
-cause immediate rejection. Valid Prelude input can reach TLS responses after
-ClientHello acceptance and replay commit. These protections do not eliminate
-all active-probing or traffic-analysis fingerprints.
+Each UDP GRO segment is checked independently. This filter applies only to
+Portal's Morph UDP ingress; native QUIC retains its normal Version Negotiation
+behavior. The filter adds no replay state or authentication exchange.
+
+Portal requires Retry for QUIC connections whose remote address has not been
+validated. Version filtering does not change address validation, TLS,
+AuthFrame or business Flow admission.
+
+## Observable boundaries
+
+Transport admission limits early responses. Its protection depends on the
+input and the stage it reaches:
+
+| Input or stage | Observable behavior |
+|---|---|
+| Rejected Morph TCP bootstrap or ClientHello | No parser response before the original deadline; socket closure remains observable |
+| Accepted Morph TCP ClientHello with committed replay state | TLS responses and later alerts are possible before AuthFrame succeeds |
+| Unsupported-version Morph UDP long header | Silently discarded before Quinn; no Version Negotiation response |
+| Captured valid QUIC Initial | Can still trigger Retry and address validation |
+| Standard TLS or native QUIC | Uses the transport's normal response behavior |
+
+RST, deadlines and immediate rejection under admission exhaustion remain
+observable. These protections do not eliminate all active-probing or
+traffic-analysis fingerprints. Morph UDP version filtering does not authenticate
+datagrams or provide replay protection. TLS and AuthFrame still have to succeed
+before target access.
+
+The Prelude Tag authenticates bootstrap metadata, not the encrypted TLS stream.
+An observer who knows a captured ClientHello field's position and value can
+modify its Morph ciphertext without the Shared Key. Modified input may pass
+Acceptor and trigger later alerts; a captured bootstrap can race its first use
+with a modified ClientHello and consume its Counter.
+
+A captured bootstrap also permits offline verification of candidate Shared Keys
+through its Tag. Prelude masking has no forward secrecy: disclosure of the
+Shared Key permits decoding captured Identity and Counter metadata.
 
 ## Admission and Flow resources
 
@@ -154,7 +181,8 @@ these limits before accepting a role:
 
 After authentication, receive windows are raised to the selected QUIC profile.
 Business resources remain bounded by target Flow permits, Stream credit,
-UDP queues, reassembly reservations and transport receive buffers.
+UDP queues, reassembly reservations and transport receive buffers. See
+[Configuration](configuration.md#runtime-environment) for runtime settings.
 
 UDP DATAGRAM bypasses Stream flow control. Unknown, pre-READY and unauthenticated
 IDs are discarded. Reassembly permits 64 partial packets per connection with a
@@ -173,22 +201,26 @@ reclaim UDP routes independently of CLOSE DATAGRAM delivery.
 
 Egress registers only when Portal has `out=egress`. Slot ownership is atomic;
 cleanup checks the actual connection identity. Egress waits for ACCEPTED before
-target work. Offline Flows fail immediately without local fallback.
+target work. Offline Flows fail immediately without local fallback. See
+[Egress ownership](egress.md#registration-ownership-and-lifetime).
 
 DNS and target sockets belong to the selected exit. Explicit source binding
 errors fail the dial and do not retry with an automatic source.
 
 ## Local IPC
 
-Local observation is restricted to the service's operating-system user. Unix
-permissions and symlink/object checks protect the registry and sockets. Windows
-ACLs and peer checks protect registry files and local named pipes.
+Local observation is restricted to the service's operating-system user.
 
-Collectors validate registry/Hello consistency, process liveness and platform
-peer identity. Linux and Windows also check process incarnation during discovery.
-Discovery and cleanup stay inside the documented IPC namespace.
-Administrators and compromised processes running as the same user are outside
-this isolation boundary.
+| Boundary | Protection |
+|---|---|
+| Unix registry and sockets | Permissions and symlink/object checks |
+| Windows registry and named pipes | ACLs and peer checks |
+| Collector discovery | Registry/Hello consistency, process liveness and platform peer identity |
+| Linux and Windows discovery | Additional process-incarnation checks |
+
+Discovery and cleanup stay inside the documented IPC namespace. Administrators
+and compromised processes running as the same user are outside this isolation
+boundary.
 
 A 64 KiB server frame ceiling, 16-client limit and bounded writes constrain
 resource use. A five-second write deadline disconnects blocked consumers. See
@@ -197,9 +229,9 @@ resource use. A five-second write deadline disconnects blocked consumers. See
 ## Metadata and diagnostics
 
 Startup output omits Shared Key and SOCKS credentials. Private key contents are
-never logged. IPC metadata exposes validated service endpoints
-to authorized collectors; it includes no configuration summary,
-client address or transport peer identity.
+never logged. IPC metadata exposes validated service endpoints to authorized
+collectors; it includes no configuration summary, client address or transport
+peer identity.
 
 IPC carries instance identity and six statistics. It contains no Flow events,
 error messages or logs.
