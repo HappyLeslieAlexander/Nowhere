@@ -31,6 +31,13 @@ fn assert_silent_close(result: std::io::Result<usize>) {
     }
 }
 
+fn assert_post_accept_close(result: std::io::Result<usize>, bytes: &[u8]) {
+    let reset =
+        matches!(&result, Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset);
+    assert_silent_close(result);
+    assert!(!bytes.is_empty() || (cfg!(windows) && reset));
+}
+
 async fn wait_active(h: &Harness, count: usize) {
     tokio::time::timeout(Duration::from_secs(2), async {
         while h.inner.unauthenticated_admission.active() != count {

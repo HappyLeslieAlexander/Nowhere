@@ -76,6 +76,17 @@ async fn receives_tls(h: &Harness, bytes: &[u8]) {
     );
 }
 
+async fn rejects_after_hello(h: &Harness, bytes: &[u8]) {
+    let mut stream = TcpStream::connect(h.tcp).await.unwrap();
+    write_segments(&mut stream, bytes).await;
+    let mut response = Vec::new();
+    let result = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut response))
+        .await
+        .unwrap();
+    assert_post_accept_close(result, &response);
+    wait_active(h, 0).await;
+}
+
 #[tokio::test]
 async fn accepted_authenticated_hello_commits_before_response_and_replay_stays_silent() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
@@ -119,7 +130,7 @@ async fn accepted_hello_consumes_counter_when_later_alpn_check_fails() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let token = authentication(9);
     let bytes = capture(&h, token, &hello(&h, b"bad")).await;
-    receives_tls(&h, &bytes).await;
+    rejects_after_hello(&h, &bytes).await;
     assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
     silent(&h, &bytes, false).await;
     h.close().await;
@@ -227,7 +238,7 @@ async fn unbound_client_hello_can_be_modified_before_first_commit() {
     for (index, (&before, &after)) in b"nw3".iter().zip(b"bad").enumerate() {
         bytes[76 + offset + index] ^= before ^ after;
     }
-    receives_tls(&h, &bytes).await;
+    rejects_after_hello(&h, &bytes).await;
     assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
     h.close().await;
 }

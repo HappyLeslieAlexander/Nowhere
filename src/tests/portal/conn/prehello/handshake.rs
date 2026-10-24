@@ -46,7 +46,38 @@ async fn shutdown_cancels_tls_after_accepted_hello_and_before_auth_frame() {
 }
 
 #[tokio::test]
-async fn standard_tls_and_post_accept_alpn_rejection_still_respond_immediately() {
+async fn accepted_hello_generates_alpn_alert_before_socket_delivery() {
+    let h = Harness::new("direct", true).await;
+    let mut client = rustls::ClientConnection::new(
+        Arc::new(tls_config(&h, b"invalid-alpn")),
+        "localhost".try_into().unwrap(),
+    )
+    .unwrap();
+    let mut hello = Vec::new();
+    client.write_tls(&mut hello).unwrap();
+    let mut input = hello.as_slice();
+    let accepted = crate::portal::prehello::accept(&mut input)
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, mut alert) = accepted
+        .into_connection(h.inner.tls_server_config.clone())
+        .err()
+        .unwrap();
+    let mut response = Vec::new();
+    alert.write_all(&mut response).unwrap();
+    client.read_tls(&mut Cursor::new(response)).unwrap();
+    assert!(matches!(
+        client.process_new_packets(),
+        Err(rustls::Error::AlertReceived(
+            rustls::AlertDescription::NoApplicationProtocol
+        ))
+    ));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn standard_tls_responds_and_morph_alpn_rejection_closes_after_acceptance() {
     let h = Harness::new("direct", false).await;
     let mut stream = TcpStream::connect(h.tcp).await.unwrap();
     stream.write_all(&[0xff]).await.unwrap();
@@ -65,28 +96,41 @@ async fn standard_tls_and_post_accept_alpn_rejection_still_respond_immediately()
     let mut hello = Vec::new();
     connection.write_tls(&mut hello).unwrap();
     let stream = TcpStream::connect(h.tcp).await.unwrap();
-    let mut stream = MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
-        .await
-        .unwrap();
+    let token = crate::transport::AuthenticatedPrelude {
+        identity: 7,
+        counter: 1,
+    };
+    let mut stream = MorphTcpStream::connect_authenticated_for_test(
+        stream,
+        h.inner.morph_keys.clone().unwrap(),
+        [0x55; 64],
+        [0x23; 12],
+        token,
+    )
+    .await
+    .unwrap();
     stream.write_all(&hello).await.unwrap();
     let mut bytes = Vec::new();
     let result = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
         .await
         .unwrap();
-    assert_silent_close(result);
-    assert!(!bytes.is_empty());
-    connection.read_tls(&mut Cursor::new(bytes)).unwrap();
-    assert!(matches!(
-        connection.process_new_packets(),
-        Err(rustls::Error::AlertReceived(
-            rustls::AlertDescription::NoApplicationProtocol
-        ))
-    ));
+    assert_post_accept_close(result, &bytes);
+    if !bytes.is_empty() {
+        connection.read_tls(&mut Cursor::new(bytes)).unwrap();
+        assert!(matches!(
+            connection.process_new_packets(),
+            Err(rustls::Error::AlertReceived(
+                rustls::AlertDescription::NoApplicationProtocol
+            ))
+        ));
+    }
+    wait_active(&h, 0).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
     h.close().await;
 }
 
 #[tokio::test]
-async fn captured_hello_with_modified_ciphertext_can_trigger_post_accept_response() {
+async fn modified_ciphertext_commits_before_post_accept_rejection() {
     let h = Harness::new("direct", true).await;
     let mut client = rustls::ClientConnection::new(
         Arc::new(tls_config(&h, crate::protocol::ALPN)),
@@ -106,9 +150,19 @@ async fn captured_hello_with_modified_ciphertext_can_trigger_post_accept_respons
     let offset = positions[0];
     assert_eq!(&hello[offset..offset + 3], b"nw3");
     let (sender, mut capture) = tokio::io::duplex(hello.len() + 76);
-    let mut sender = MorphTcpStream::connect_current_for_test(sender, h.inner.morph_keys.clone())
-        .await
-        .unwrap();
+    let token = crate::transport::AuthenticatedPrelude {
+        identity: 8,
+        counter: 1,
+    };
+    let mut sender = MorphTcpStream::connect_authenticated_for_test(
+        sender,
+        h.inner.morph_keys.clone().unwrap(),
+        [0x55; 64],
+        [0x23; 12],
+        token,
+    )
+    .await
+    .unwrap();
     sender.write_all(&hello).await.unwrap();
     let mut captured = vec![0; hello.len() + 76];
     capture.read_exact(&mut captured).await.unwrap();
@@ -122,9 +176,9 @@ async fn captured_hello_with_modified_ciphertext_can_trigger_post_accept_respons
     let result = tokio::time::timeout(Duration::from_secs(2), replay.read_to_end(&mut response))
         .await
         .unwrap();
-    assert_silent_close(result);
-    assert!(!response.is_empty());
+    assert_post_accept_close(result, &response);
     wait_active(&h, 0).await;
+    assert!(!h.inner.prelude_replay.as_ref().unwrap().precheck(token));
     h.close().await;
 }
 
