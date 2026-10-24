@@ -105,13 +105,22 @@ impl AsyncUdpSocket for FakeUdpSocket {
         bufs: &mut [IoSliceMut<'_>],
         meta: &mut [RecvMeta],
     ) -> Poll<io::Result<usize>> {
-        let Some((packet, packet_meta)) = self.receive.lock().unwrap().pop_front() else {
-            return Poll::Pending;
-        };
-        self.receive_lengths.lock().unwrap().push(bufs[0].len());
-        bufs[0][..packet.len()].copy_from_slice(&packet);
-        meta[0] = packet_meta;
-        Poll::Ready(Ok(1))
+        let mut receive = self.receive.lock().unwrap();
+        let mut count = 0;
+        for (buf, output_meta) in bufs.iter_mut().zip(meta) {
+            let Some((packet, packet_meta)) = receive.pop_front() else {
+                break;
+            };
+            self.receive_lengths.lock().unwrap().push(buf.len());
+            buf[..packet.len()].copy_from_slice(&packet);
+            *output_meta = packet_meta;
+            count += 1;
+        }
+        if count == 0 {
+            Poll::Pending
+        } else {
+            Poll::Ready(Ok(count))
+        }
     }
 
     fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
@@ -364,4 +373,171 @@ async fn udp_reuses_buffers_without_relaxing_current_receive_bounds() {
             48 + 2 * NONCE_LEN
         ]
     );
+}
+
+#[test]
+fn quic_version_filter_uses_quinn_versions_and_only_reads_long_header_versions() {
+    assert!(!supported_quic_packet(&[]));
+    for first in 0..=0x7f {
+        assert!(supported_quic_packet(&[first]));
+    }
+    for first in [0x80, 0xc0, 0xf0, 0xff] {
+        for version in quinn_proto::DEFAULT_SUPPORTED_VERSIONS {
+            let mut packet = vec![first];
+            packet.extend_from_slice(&version.to_be_bytes());
+            assert!(supported_quic_packet(&packet));
+            for len in 1..5 {
+                assert!(!supported_quic_packet(&packet[..len]));
+            }
+        }
+        for version in [0u32, 2, 0x0a1a_2a3a, u32::MAX] {
+            let mut packet = vec![first];
+            packet.extend_from_slice(&version.to_be_bytes());
+            assert!(!supported_quic_packet(&packet));
+        }
+    }
+}
+
+fn filter_socket(raw: Arc<FakeUdpSocket>, role: UdpRole) -> MorphUdpSocket {
+    let key = MorphKeys::derive(b"shared").udp_c2s;
+    MorphUdpSocket {
+        inner: raw,
+        tx_key: key,
+        rx_key: key,
+        role,
+        send: Mutex::new(UdpSendState::from_seed([7; 32])),
+        receive: Mutex::new(UdpReceiveState::new()),
+    }
+}
+
+fn queue_segments(raw: &FakeUdpSocket, plain: &[u8], stride: usize, addr: &str) {
+    let key = MorphKeys::derive(b"shared").udp_c2s;
+    let mut wire = Vec::new();
+    for (index, segment) in plain.chunks(stride).enumerate() {
+        let nonce = [index as u8; NONCE_LEN];
+        wire.extend_from_slice(&nonce);
+        let start = wire.len();
+        wire.extend_from_slice(segment);
+        ChaCha20::new((&key).into(), (&nonce).into()).apply_keystream(&mut wire[start..]);
+    }
+    let len = wire.len();
+    raw.receive.lock().unwrap().push_back((
+        wire,
+        RecvMeta {
+            addr: addr.parse().unwrap(),
+            len,
+            stride: (stride + NONCE_LEN).min(len),
+            ecn: Some(quinn::udp::EcnCodepoint::Ect0),
+            dst_ip: Some("127.0.0.9".parse().unwrap()),
+        },
+    ));
+}
+
+#[tokio::test]
+async fn server_filters_each_gro_segment_and_preserves_metadata_and_short_tails() {
+    let mut accepted = vec![0xc0];
+    accepted.extend_from_slice(&quinn_proto::DEFAULT_SUPPORTED_VERSIONS[0].to_be_bytes());
+    accepted.extend_from_slice(&[1, 2, 3]);
+    let rejected = [0xc0, 0xff, 0xff, 0xff, 0xff, 4, 5, 6];
+    for (plain, expected) in [
+        ([rejected.as_slice(), &accepted].concat(), accepted.clone()),
+        ([accepted.as_slice(), &rejected].concat(), accepted.clone()),
+        (
+            [accepted.as_slice(), &accepted].concat(),
+            [accepted.as_slice(), &accepted].concat(),
+        ),
+        (
+            [rejected.as_slice(), &[0x40, 7, 8]].concat(),
+            vec![0x40, 7, 8],
+        ),
+        (
+            [accepted.as_slice(), &[0xc0, 0, 0]].concat(),
+            accepted.clone(),
+        ),
+        (
+            [accepted.as_slice(), &[0x40, 7, 8]].concat(),
+            [accepted.as_slice(), &[0x40, 7, 8]].concat(),
+        ),
+    ] {
+        let raw = Arc::new(FakeUdpSocket::default());
+        let socket = filter_socket(raw.clone(), UdpRole::Server);
+        for _ in 0..2 {
+            queue_segments(&raw, &plain, 8, "127.0.0.2:2345");
+            let mut output = [0xa7; 16];
+            let mut bufs = [IoSliceMut::new(&mut output)];
+            let mut meta = [RecvMeta::default()];
+            assert_eq!(
+                poll_fn(|cx| socket.poll_recv(cx, &mut bufs, &mut meta))
+                    .await
+                    .unwrap(),
+                1
+            );
+            assert_eq!(&output[..expected.len()], expected);
+            assert_eq!(meta[0].len, expected.len());
+            assert_eq!(meta[0].stride, 8.min(expected.len()));
+            assert_eq!(meta[0].addr, "127.0.0.2:2345".parse().unwrap());
+            assert_eq!(meta[0].ecn, Some(quinn::udp::EcnCodepoint::Ect0));
+            assert_eq!(meta[0].dst_ip, Some("127.0.0.9".parse().unwrap()));
+        }
+    }
+}
+
+#[tokio::test]
+async fn server_compacts_receive_batches_and_wakes_after_discarding_all_segments() {
+    let raw = Arc::new(FakeUdpSocket::default());
+    let socket = filter_socket(raw.clone(), UdpRole::Server);
+    let rejected = [0xc0, 0xff, 0xff, 0xff, 0xff];
+    queue_segments(&raw, &rejected.repeat(2), 5, "127.0.0.2:2");
+    queue_segments(&raw, &rejected, 5, "127.0.0.3:3");
+    let mut output = [[0; 16]; 2];
+    let mut bufs = output.each_mut().map(|buf| IoSliceMut::new(buf));
+    let mut meta = [RecvMeta::default(); 2];
+    let wakes = Arc::new(TestWake(std::sync::atomic::AtomicUsize::new(0)));
+    let waker = std::task::Waker::from(wakes.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(socket.poll_recv(&mut cx, &mut bufs, &mut meta).is_pending());
+    assert_eq!(wakes.0.load(std::sync::atomic::Ordering::Relaxed), 1);
+    queue_segments(&raw, &rejected, 5, "127.0.0.2:2");
+    queue_segments(&raw, b"valid", 5, "127.0.0.3:3");
+    assert_eq!(
+        poll_fn(|cx| socket.poll_recv(cx, &mut bufs, &mut meta))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(&bufs[0][..5], b"valid");
+    assert_eq!(meta[0].addr, "127.0.0.3:3".parse().unwrap());
+}
+
+struct TestWake(std::sync::atomic::AtomicUsize);
+
+impl std::task::Wake for TestWake {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[tokio::test]
+async fn client_passes_unsupported_versions_and_native_socket_is_not_wrapped() {
+    let raw = Arc::new(FakeUdpSocket::default());
+    let socket = filter_socket(raw.clone(), UdpRole::Client);
+    let plain = [0xc0, 0xff, 0xff, 0xff, 0xff];
+    queue_segments(&raw, &plain, 5, "127.0.0.2:2");
+    let mut output = [0; 5];
+    let mut bufs = [IoSliceMut::new(&mut output)];
+    let mut meta = [RecvMeta::default()];
+    assert_eq!(
+        poll_fn(|cx| socket.poll_recv(cx, &mut bufs, &mut meta))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(output, plain);
+    for role in [UdpRole::Server, UdpRole::Client] {
+        let inner: Arc<dyn AsyncUdpSocket> = raw.clone();
+        assert!(Arc::ptr_eq(
+            &inner,
+            &wrap_morph_udp_socket(inner.clone(), None, role).unwrap()
+        ));
+    }
 }
