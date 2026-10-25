@@ -88,6 +88,128 @@ async fn rejects_after_hello(h: &Harness, bytes: &[u8]) {
 }
 
 #[tokio::test]
+async fn rejected_input_stops_reading_until_original_deadline() {
+    let timeout = Duration::from_secs(2);
+    let h = Harness::with_handshake_timeout(true, timeout).await;
+    for (index, (case, reset)) in [
+        ("prelude", false),
+        ("prelude", true),
+        ("replay-precheck", false),
+        ("hello", false),
+        ("replay-commit", false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let token = authentication(index as u64 + 1);
+        let payload = if case == "hello" {
+            vec![0xff]
+        } else {
+            hello(&h, crate::protocol::ALPN)
+        };
+        let mut bytes = capture(&h, token, &payload).await;
+        if case == "prelude" {
+            bytes[0] ^= 1;
+            bytes.truncate(76);
+        }
+        let replay = h.inner.prelude_replay.as_ref().unwrap();
+        if case == "replay-precheck" {
+            assert!(replay.commit(token));
+            bytes.truncate(76);
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (client, accepted) = tokio::join!(
+            TcpStream::connect(listener.local_addr().unwrap()),
+            listener.accept()
+        );
+        let mut client = client.unwrap();
+        let (server, peer) = accepted.unwrap();
+        let server = server.into_std().unwrap();
+        let observer = TcpStream::from_std(server.try_clone().unwrap()).unwrap();
+        let server = TcpStream::from_std(server).unwrap();
+        server.set_zero_linger().unwrap();
+        let admission = h
+            .inner
+            .unauthenticated_admission
+            .try_acquire(peer.ip())
+            .unwrap();
+        let accepted_at = Instant::now() - timeout / 2;
+        let deadline = accepted_at + timeout;
+        let connection = crate::portal::conn::tcp(h.inner.clone(), server, admission, accepted_at);
+        tokio::pin!(connection);
+        let last = (case == "replay-commit").then(|| bytes.pop().unwrap());
+        client.write_all(&bytes).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut connection)
+                .await
+                .is_err()
+        );
+        if let Some(last) = last {
+            assert!(replay.commit(token));
+            client.write_all(&[last]).await.unwrap();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), &mut connection)
+                    .await
+                    .is_err()
+            );
+        }
+        client.write_all(&[0xa5; 32]).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut connection)
+                .await
+                .is_err()
+        );
+        let mut unread = [0; 32];
+        let count = tokio::time::timeout(Duration::from_millis(100), observer.peek(&mut unread))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(count > 0, "{case}");
+        assert_eq!(&unread[..count], &[0xa5; 32][..count], "{case}");
+        drop(observer);
+        let mut response = Vec::new();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), client.read_to_end(&mut response))
+                .await
+                .is_err()
+        );
+        assert!(response.is_empty(), "{case}");
+        let client = if reset {
+            client.set_zero_linger().unwrap();
+            drop(client);
+            None
+        } else {
+            client.shutdown().await.unwrap();
+            Some(client)
+        };
+        assert!(
+            tokio::time::timeout_at(deadline - Duration::from_millis(100), &mut connection)
+                .await
+                .is_err()
+        );
+        assert_eq!(h.inner.unauthenticated_admission.active(), 1, "{case}");
+        assert!(matches!(
+            tokio::time::timeout_at(deadline + Duration::from_millis(300), &mut connection)
+                .await
+                .unwrap()
+                .unwrap(),
+            crate::portal::conn::TcpOutcome::SilentPreHello
+        ));
+        assert!(Instant::now() >= deadline, "{case}");
+        assert_eq!(h.inner.unauthenticated_admission.active(), 0, "{case}");
+        if let Some(mut client) = client {
+            assert_silent_close(
+                tokio::time::timeout(Duration::from_secs(1), client.read_to_end(&mut response))
+                    .await
+                    .unwrap(),
+            );
+            assert!(response.is_empty(), "{case}");
+        }
+    }
+    h.close().await;
+}
+
+#[tokio::test]
 async fn accepted_authenticated_hello_commits_before_response_and_replay_stays_silent() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let token = authentication(1);
