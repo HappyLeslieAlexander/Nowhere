@@ -6,6 +6,7 @@
 mod binding;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tokio::task::JoinSet;
@@ -100,17 +101,46 @@ pub(super) async fn tcp_loop(
 ) -> Result<()> {
     let mut tasks = JoinSet::new();
     let mut rejected = SilentRejections::new();
+    let mut accept_at = tokio::time::Instant::now();
+    let mut backoff = Duration::from_millis(10);
     let result = loop {
         tokio::select! {
             _ = stop.cancelled() => break Ok(()),
-            accepted = listener.accept() => match accepted {
+            accepted = async {
+                tokio::time::sleep_until(accept_at).await;
+                listener.accept().await
+            } => match accepted {
                 Ok((stream, peer)) => {
                     let accepted_at = tokio::time::Instant::now();
-                    let Some(admission) = portal.unauthenticated_admission.try_acquire(peer.ip()) else { continue; };
-                    let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else { continue; };
+                    let deadline = accepted_at + portal.runtime.handshake_timeout;
+                    backoff = Duration::from_millis(10);
+                    let morph = portal.morph_keys.is_some();
+                    if morph && stream.set_zero_linger().is_err() { continue; }
+                    let admission = portal.unauthenticated_admission.try_acquire(peer.ip());
+                    if !morph && admission.is_none() { continue; }
+                    let permit = if admission.is_some() {
+                        let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else { continue; };
+                        Some(permit)
+                    } else { None };
                     let p = portal.clone();
                     tasks.spawn(async move {
-                        let _permit = permit;
+                        let admission = match admission {
+                            Some(admission) => admission,
+                            None => tokio::select! {
+                                biased;
+                                _ = p.forward.shutdown.cancelled() => return conn::TcpOutcome::Closed,
+                                _ = tokio::time::sleep_until(deadline) => return conn::TcpOutcome::Closed,
+                                admission = p.unauthenticated_admission.acquire(peer.ip()) => admission,
+                            },
+                        };
+                        if morph && tokio::time::Instant::now() >= deadline { return conn::TcpOutcome::Closed; }
+                        let _permit = match permit {
+                            Some(permit) => permit,
+                            None => match p.connection_admission.clone().try_acquire_owned() {
+                                Ok(permit) => permit,
+                                Err(_) => return conn::TcpOutcome::Closed,
+                            },
+                        };
                         let outcome = conn::tcp(p.clone(), stream, admission, accepted_at).await;
                         if let Err(error) = &outcome && !crate::common::is_normal_close(error) {
                             p.forward.logger.error(format_args!("tls connection failed: {error:#}"));
@@ -118,6 +148,11 @@ pub(super) async fn tcp_loop(
                         outcome.unwrap_or(conn::TcpOutcome::Closed)
                     });
                 }
+                Err(error) if accept_resource_exhausted(&error) => {
+                    accept_at = tokio::time::Instant::now() + backoff;
+                    backoff = (backoff * 2).min(Duration::from_millis(250));
+                }
+                Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::Interrupted) => {},
                 Err(error) => break Err(error.into()),
             },
             joined = tasks.join_next(), if !tasks.is_empty() => {
@@ -135,6 +170,17 @@ pub(super) async fn tcp_loop(
     }
     rejected.report(&portal.forward.logger);
     result
+}
+
+fn accept_resource_exhausted(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    let resource_errors = [libc::EMFILE, libc::ENFILE, libc::ENOBUFS, libc::ENOMEM];
+    #[cfg(windows)]
+    let resource_errors = [10024, 10055];
+    error.kind() == std::io::ErrorKind::OutOfMemory
+        || error
+            .raw_os_error()
+            .is_some_and(|code| resource_errors.contains(&code))
 }
 
 struct SilentRejections {

@@ -33,11 +33,6 @@ pub(super) async fn tcp(
     let morph = portal.morph_keys.is_some();
     let started_at = if morph { accepted_at } else { Instant::now() };
     let deadline = started_at + portal.runtime.handshake_timeout;
-    if morph {
-        stream
-            .set_zero_linger()
-            .context("enable Morph zero linger")?;
-    }
     if morph && Instant::now() >= deadline {
         return Ok(TcpOutcome::SilentPreHello);
     }

@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::Notify;
+
 pub(super) const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 256;
 pub(super) const MAX_UNAUTHENTICATED_PER_SOURCE: usize = 32;
 
@@ -33,12 +35,24 @@ struct AdmissionState {
 
 pub(super) struct UnauthenticatedAdmission {
     state: Mutex<AdmissionState>,
+    released: Notify,
 }
 
 impl UnauthenticatedAdmission {
     pub(super) fn new() -> Self {
         Self {
             state: Mutex::new(AdmissionState::default()),
+            released: Notify::new(),
+        }
+    }
+
+    pub(super) async fn acquire(self: &Arc<Self>, source: IpAddr) -> UnauthenticatedGuard {
+        loop {
+            let released = self.released.notified();
+            if let Some(guard) = self.try_acquire(source) {
+                return guard;
+            }
+            released.await;
         }
     }
 
@@ -79,6 +93,8 @@ impl Drop for UnauthenticatedGuard {
                 state.per_source.remove(&self.key);
             }
         }
+        drop(state);
+        self.admission.released.notify_waiters();
     }
 }
 
