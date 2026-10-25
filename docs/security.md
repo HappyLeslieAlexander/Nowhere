@@ -92,10 +92,16 @@ starts when TCP accept completes and covers Prelude, Nonce, ClientHello, TLS
 and AuthFrame together. `NOW_HANDSHAKE_TIMEOUT` controls it (default `5s`).
 Shutdown, resets and unrecoverable I/O failures may end the connection earlier.
 
-Silent rejection retains the admission permit. Portal discards further TCP
-input using a 4 KiB buffer, up to 64 KiB or 64 reads per connection, then stops
-reading while retaining the original deadline. It sends no filler data and
-introduces no random delays.
+When authentication processing is full, Morph TCP connections wait silently
+without reading input, creating TLS state or holding a processing or business
+connection permit. Released processing permits wake waiting connections to
+retry admission within their original deadline. Waiting does not guarantee
+ordering or eventual admission under sustained contention.
+
+Silent rejection during authentication retains the processing permit. Portal
+discards further TCP input using a 4 KiB buffer, up to 64 KiB or 64 reads per
+connection, then stops reading while retaining the original deadline. It sends
+no filler data and introduces no random delays.
 
 The silent stage ends after ClientHello acceptance, successful replay commit
 and the deadline check. Configuration-dependent ClientHello checks, TLS
@@ -104,7 +110,7 @@ at this point. Standard TLS (`morph=0`) and QUIC do not use this stage.
 
 ### TCP socket closure
 
-Portal enables `SO_LINGER=0` before reading the Morph bootstrap and retains it
+Portal enables `SO_LINGER=0` when TCP accept completes and retains it
 through TLS, ALPN and AuthFrame verification.
 
 | Authentication state | Socket close policy |
@@ -151,11 +157,11 @@ input and the stage it reaches:
 | Captured valid QUIC Initial | Can still trigger Retry and address validation |
 | Standard TLS or native QUIC | Uses the transport's normal response behavior |
 
-RST, deadlines and immediate rejection under admission exhaustion remain
-observable. These protections do not eliminate all active-probing or
-traffic-analysis fingerprints. Morph UDP version filtering does not authenticate
-datagrams or provide replay protection. TLS and AuthFrame still have to succeed
-before target access.
+RST, deadlines, business connection limits and operating-system resource
+exhaustion remain observable. These protections do not eliminate all
+active-probing or traffic-analysis fingerprints. Morph UDP version filtering
+does not authenticate datagrams or provide replay protection. TLS and AuthFrame
+still have to succeed before target access.
 
 The Prelude Tag authenticates bootstrap metadata, not the encrypted TLS stream.
 An observer who knows a captured ClientHello field's position and value can
@@ -174,10 +180,21 @@ these limits before accepting a role:
 
 | Resource | Pre-authentication limit |
 |---|---|
-| Pending connections | 256 total; 32 per IPv4 source or IPv6 /64 |
+| Authentication processing | 256 total; 32 per IPv4 source or IPv6 /64, shared by TCP and QUIC |
 | QUIC Stream credit | One client bidirectional Stream; no unidirectional Streams |
 | QUIC connection receive window | 64 KiB |
 | Handshake and authentication | `NOW_HANDSHAKE_TIMEOUT`, default `5s` |
+
+Morph TCP connections waiting for authentication processing are bounded by the
+operating system's file descriptor limit, not a separate application quota.
+They retain a socket and task until admission, the original deadline or shutdown.
+Accepted connections also require a shared connection permit (1024 total), held
+through their business lifetime; parked connections do not hold this permit.
+Temporary TCP accept resource failures use a 10 ms exponential backoff capped
+at 250 ms, reset after a successful accept. Existing tasks continue to run and
+expire during backoff. Extreme load can exhaust file descriptors, memory or CPU,
+degrade service and require operational intervention. QUIC requires Retry for
+unvalidated addresses and ignores arrivals when admission is full.
 
 After authentication, receive windows are raised to the selected QUIC profile.
 Business resources remain bounded by target Flow permits, Stream credit,
