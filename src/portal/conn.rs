@@ -3,6 +3,7 @@
 
 //! TLS and QUIC ingress authentication, role enforcement, and flow dispatch.
 
+use std::future::pending;
 use std::io::ErrorKind;
 use std::sync::Arc;
 
@@ -42,15 +43,14 @@ pub(super) async fn tcp(
         let (mut stream, authentication) =
             match MorphTcpStream::accept_bootstrap(stream, portal.morph_keys.clone()).await {
                 Ok(bootstrap) => bootstrap,
-                Err((error, stream))
+                Err((error, _stream))
                     if morph
                         && matches!(
                             error.kind(),
                             ErrorKind::UnexpectedEof | ErrorKind::InvalidData
                         ) =>
                 {
-                    prehello::discard(stream).await?;
-                    return Ok(None);
+                    return pending().await;
                 }
                 Err((error, _stream)) => return Err(error.into()),
             };
@@ -60,13 +60,11 @@ pub(super) async fn tcp(
                 .as_ref()
                 .is_some_and(|replay| replay.precheck(authentication))
         {
-            prehello::discard(stream.into_inner()).await?;
-            return Ok(None);
+            return pending().await;
         }
         let mut tls = if morph {
             let Some(accepted) = prehello::accept(&mut stream).await? else {
-                prehello::discard(stream.into_inner()).await?;
-                return Ok(None);
+                return pending().await;
             };
             if Instant::now() >= deadline {
                 return Ok(None);
@@ -77,8 +75,7 @@ pub(super) async fn tcp(
                     .as_ref()
                     .is_some_and(|replay| replay.commit(authentication))
             {
-                prehello::discard(stream.into_inner()).await?;
-                return Ok(None);
+                return pending().await;
             }
             if Instant::now() >= deadline {
                 return Ok(None);

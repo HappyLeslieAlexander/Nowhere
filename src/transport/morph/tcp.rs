@@ -176,10 +176,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         &self.inner
     }
 
-    pub(crate) fn into_inner(self) -> S {
-        self.inner
-    }
-
     fn initialized(inner: S, keys: &MorphKeys, nonce: [u8; NONCE_LEN], client: bool) -> Self {
         let (read_key, write_key) = if client {
             (&keys.tcp_s2c, &keys.tcp_c2s)

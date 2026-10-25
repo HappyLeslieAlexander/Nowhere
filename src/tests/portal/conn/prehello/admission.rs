@@ -6,7 +6,7 @@
 use super::*;
 
 #[tokio::test]
-async fn shutdown_releases_all_morph_prehello_states_and_disposal_budget_exhaustion() {
+async fn shutdown_releases_all_morph_prehello_states() {
     for (size, fin) in [
         (0, false),
         (76, false),

@@ -1,21 +1,19 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Silent Morph ClientHello acceptance and bounded rejected-input disposal.
+//! Silent Morph ClientHello acceptance and authenticated socket handoff.
 
-use std::future::{pending, poll_fn};
+use std::future::poll_fn;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use rustls::server::{Accepted, Acceptor};
-use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+use tokio::io::{AsyncRead, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::time::Instant;
 
 const READ_CHUNK: usize = 4096;
-const DISCARD_BYTES: usize = 64 * 1024;
-const DISCARD_READS: usize = 64;
 
 struct Reader<'a, 'b, R> {
     stream: &'a mut R,
@@ -67,21 +65,6 @@ pub(super) fn finish_authentication(stream: &TcpStream, deadline: Instant) -> io
         return Ok(false);
     }
     Ok(true)
-}
-
-pub(super) async fn discard<R: AsyncRead + Unpin>(mut stream: R) -> io::Result<()> {
-    let mut buffer = [0; READ_CHUNK];
-    let mut remaining = DISCARD_BYTES;
-    for _ in 0..DISCARD_READS {
-        let len = buffer.len().min(remaining);
-        let count = stream.read(&mut buffer[..len]).await?;
-        remaining -= count;
-        if count == 0 || remaining == 0 {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    pending().await
 }
 
 #[cfg(test)]

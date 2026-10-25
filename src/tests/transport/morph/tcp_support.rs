@@ -235,6 +235,10 @@ fn fade_propagates_random_source_errors_at_every_generation_stage() {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
+    pub(crate) fn into_inner(self) -> S {
+        self.inner
+    }
+
     pub(crate) async fn connect_authenticated_for_test(
         inner: S,
         keys: MorphKeys,

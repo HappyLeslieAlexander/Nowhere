@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Silent Morph TCP probe and rejected-input disposal regressions.
+//! Silent Morph TCP probe and rejected-input retention regressions.
 
 use super::*;
 
@@ -131,24 +131,6 @@ async fn truncated_valid_client_hello_with_fin_keeps_original_deadline() {
         assert!(start.elapsed() >= TIMEOUT);
     }
     wait_active(&h, 0).await;
-    h.close().await;
-}
-
-#[tokio::test]
-async fn reset_during_silent_disposal_releases_admission_early() {
-    let h = Harness::new("direct", true).await;
-    let mut stream = TcpStream::connect(h.tcp).await.unwrap();
-    stream.write_all(&[0xff; 77]).await.unwrap();
-    wait_active(&h, 1).await;
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    socket2::SockRef::from(&stream)
-        .set_linger(Some(Duration::ZERO))
-        .unwrap();
-    drop(stream);
-    tokio::time::timeout(Duration::from_secs(1), wait_active(&h, 0))
-        .await
-        .unwrap();
-    assert_eq!(h.inner.connection_admission.available_permits(), 1024);
     h.close().await;
 }
 
