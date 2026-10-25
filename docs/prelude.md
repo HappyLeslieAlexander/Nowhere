@@ -141,9 +141,10 @@ memory. A new Portal instance starts with an empty registry.
 
 ## Silent admission
 
-Portal applies the accept-time handshake deadline, admission limits, bounded
-discard budget and socket close policy. Prelude verification precedes
-ClientHello parsing; successful parsing precedes replay commit:
+Portal applies the accept-time handshake deadline, admission limits and socket
+close policy. Rejected input stops further reads until that deadline. Prelude
+verification precedes ClientHello parsing; successful parsing precedes replay
+commit:
 
 ```text
       Vector                                            Portal
@@ -171,7 +172,7 @@ TLS response. Concurrent copies can commit only once while their Identity
 remains registered. A mutex protects registry operations and is released before
 network IO or TLS work. Poisoned state rejects authenticated inputs.
 
-Invalid Tags, invalid Counters and replay rejection stay on the silent discard
+Invalid Tags, invalid Counters and replay rejection stay on the silent rejection
 path without TLS responses. Later socket, TLS, ALPN or AuthFrame failures do not
 undo a commit. Configuration-dependent TLS checks after the silent boundary
 can send alerts.

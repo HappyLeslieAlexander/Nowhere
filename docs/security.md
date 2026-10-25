@@ -90,7 +90,8 @@ Before acceptance, incomplete or rejected input, including a peer's write-side
 FIN, is held silently until the authentication deadline. The absolute deadline
 starts when TCP accept completes and covers Prelude, Nonce, ClientHello, TLS
 and AuthFrame together. `NOW_HANDSHAKE_TIMEOUT` controls it (default `5s`).
-Shutdown, resets and unrecoverable I/O failures may end the connection earlier.
+Shutdown may end the connection earlier. Resets and unrecoverable I/O failures
+detected while reading may also end it before input is rejected.
 
 When authentication processing is full, Morph TCP connections wait silently
 without reading input, creating TLS state or holding a processing or business
@@ -98,10 +99,10 @@ connection permit. Released processing permits wake waiting connections to
 retry admission within their original deadline. Waiting does not guarantee
 ordering or eventual admission under sustained contention.
 
-Silent rejection during authentication retains the processing permit. Portal
-discards further TCP input using a 4 KiB buffer, up to 64 KiB or 64 reads per
-connection, then stops reading while retaining the original deadline. It sends
-no filler data and introduces no random delays.
+Silent rejection during authentication immediately stops reading and retains
+the socket and processing permit until the original deadline. Further input,
+FIN or RST does not shorten or extend that wait. Portal sends no filler data
+and introduces no random delays.
 
 The silent stage ends after ClientHello acceptance, successful replay commit
 and the deadline check. Configuration-dependent ClientHello checks, TLS
@@ -124,10 +125,10 @@ Expiry retains zero linger; failure, timeout or cancellation before successful
 authentication does not restore normal linger. Socket-option failures terminate
 the connection without forwarding.
 
-On Linux, zero linger requests RST even when the bounded discard budget leaves
-unread data. Packet-level FIN/RST behavior on other operating systems depends
-on the kernel. Resource rejection before connection authentication begins and
-socket-option failures are outside this close policy's guarantees.
+On Linux, zero linger requests RST even with unread data. Packet-level FIN/RST
+behavior on other operating systems depends on the kernel. Resource rejection
+before connection authentication begins and socket-option failures are outside
+this close policy's guarantees.
 
 ### UDP version handling
 
