@@ -356,6 +356,9 @@ async fn morph_deadline_includes_time_before_connection_task_starts() {
     let (client, accepted) = tokio::join!(client, listener.accept());
     let mut client = client.unwrap();
     let (server, peer) = accepted.unwrap();
+    if h.inner.morph_keys.is_some() {
+        server.set_zero_linger().unwrap();
+    }
     let accepted_at = Instant::now();
     let admission = h
         .inner

@@ -224,6 +224,9 @@ async fn accepted_hello_continues_normal_authentication_and_close() {
             listener.accept()
         );
         let (server, peer) = accepted.unwrap();
+        if h.inner.morph_keys.is_some() {
+            server.set_zero_linger().unwrap();
+        }
         let admission = h
             .inner
             .unauthenticated_admission
@@ -276,7 +279,7 @@ async fn accepted_hello_continues_normal_authentication_and_close() {
 }
 
 #[tokio::test]
-async fn already_expired_morph_connection_still_enables_zero_linger() {
+async fn already_expired_morph_connection_keeps_zero_linger() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let (client, accepted) = tokio::join!(
@@ -285,6 +288,9 @@ async fn already_expired_morph_connection_still_enables_zero_linger() {
     );
     let mut client = client.unwrap();
     let (server, peer) = accepted.unwrap();
+    if h.inner.morph_keys.is_some() {
+        server.set_zero_linger().unwrap();
+    }
     let admission = h
         .inner
         .unauthenticated_admission
