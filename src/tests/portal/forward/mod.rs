@@ -3,6 +3,7 @@
 
 //! Portal TLS/QUIC forwarding matrices, Morph, IPv6, and TCP half-close tests.
 
+mod ingress;
 mod socks;
 
 use super::*;
