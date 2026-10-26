@@ -89,3 +89,29 @@ fn udp_parser_reports_fragment_and_rejects_truncation() {
     assert_eq!(payload, b"payload");
     assert!(decode_udp_packet(&packet[..5]).is_err());
 }
+
+#[test]
+fn udp_encoding_reuses_bounded_storage_for_large_packets_and_long_domains() {
+    let addresses = [
+        SocksAddress::Ip("127.0.0.1:53".parse().unwrap()),
+        SocksAddress::Ip("[::1]:53".parse().unwrap()),
+        SocksAddress::Domain("a".repeat(255), 53),
+    ];
+    for address in addresses {
+        let mut packet = Vec::new();
+        let header_len = encode_udp_packet(&address, &[]).unwrap().len();
+        for size in [0, 32768, 32769, 65535, 1, 65535] {
+            let expected = vec![0x5a; size];
+            encode_udp_packet_into(&mut packet, &address, &expected).unwrap();
+            let (decoded, fragment, payload) = decode_udp_packet(&packet).unwrap();
+            assert_eq!(decoded, address);
+            assert_eq!(fragment, 0);
+            assert_eq!(payload, expected);
+            assert_eq!(packet.len(), header_len + size);
+            assert!(packet.capacity() <= header_len + u16::MAX as usize);
+        }
+        let allocation = packet.as_ptr();
+        encode_udp_packet_into(&mut packet, &address, b"next").unwrap();
+        assert_eq!(packet.as_ptr(), allocation);
+    }
+}

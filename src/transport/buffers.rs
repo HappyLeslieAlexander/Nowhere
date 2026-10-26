@@ -7,12 +7,10 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
 const TCP_CACHE_LIMIT: usize = 64;
-const UDP_CACHE_LIMIT: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct Buffers {
     tcp: Arc<BufferPool>,
-    udp: Arc<BufferPool>,
 }
 
 #[derive(Debug)]
@@ -28,20 +26,22 @@ pub struct BufferLease {
     pool: Arc<BufferPool>,
 }
 
+pub(crate) fn reserve_bounded(buffer: &mut Vec<u8>, required: usize, limit: usize) {
+    if required > buffer.capacity() {
+        let capacity = buffer.capacity().saturating_mul(2).min(limit).max(required);
+        buffer.reserve_exact(capacity - buffer.len());
+    }
+}
+
 impl Buffers {
-    pub fn new(tcp_size: usize, udp_size: usize) -> Self {
+    pub fn new(tcp_size: usize) -> Self {
         Self {
             tcp: Arc::new(BufferPool::new(tcp_size, TCP_CACHE_LIMIT)),
-            udp: Arc::new(BufferPool::new(udp_size, UDP_CACHE_LIMIT)),
         }
     }
 
     pub fn get_tcp_buffer(&self) -> BufferLease {
         BufferPool::acquire(&self.tcp)
-    }
-
-    pub fn get_udp_buffer(&self) -> BufferLease {
-        BufferPool::acquire(&self.udp)
     }
 }
 

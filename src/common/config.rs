@@ -85,10 +85,6 @@ pub fn tcp_data_buf_size() -> usize {
     env_int("NOW_TCP_DATA_BUF_SIZE", 32 * 1024) as usize
 }
 
-pub fn udp_data_buf_size() -> usize {
-    env_int("NOW_UDP_DATA_BUF_SIZE", 64 * 1024) as usize
-}
-
 pub fn tcp_read_timeout() -> Duration {
     env_duration("NOW_TCP_READ_TIMEOUT", Duration::from_secs(30))
 }

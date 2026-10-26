@@ -7,7 +7,7 @@ use super::*;
 
 #[tokio::test]
 async fn generic_reads_use_a_pool_owned_chunk() {
-    let buffers = Buffers::new(32768, 1);
+    let buffers = Buffers::new(32768);
     let mut reader = &b"pooled"[..];
     let chunk = read_owned_from(&mut reader, &buffers)
         .await

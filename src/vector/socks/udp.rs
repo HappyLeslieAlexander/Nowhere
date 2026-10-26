@@ -223,9 +223,8 @@ async fn relay_udp_target(
     mut outbound: mpsc::Receiver<QueuedLocalPacket>,
     shutdown: CancellationToken,
 ) {
-    let mut inbound = Vec::with_capacity(u16::MAX as usize);
-    let mut local_packet = vector.buffers.get_udp_buffer();
-    local_packet.clear();
+    let mut inbound = Vec::new();
+    let mut local_packet = Vec::new();
     let idle = tokio::time::sleep_until(Instant::now() + client.idle_timeout);
     tokio::pin!(idle);
     let tunnel_cancel = tunnel.cancellation();

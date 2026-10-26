@@ -5,6 +5,8 @@
 
 use anyhow::{Result, anyhow, bail};
 
+use crate::transport::reserve_bounded;
+
 use super::{
     ADDRESS_DOMAIN, ADDRESS_IPV4, ADDRESS_IPV6, SocksAddress, decode_address, encode_address,
 };
@@ -56,9 +58,13 @@ pub(crate) fn encode_udp_packet_into(
     payload: &[u8],
 ) -> Result<()> {
     packet.clear();
-    packet.reserve(3 + 22 + payload.len());
     packet.extend_from_slice(&[0, 0, 0]);
     encode_address(packet, address)?;
+    reserve_bounded(
+        packet,
+        packet.len() + payload.len(),
+        packet.len() + u16::MAX as usize,
+    );
     packet.extend_from_slice(payload);
     Ok(())
 }

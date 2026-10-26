@@ -6,6 +6,8 @@
 use anyhow::{Context, Result, bail};
 use tokio::io::AsyncReadExt;
 
+use crate::transport::reserve_bounded;
+
 use super::BoxReader;
 
 #[derive(Default)]
@@ -40,6 +42,7 @@ impl UotReadState {
         let payload_len = *self
             .payload_len
             .get_or_insert_with(|| u16::from_be_bytes(self.header) as usize);
+        reserve_bounded(payload, payload_len, u16::MAX as usize);
         payload.resize(payload_len, 0);
         while self.payload_read != payload_len {
             let read = reader

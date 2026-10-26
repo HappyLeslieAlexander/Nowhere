@@ -99,7 +99,7 @@ impl Portal {
             outbound,
             logger,
             stats: Arc::new(Stats::default()),
-            buffers: Buffers::new(runtime.tcp_data_buf_size, runtime.udp_data_buf_size),
+            buffers: Buffers::new(runtime.tcp_data_buf_size),
             rate: RateLimiter::new(
                 rate_limit_bytes_per_second(rate) as i64,
                 rate_limit_bytes_per_second(etar) as i64,

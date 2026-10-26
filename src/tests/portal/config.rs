@@ -20,7 +20,6 @@ fn absent_values_use_the_existing_defaults() {
     let config = parse(&[]).unwrap();
     assert_eq!(config.udp_queue_bytes, DEFAULT_QUIC_UDP_QUEUE_BYTES);
     assert_eq!(config.tcp_data_buf_size, DEFAULT_TCP_DATA_BUF_SIZE);
-    assert_eq!(config.udp_data_buf_size, DEFAULT_UDP_DATA_BUF_SIZE);
     assert_eq!(config.tcp_dial_timeout, DEFAULT_TCP_DIAL_TIMEOUT);
     assert_eq!(config.udp_dial_timeout, DEFAULT_UDP_DIAL_TIMEOUT);
     assert_eq!(config.tcp_read_timeout, DEFAULT_TCP_READ_TIMEOUT);
@@ -32,11 +31,7 @@ fn absent_values_use_the_existing_defaults() {
 
 #[test]
 fn all_integer_limits_reject_zero_instead_of_falling_back() {
-    for name in [
-        "NOW_QUIC_UDP_QUEUE_BYTES",
-        "NOW_TCP_DATA_BUF_SIZE",
-        "NOW_UDP_DATA_BUF_SIZE",
-    ] {
+    for name in ["NOW_QUIC_UDP_QUEUE_BYTES", "NOW_TCP_DATA_BUF_SIZE"] {
         let error = parse(&[(name, "0")]).unwrap_err().to_string();
         assert!(error.contains(name), "unexpected error for {name}: {error}");
     }
@@ -65,7 +60,6 @@ fn values_are_parsed_once_into_typed_fields() {
     let config = parse(&[
         ("NOW_QUIC_UDP_QUEUE_BYTES", "8192"),
         ("NOW_TCP_DATA_BUF_SIZE", "4096"),
-        ("NOW_UDP_DATA_BUF_SIZE", "8192"),
         ("NOW_TCP_DIAL_TIMEOUT", "1100ms"),
         ("NOW_UDP_DIAL_TIMEOUT", "1200ms"),
         ("NOW_TCP_READ_TIMEOUT", "1300ms"),
@@ -78,7 +72,6 @@ fn values_are_parsed_once_into_typed_fields() {
 
     assert_eq!(config.udp_queue_bytes, 8192);
     assert_eq!(config.tcp_data_buf_size, 4096);
-    assert_eq!(config.udp_data_buf_size, 8192);
     assert_eq!(config.tcp_dial_timeout, Duration::from_millis(1100));
     assert_eq!(config.udp_dial_timeout, Duration::from_millis(1200));
     assert_eq!(config.tcp_read_timeout, Duration::from_millis(1300));

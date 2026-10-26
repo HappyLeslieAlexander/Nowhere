@@ -238,7 +238,6 @@ values; duration settings use values such as `5s` or `250ms`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `NOW_TCP_DATA_BUF_SIZE` | `32768` | TCP copy buffer bytes |
-| `NOW_UDP_DATA_BUF_SIZE` | `65536` | UDP buffer bytes |
 | `NOW_TCP_DIAL_TIMEOUT`, `NOW_UDP_DIAL_TIMEOUT` | `15s` | Target dial limits |
 | `NOW_HANDSHAKE_TIMEOUT` | `5s` | Transport/authentication limit |
 | `NOW_FLOW_SETUP_TIMEOUT` | `20s` | Flow setup limit |

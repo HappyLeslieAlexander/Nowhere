@@ -37,3 +37,30 @@ fn owned_quic_packet_retains_budget_until_consumed() {
     drop(packet);
     assert_eq!(budget.available_permits(), 9);
 }
+
+#[tokio::test]
+async fn owned_quic_receive_does_not_allocate_stream_storage() {
+    let (sender, datagrams) = tokio::sync::mpsc::channel(1);
+    let budget = Arc::new(tokio::sync::Semaphore::new(9));
+    let permit = crate::common::reserve_udp_budget(budget.clone(), 9).unwrap();
+    sender
+        .send(BudgetedDatagram::new(
+            Bytes::from_static(b"zero-copy"),
+            permit,
+        ))
+        .await
+        .unwrap();
+    let mut receiver = UdpTunnelReceiver {
+        transport: UdpReceiveTransport::Quic(datagrams),
+        stats: Arc::new(crate::transport::Stats::default()),
+        account: true,
+        cancel: tokio_util::sync::CancellationToken::new(),
+    };
+    let mut buffer = Vec::new();
+    let packet = receiver.recv_into(&mut buffer).await.unwrap().unwrap();
+    assert_eq!(packet.payload(&buffer), b"zero-copy");
+    assert_eq!(buffer.capacity(), 0);
+    assert_eq!(budget.available_permits(), 0);
+    drop(packet);
+    assert_eq!(budget.available_permits(), 9);
+}

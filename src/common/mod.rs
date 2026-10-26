@@ -17,7 +17,7 @@ pub(crate) use config::first_raw_query_value;
 pub use config::{
     DEFAULT_RATE_LIMIT, env_int, flow_setup_timeout, handshake_timeout, query_first,
     rate_limit_bytes_per_second, service_cooldown, shutdown_timeout, tcp_data_buf_size,
-    tcp_read_timeout, udp_data_buf_size, udp_idle_timeout,
+    tcp_read_timeout, udp_idle_timeout,
 };
 pub(crate) use datagram::{
     BudgetedDatagram, UdpDatagramSend, reserve_udp_budget, send_quic_udp_packet,

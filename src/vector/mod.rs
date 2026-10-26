@@ -21,7 +21,6 @@ use url::Url;
 
 use crate::common::{
     Logger, ShutdownSignals, rate_limit_bytes_per_second, shutdown_timeout, tcp_data_buf_size,
-    udp_data_buf_size,
 };
 use crate::protocol::Credentials;
 use crate::telemetry::{InstanceRole, TelemetryServer};
@@ -100,7 +99,7 @@ impl VectorRuntime {
                 config,
                 logger,
                 stats,
-                buffers: Buffers::new(tcp_data_buf_size(), udp_data_buf_size()),
+                buffers: Buffers::new(tcp_data_buf_size()),
                 rate_limiter,
                 client,
                 local_udp_budget: Arc::new(Semaphore::new(udp_queue_bytes)),

@@ -11,7 +11,6 @@ use tokio::sync::Semaphore;
 const DEFAULT_QUIC_UDP_QUEUE_BYTES: usize = 4 * 1024 * 1024;
 
 const DEFAULT_TCP_DATA_BUF_SIZE: usize = 32 * 1024;
-const DEFAULT_UDP_DATA_BUF_SIZE: usize = 64 * 1024;
 const DEFAULT_TCP_DIAL_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_UDP_DIAL_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_TCP_READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -24,7 +23,6 @@ const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(60 * 60);
 pub(crate) struct PortalRuntimeConfig {
     pub(crate) udp_queue_bytes: usize,
     pub(crate) tcp_data_buf_size: usize,
-    pub(crate) udp_data_buf_size: usize,
     pub(crate) tcp_dial_timeout: Duration,
     pub(crate) udp_dial_timeout: Duration,
     pub(crate) tcp_read_timeout: Duration,
@@ -59,12 +57,6 @@ impl PortalRuntimeConfig {
             &mut source,
             "NOW_TCP_DATA_BUF_SIZE",
             DEFAULT_TCP_DATA_BUF_SIZE,
-            isize::MAX as usize,
-        )?;
-        let udp_data_buf_size = read_usize(
-            &mut source,
-            "NOW_UDP_DATA_BUF_SIZE",
-            DEFAULT_UDP_DATA_BUF_SIZE,
             isize::MAX as usize,
         )?;
         let tcp_dial_timeout = read_duration(
@@ -105,7 +97,6 @@ impl PortalRuntimeConfig {
         Ok(Self {
             udp_queue_bytes,
             tcp_data_buf_size,
-            udp_data_buf_size,
             tcp_dial_timeout,
             udp_dial_timeout,
             tcp_read_timeout,
