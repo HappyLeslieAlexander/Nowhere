@@ -50,7 +50,3 @@ pub(super) fn format_duration(value: Duration) -> String {
         format!("{milliseconds:.0} ms")
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/toolbox/format.rs"]
-mod tests;

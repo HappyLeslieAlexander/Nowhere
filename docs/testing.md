@@ -89,7 +89,7 @@ production component they exercise.
 | `src/tests/egress/` | Service construction and registered connection ordering |
 | `src/tests/transport/` | QUIC ownership, Morph, flow control, buffering and statistics |
 | `src/tests/telemetry/` | Minimal statistics contract and endpoint privacy; nested IPC framing, registry and subscriber lifetimes |
-| `src/tests/toolbox/` | Key generation, certificate inspection, probe, status, formatting and diagnostics |
+| `src/tests/toolbox/` | Key generation, certificate inspection, probe, status and diagnostics |
 | `src/tests/main.rs` | CLI parsing and command behavior |
 
 Cross-module integration tests live under the owning service. Portal's
