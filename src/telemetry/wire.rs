@@ -31,7 +31,6 @@ pub(crate) struct InstanceDescriptor {
     #[serde(skip)]
     pub(crate) incarnation: u64,
     pub(crate) version: String,
-    #[serde(default)]
     pub(crate) endpoint: String,
 }
 

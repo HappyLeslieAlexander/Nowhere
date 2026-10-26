@@ -28,6 +28,19 @@ fn snapshots_have_only_six_statistics() {
 }
 
 #[test]
+fn hello_requires_the_published_endpoint_field() {
+    let instance = InstanceDescriptor::current(InstanceRole::Portal, "127.0.0.1:2000").unwrap();
+    let mut value = serde_json::to_value(ServerMessage::Hello(Hello { instance })).unwrap();
+    assert!(serde_json::from_value::<ServerMessage>(value.clone()).is_ok());
+    value["data"]["instance"]
+        .as_object_mut()
+        .unwrap()
+        .remove("endpoint");
+    let error = serde_json::from_value::<ServerMessage>(value).unwrap_err();
+    assert!(error.to_string().contains("missing field `endpoint`"));
+}
+
+#[test]
 fn published_examples_match_the_wire_contract() {
     assert_published_examples(include_str!("../../../docs/telemetry.md"));
 }
