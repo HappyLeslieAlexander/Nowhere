@@ -97,40 +97,37 @@ impl QuicConnection {
                 | OwnedUdpFrame::Close { flow_id } => *flow_id,
             };
             let mut state = self.state.lock().unwrap();
-            let Some(route) = state.routes.get(&id) else {
+            let UdpState { routes, reassembly } = &mut *state;
+            let Some(route) = routes.get(&id) else {
                 continue;
             };
             if !route.ready.load(Ordering::Acquire) || route.cancel.is_cancelled() {
                 continue;
             }
-            let sender = route.sender.clone();
             let packet = match frame {
                 OwnedUdpFrame::Data { payload, .. } => {
                     reserve_udp_budget(self.budget.clone(), payload.len())
                         .map(|permit| BudgetedDatagram::new(payload, permit))
                 }
-                OwnedUdpFrame::Fragment { fragment, .. } => match state.reassembly.push_with(
-                    id,
-                    fragment,
-                    std::time::Instant::now(),
-                    |size| reserve_udp_budget(self.budget.clone(), size as usize),
-                ) {
-                    ReassemblyOutcome::Complete {
-                        payload,
-                        reservation,
-                        ..
-                    } => Some(BudgetedDatagram::new(payload, reservation)),
-                    _ => None,
-                },
-                OwnedUdpFrame::Close { .. } => {
-                    if let Some(route) = state.routes.get(&id) {
-                        route.cancel.cancel();
+                OwnedUdpFrame::Fragment { fragment, .. } => {
+                    match reassembly.push_with(id, fragment, std::time::Instant::now(), |size| {
+                        reserve_udp_budget(self.budget.clone(), size as usize)
+                    }) {
+                        ReassemblyOutcome::Complete {
+                            payload,
+                            reservation,
+                            ..
+                        } => Some(BudgetedDatagram::new(payload, reservation)),
+                        _ => None,
                     }
+                }
+                OwnedUdpFrame::Close { .. } => {
+                    route.cancel.cancel();
                     None
                 }
             };
             if let Some(packet) = packet {
-                let _ = sender.try_send(packet);
+                let _ = route.sender.try_send(packet);
             }
         }
     }
