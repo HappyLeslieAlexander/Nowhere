@@ -48,8 +48,7 @@ and Egress reconnection do not change process state.
 
 The [contract and JSON messages](telemetry.md#messages) and
 [JSON Schema](telemetry.md#json-schema) define the wire interface.
-The [independent client](../src/tests/telemetry/headless.py) verifies real Unix IPC,
-known-byte counters, logs and cleanup. See [Testing](testing.md#headless-ipc-check).
+See [Testing](testing.md) for native IPC regression coverage.
 
 ## Deployment boundaries
 

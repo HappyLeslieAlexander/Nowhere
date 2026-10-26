@@ -87,36 +87,12 @@ Run on either host to inspect its local instances:
 Connect, deploy and operate with focused tools. Interfaces and integration
 requirements are documented in the [ecosystem guide](docs/ecosystem.md).
 
-<table>
-<tr>
-<td width="50%" valign="top">
-<sub>CLIENT</sub><br><br>
-<strong><a href="https://github.com/NodePassProject/Anywhere">Anywhere</a></strong><br>
-Native connections on Apple platforms.<br><br>
-<a href="https://apps.apple.com/us/app/id6758235178">App Store</a>
-</td>
-<td width="50%" valign="top">
-<sub>DEPLOY</sub><br><br>
-<strong><a href="https://github.com/NodePassProject/nowhere-sh">nowhere-sh</a></strong><br>
-Linux deployment and service management.<br><br>
-<a href="https://github.com/NodePassProject/nowhere-sh#quick-start">Quick start</a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<sub>CONTROL</sub><br><br>
-<strong><a href="https://github.com/NodePassProject/OpenCtrl">OpenCtrl</a></strong><br>
-Process control through REST and SSE.<br><br>
-<a href="https://github.com/NodePassProject/OpenCtrl/blob/main/docs/master.md">API reference</a>
-</td>
-<td width="50%" valign="top">
-<sub>OPERATE</sub><br><br>
-<strong><a href="https://github.com/NodePassProject/NowhereDash">NowhereDash</a></strong><br>
-Fleet operations from a web dashboard.<br><br>
-<a href="https://github.com/NodePassProject/NowhereDash#quick-start">Quick start</a>
-</td>
-</tr>
-</table>
+| Project | Purpose | Get started |
+| --- | --- | --- |
+| [Anywhere](https://github.com/NodePassProject/Anywhere) | Native connections on Apple platforms | [App Store](https://apps.apple.com/us/app/id6758235178) |
+| [nowhere-sh](https://github.com/NodePassProject/nowhere-sh) | Linux deployment and service management | [Quick start](https://github.com/NodePassProject/nowhere-sh#quick-start) |
+| [OpenCtrl](https://github.com/NodePassProject/OpenCtrl) | Process control through REST and SSE | [API reference](https://github.com/NodePassProject/OpenCtrl/blob/main/docs/master.md) |
+| [NowhereDash](https://github.com/NodePassProject/NowhereDash) | Fleet operations from a web dashboard | [Quick start](https://github.com/NodePassProject/NowhereDash#quick-start) |
 
 ## Architecture
 
@@ -213,8 +189,8 @@ cargo build --release --locked
 ```
 
 CI runs on Linux, macOS and Windows. [Platforms](docs/platforms.md) provides build
-and deployment details; the [testing guide](docs/testing.md) covers native checks,
-Linux containers and performance measurements.
+and deployment details; the [testing guide](docs/testing.md) covers native checks
+and performance measurements.
 
 ## License
 

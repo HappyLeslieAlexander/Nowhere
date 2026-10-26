@@ -10,15 +10,13 @@ checks and measurements.
 - [Native validation](#native-validation)
 - [Test layout](#test-layout)
 - [Regression requirements](#regression-requirements)
-- [Headless IPC check](#headless-ipc-check)
 - [Performance measurements](#performance-measurements)
 
 ## Prerequisites
 
 Use a stable Rust toolchain with `rustfmt` and `clippy`. Network tests require
 IPv4 and IPv6 loopback, `localhost` resolution for both families, and permission
-to open local sockets. The headless IPC check additionally requires Python 3
-and a Unix host. Tests use ephemeral ports and generated certificates.
+to open local sockets. Tests use ephemeral ports and generated certificates.
 
 ## Standard checks
 
@@ -58,19 +56,9 @@ checks buildability and does not replace these runs. Shared protocol and
 forwarding requirements apply to all three platforms. When test totals differ,
 record the conditionally compiled test names and the boundaries they cover.
 
-### Linux checks on macOS
-
-[The Linux check script](../scripts/check-linux.sh) runs formatting, Clippy
-and tests in Apple Container. It supplies IPv6 `localhost`
-resolution for the container's network tests:
-
-```sh
-./scripts/check-linux.sh
-```
-
 ## Test layout
 
-All tests, fixtures and helper programs live under `src/tests/`. Production
+All tests, fixtures and test helpers live under `src/tests/`. Production
 modules mount private test modules with `#[cfg(test)]` and `#[path]`. Test
 helpers are compiled only for tests; regression cases exercise production codecs,
 connection paths and resource owners.
@@ -93,13 +81,12 @@ production component they exercise.
 | `src/tests/main.rs` | CLI parsing and command behavior |
 
 Cross-module integration tests live under the owning service. Portal's
-`mod.rs` provides the shared harness; `conn.rs`, `egress.rs` and `forward/`
+`mod.rs` provides the shared harness; `conn/`, `egress.rs` and `forward/`
 cover the service's connection, exit and forwarding boundaries. Shared fixtures
 use `support.rs` or `*_support.rs`, including test-only resource accessors.
 
 Rust files begin with the copyright notice, SPDX identifier and a `//!` module
-purpose. Python helpers use the same license notice and a module docstring.
-Keep JSON fixtures valid JSON; describe their contract in this guide and in
+purpose. Keep JSON fixtures valid JSON; describe their contract in this guide and in
 the tests that consume them.
 
 The fixed
@@ -127,21 +114,6 @@ success. Assert that active counts and permits are released once. Parser mutatio
 tests supplement explicit boundary cases; they do not establish exhaustive fuzz
 coverage. Keep live-service waits bounded and terminate spawned processes during
 cleanup, including assertion failures.
-
-## Headless IPC check
-
-Build the release executable, then run the independent subscriber:
-
-```sh
-python3 src/tests/telemetry/headless.py ./target/release/nowhere
-```
-
-The script launches Portal and Vector with redirected standard streams. Using
-only Python's standard library and the public length-prefixed JSON interface,
-it checks discovery, identity, passive reconnection, known instance logical byte
-counts, one-shot status and shutdown cleanup. It requires neither a terminal nor
-Rust module access.
-Windows named-pipe, ACL and peer-identity checks belong to the native Rust suite.
 
 ## Performance measurements
 
