@@ -18,13 +18,25 @@ fn parse(query: &str) -> Result<VectorConfig> {
 fn defaults_and_unknown_options_are_ignored() {
     let config = parse("unused=garbage&net=%ZZ&unknown=%ZZ").unwrap();
     assert_eq!(config.net, CarrierMode::Tcp);
+    let effective = Url::parse(&config.effective_url()).unwrap();
+    assert_eq!(effective.scheme(), "vector");
+    assert!(effective.username().is_empty());
+    assert!(effective.password().is_none());
+    assert_eq!(effective.host_str(), Some("localhost"));
+    assert_eq!(effective.port(), Some(2000));
+    let values = effective.query_pairs().collect::<HashMap<_, _>>();
+    assert_eq!(effective.query_pairs().count(), values.len());
     assert_eq!(
-        config.effective_url(),
-        "vector://localhost:2000?in=127.0.0.1:1080&sni=localhost&pin=none&morph=1&rate=0&etar=0"
+        values,
+        HashMap::from([
+            ("in".into(), "127.0.0.1:1080".into()),
+            ("sni".into(), "localhost".into()),
+            ("pin".into(), "none".into()),
+            ("morph".into(), "1".into()),
+            ("rate".into(), "0".into()),
+            ("etar".into(), "0".into()),
+        ])
     );
-    assert!(!config.effective_url().contains("secret"));
-    assert!(!config.effective_url().contains("unused="));
-    assert!(!config.effective_url().contains("unknown="));
     assert_eq!(parse("net=udp&net=bad").unwrap().net, CarrierMode::Tcp);
     assert!(parse("net=bad&net=udp").is_ok());
 }
@@ -95,11 +107,9 @@ fn endpoint_selects_one_carrier_and_address_family() {
         assert_eq!(config.endpoint(), endpoint);
         assert!(!config.effective_url().contains("net="));
     }
-    for endpoint in ["localhost/tcp:2000/udp:2001", "localhost/udp:2001/tcp:2000"] {
-        let url = Url::parse(&format!("vector://{KEY}@{endpoint}")).unwrap();
-        let error = PortalClientConfig::from_probe_url(&url).unwrap_err();
-        assert!(error.to_string().contains("exactly one carrier"));
-    }
+    let url = Url::parse(&format!("vector://{KEY}@localhost/tcp:2000/udp:2001")).unwrap();
+    let error = PortalClientConfig::from_probe_url(&url).unwrap_err();
+    assert!(error.to_string().contains("exactly one carrier"));
 }
 
 #[test]

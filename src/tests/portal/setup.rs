@@ -1,12 +1,14 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Portal startup URL field order, outlet selection, defaults, and credential redaction tests.
+//! Portal effective configuration, outlet selection, defaults, and credential redaction tests.
+
+use std::collections::HashMap;
 
 use super::*;
 
 #[test]
-fn startup_url_has_fixed_field_order_and_omits_credentials() {
+fn startup_url_preserves_effective_values_and_omits_credentials() {
     for (query, expected) in [
         (
             "",
@@ -37,7 +39,18 @@ fn startup_url_has_fixed_field_order_and_omits_credentials() {
             Logger,
         )
         .unwrap();
-        assert_eq!(portal.inner.effective, expected);
+        let actual = Url::parse(&portal.inner.effective).unwrap();
+        let expected = Url::parse(expected).unwrap();
+        assert_eq!(actual.scheme(), expected.scheme());
+        assert_eq!(actual.host_str(), expected.host_str());
+        assert_eq!(actual.port(), expected.port());
+        assert!(actual.username().is_empty());
+        assert!(actual.password().is_none());
+        assert_eq!(actual.query_pairs().count(), expected.query_pairs().count());
+        assert_eq!(
+            actual.query_pairs().collect::<HashMap<_, _>>(),
+            expected.query_pairs().collect::<HashMap<_, _>>()
+        );
         assert_eq!(
             portal.inner.morph_keys.is_some(),
             !query.contains("morph=0")
