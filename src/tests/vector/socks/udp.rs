@@ -240,3 +240,47 @@ async fn invalid_udp_target_does_not_publish_access() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn idle_association_exits_on_control_close_and_cancellation() {
+    for cancel in [false, true] {
+        let vector = Vector::new(
+            Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:9?in=127.0.0.1:1080")
+                .unwrap(),
+            Logger,
+        )
+        .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (control, peer) = listener.accept().await.unwrap();
+        let shutdown = CancellationToken::new();
+        let task = tokio::spawn(run_udp_association(
+            vector.inner.clone(),
+            control,
+            peer,
+            SocksAddress::unspecified(),
+            shutdown.clone(),
+        ));
+        let mut reply = [0; 10];
+        client.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply[1], REPLY_SUCCEEDED);
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        if cancel {
+            shutdown.cancel();
+        } else {
+            drop(client);
+        }
+        tokio::time::timeout(Duration::from_millis(500), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            vector.inner.local_udp_budget.available_permits(),
+            4 * 1024 * 1024
+        );
+    }
+}

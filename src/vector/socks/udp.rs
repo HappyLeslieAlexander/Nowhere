@@ -51,7 +51,7 @@ pub(super) async fn run_udp_association(
     let mut flows: HashMap<SocksAddress, mpsc::Sender<QueuedLocalPacket>> = HashMap::new();
     let mut tasks = JoinSet::new();
     let active_targets = vector.socks_udp_target_admission.clone();
-    let mut packet = vec![0u8; SOCKS_UDP_PACKET_MAX];
+    let mut packet = Vec::new();
     let mut control_byte = [0u8; 1];
 
     let outcome = loop {
@@ -64,9 +64,16 @@ pub(super) async fn run_udp_association(
                     Err(error) => break Err(error.into()),
                 }
             }
-            received = udp.recv_from(&mut packet) => {
-                let (size, source) = match received {
+            ready = udp.readable() => {
+                if let Err(error) = ready {
+                    break Err(error.into());
+                }
+                if packet.is_empty() {
+                    packet.resize(SOCKS_UDP_PACKET_MAX, 0);
+                }
+                let (size, source) = match udp.try_recv_from(&mut packet) {
                     Ok(received) => received,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
                     Err(error) => break Err(error.into()),
                 };
                 if source.ip() != control_peer.ip() {
