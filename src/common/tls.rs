@@ -26,7 +26,6 @@ const TLS_QUERY_PARAMETERS: &[&str] = &["tls", "crt", "key"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TlsMode {
-    None,
     SelfSigned,
     CaTrusted,
 }
@@ -34,7 +33,6 @@ pub enum TlsMode {
 impl fmt::Display for TlsMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::None => f.write_str("0"),
             Self::SelfSigned => f.write_str("1"),
             Self::CaTrusted => f.write_str("2"),
         }
@@ -48,16 +46,10 @@ pub(crate) fn new_server_configs_with_reload_interval(
 ) -> Result<(TlsMode, Arc<rustls::ServerConfig>, quinn::ServerConfig)> {
     let query = query_first(parsed_url, TLS_QUERY_PARAMETERS)?;
     let mode = match query.get("tls").map(String::as_str) {
-        None => TlsMode::SelfSigned,
-        Some("0") => TlsMode::None,
-        Some("1") => TlsMode::SelfSigned,
+        None | Some("1") => TlsMode::SelfSigned,
         Some("2") => TlsMode::CaTrusted,
         _ => bail!("common::tls::new_server_configs: invalid tls mode"),
     };
-
-    if mode == TlsMode::None {
-        bail!("common::tls::new_server_configs: tls=1 or tls=2 required");
-    }
 
     let provider = Arc::new(ring::default_provider());
     let server_builder = rustls::ServerConfig::builder_with_provider(provider.clone())
@@ -86,7 +78,6 @@ pub(crate) fn new_server_configs_with_reload_interval(
                 cert_sha256,
             )
         }
-        TlsMode::None => unreachable!(),
     };
 
     server_crypto.max_early_data_size = 0;

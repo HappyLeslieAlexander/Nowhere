@@ -49,3 +49,10 @@ fn server_offers_only_nw3() {
 
     assert_eq!(tls.alpn_protocols, [b"nw3".to_vec()]);
 }
+
+#[test]
+fn plaintext_tls_mode_is_rejected_by_both_configuration_entrypoints() {
+    let url = Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000?tls=0").unwrap();
+    assert!(new_server_configs(&url, Logger).is_err());
+    assert!(crate::Portal::new(url, Logger).is_err());
+}
