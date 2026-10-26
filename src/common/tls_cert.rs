@@ -5,12 +5,12 @@
 
 use std::fmt::Write;
 use std::fs;
-use std::io::BufReader;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use rustls::crypto::CryptoProvider;
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
@@ -119,17 +119,23 @@ fn load_certified_key(
     })?;
 
     let certs: Vec<CertificateDer<'static>> =
-        rustls_pemfile::certs(&mut BufReader::new(cert_bytes.as_slice()))
+        CertificateDer::pem_reader_iter(cert_bytes.as_slice())
             .collect::<std::result::Result<_, _>>()
             .context("common::tls::load_certified_key: invalid PEM certificate")?;
     if certs.is_empty() {
         bail!("common::tls::load_certified_key: no certificates found");
     }
 
-    let key = rustls_pemfile::private_key(&mut BufReader::new(key_bytes.as_slice()))
+    let key = PrivateKeyDer::pem_reader_iter(key_bytes.as_slice())
+        .next()
+        .transpose()
         .context("common::tls::load_certified_key: invalid PEM private key")?
         .ok_or_else(|| anyhow!("common::tls::load_certified_key: no private keys found"))?;
 
     CertifiedKey::from_der(certs, key, provider)
         .context("common::tls::load_certified_key: failed to build certified key")
 }
+
+#[cfg(test)]
+#[path = "../tests/common/tls_cert.rs"]
+mod tests;
