@@ -60,3 +60,69 @@ async fn socks_target_receiver_copies_only_payload_and_releases_storage_before_w
         assert_eq!(buffer.capacity(), 0);
     }).await.unwrap();
 }
+
+#[tokio::test]
+async fn blocked_download_retains_only_the_payload_and_still_cancels_or_times_out() {
+    for timeout in [false, true] {
+        let portal = crate::Portal::new(
+            url::Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000").unwrap(),
+            crate::common::Logger,
+        )
+        .unwrap();
+        let mut inner = portal.inner;
+        let forward =
+            std::sync::Arc::get_mut(&mut std::sync::Arc::get_mut(&mut inner).unwrap().forward)
+                .unwrap();
+        forward.runtime.udp_idle_timeout = Duration::from_millis(100);
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        socket.connect(peer.local_addr().unwrap()).await.unwrap();
+        peer.connect(socket.local_addr().unwrap()).await.unwrap();
+        let mut target = UdpTarget::Network(OutboundUdpSocket::Direct(socket));
+        let (stream, mut downstream) = tokio::io::duplex(1);
+        let (reader, writer) = tokio::io::split(stream);
+        let mut input = UdpTunnel::stream(
+            Box::pin(reader),
+            Box::pin(writer),
+            crate::vector::TcpTunnelGuard { _flow: None },
+            forward.stats.clone(),
+            false,
+        );
+        let cancel = CancellationToken::new();
+        let mut buffer = Vec::new();
+        peer.send(&[42; 8000]).await.unwrap();
+        let input_cancel = input.cancellation();
+        let mut relay = Box::pin(relay_udp(
+            forward,
+            &mut input,
+            &mut target,
+            cancel.clone(),
+            input_cancel,
+            CancellationToken::new(),
+            &mut buffer,
+        ));
+        if timeout {
+            tokio::time::timeout(Duration::from_secs(1), &mut relay)
+                .await
+                .unwrap()
+                .unwrap();
+        } else {
+            let mut header = [0; 1];
+            tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::select! {
+                    result = &mut relay => panic!("relay exited before blocked write: {result:?}"),
+                    result = tokio::io::AsyncReadExt::read_exact(&mut downstream, &mut header) => { result.unwrap(); }
+                }
+            }).await.unwrap();
+            cancel.cancel();
+            tokio::time::timeout(Duration::from_secs(1), &mut relay)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        drop(relay);
+        assert_eq!(buffer.len(), 8000);
+        assert_eq!(buffer.capacity(), 8000);
+        assert_eq!(forward.stats.udp_download_bytes.load(Ordering::Relaxed), 0);
+    }
+}

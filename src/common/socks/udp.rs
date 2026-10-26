@@ -121,3 +121,7 @@ impl SocksUdpAssociation {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/common/socks/udp.rs"]
+mod tests;
