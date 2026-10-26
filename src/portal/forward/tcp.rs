@@ -6,7 +6,7 @@
 use std::sync::atomic::Ordering;
 
 use anyhow::{Context, Result};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::portal::egress;
@@ -71,42 +71,44 @@ impl Forwarder {
         let _active = ActiveFlow::new(self.stats.clone(), false);
         let (mut client_read, mut client_write, _client_guard) = incoming.into_tcp();
         let upload = async {
+            let mut buffer = self.buffers.get_tcp_buffer();
             loop {
-                let Some(chunk) = crate::transport::read_with_flush(
-                    crate::transport::read_owned(&mut client_read, &self.buffers),
+                let n = crate::transport::read_with_flush(
+                    client_read.read(&mut buffer),
                     &mut target_write,
                 )
-                .await?
-                else {
+                .await?;
+                if n == 0 {
+                    drop(buffer);
                     target_write.shutdown().await?;
                     return Ok::<_, anyhow::Error>(());
-                };
-                let n = chunk.len();
+                }
                 if let Some(rate) = &self.rate {
                     rate.wait_read(n as i64).await;
                 }
-                crate::transport::write_owned(&mut target_write, chunk).await?;
+                target_write.write_all(&buffer[..n]).await?;
                 self.stats
                     .tcp_upload_bytes
                     .fetch_add(n as u64, Ordering::Relaxed);
             }
         };
         let download = async {
+            let mut buffer = self.buffers.get_tcp_buffer();
             loop {
-                let Some(chunk) = crate::transport::read_with_flush(
-                    crate::transport::read_owned(&mut target_read, &self.buffers),
+                let n = crate::transport::read_with_flush(
+                    target_read.read(&mut buffer),
                     &mut client_write,
                 )
-                .await?
-                else {
+                .await?;
+                if n == 0 {
+                    drop(buffer);
                     client_write.shutdown().await?;
                     return Ok::<_, anyhow::Error>(());
-                };
-                let n = chunk.len();
+                }
                 if let Some(rate) = &self.rate {
                     rate.wait_write(n as i64).await;
                 }
-                crate::transport::write_owned(&mut client_write, chunk).await?;
+                client_write.write_all(&buffer[..n]).await?;
                 self.stats
                     .tcp_download_bytes
                     .fetch_add(n as u64, Ordering::Relaxed);

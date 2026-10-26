@@ -3,7 +3,9 @@
 
 //! TCP tunnel setup and bidirectional relay.
 
-use crate::transport::{read_owned, read_owned_from, read_with_flush, write_owned, write_owned_to};
+use tokio::io::AsyncReadExt;
+
+use crate::transport::read_with_flush;
 
 use super::*;
 
@@ -96,21 +98,19 @@ pub(in crate::vector) async fn relay_tcp(
     {
         let (mut client_read, mut client_write) = client.into_split();
         let client_to_portal = async {
+            let mut buffer = vector.buffers.get_tcp_buffer();
             loop {
-                let Some(chunk) = read_with_flush(
-                    read_owned_from(&mut client_read, &vector.buffers),
-                    &mut tunnel.writer,
-                )
-                .await?
-                else {
+                let read =
+                    read_with_flush(client_read.read(&mut buffer), &mut tunnel.writer).await?;
+                if read == 0 {
+                    drop(buffer);
                     tunnel.writer.shutdown().await?;
                     return Ok::<(), anyhow::Error>(());
-                };
-                let read = chunk.len();
+                }
                 if let Some(rate) = &vector.rate_limiter {
                     rate.wait_read(read as i64).await;
                 }
-                write_owned(&mut tunnel.writer, chunk).await?;
+                tunnel.writer.write_all(&buffer[..read]).await?;
 
                 vector
                     .stats
@@ -119,21 +119,19 @@ pub(in crate::vector) async fn relay_tcp(
             }
         };
         let portal_to_client = async {
+            let mut buffer = vector.buffers.get_tcp_buffer();
             loop {
-                let Some(chunk) = read_with_flush(
-                    read_owned(&mut tunnel.reader, &vector.buffers),
-                    &mut client_write,
-                )
-                .await?
-                else {
+                let read =
+                    read_with_flush(tunnel.reader.read(&mut buffer), &mut client_write).await?;
+                if read == 0 {
+                    drop(buffer);
                     client_write.shutdown().await?;
                     return Ok::<(), anyhow::Error>(());
-                };
-                let read = chunk.len();
+                }
                 if let Some(rate) = &vector.rate_limiter {
                     rate.wait_write(read as i64).await;
                 }
-                write_owned_to(&mut client_write, chunk).await?;
+                client_write.write_all(&buffer[..read]).await?;
 
                 vector
                     .stats
@@ -155,3 +153,7 @@ pub(in crate::vector) async fn relay_tcp(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/vector/flow/tcp.rs"]
+mod tests;

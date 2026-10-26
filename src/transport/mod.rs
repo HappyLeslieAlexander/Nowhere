@@ -16,10 +16,7 @@ pub(crate) use morph::{
     AuthenticatedPrelude, ClientPrelude, MorphKeys, MorphTcpStream, UdpRole, configure_morph_mtu,
     morph_endpoint_config, wrap_morph_udp_socket,
 };
-pub(crate) use owned_io::{
-    AsyncReadAny, AsyncWriteAny, read_owned, read_owned_from, read_with_flush, write_owned,
-    write_owned_to,
-};
+pub(crate) use owned_io::{AsyncReadAny, AsyncWriteAny, read_with_flush};
 pub(crate) use quic::transport_flow_control;
 pub(crate) use quic_runtime::{QuicConnection, UdpRoute};
 pub(crate) use rate::RateLimiter;

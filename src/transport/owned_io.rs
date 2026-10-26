@@ -1,17 +1,13 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Owned relay payloads and buffered asynchronous I/O with flush-aware reads.
+//! Asynchronous I/O traits and flush-aware reads.
 
 use std::future::{Future, poll_fn};
 use std::io;
-use std::pin::Pin;
 use std::task::Poll;
 
-use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-
-use super::Buffers;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 pub(crate) trait AsyncReadAny: AsyncRead + Send + Unpin {}
 
@@ -33,36 +29,6 @@ pub(crate) async fn read_with_flush<T>(
             read.await
         }
     }
-}
-
-pub(crate) async fn read_owned(
-    reader: &mut Pin<Box<dyn AsyncReadAny>>,
-    buffers: &Buffers,
-) -> io::Result<Option<Bytes>> {
-    read_owned_from(reader, buffers).await
-}
-
-pub(crate) async fn read_owned_from<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    buffers: &Buffers,
-) -> io::Result<Option<Bytes>> {
-    let mut payload = buffers.get_tcp_buffer();
-    let count = reader.read(&mut payload).await?;
-    Ok((count != 0).then(|| Bytes::from_owner(payload).slice(..count)))
-}
-
-pub(crate) async fn write_owned(
-    writer: &mut Pin<Box<dyn AsyncWriteAny>>,
-    chunk: Bytes,
-) -> io::Result<()> {
-    writer.write_all(&chunk).await
-}
-
-pub(crate) async fn write_owned_to<W: AsyncWrite + Unpin>(
-    writer: &mut W,
-    chunk: Bytes,
-) -> io::Result<()> {
-    writer.write_all(&chunk).await
 }
 
 #[cfg(test)]

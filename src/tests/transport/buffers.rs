@@ -22,3 +22,9 @@ fn reuses_released_buffers() {
 
     assert_eq!(&*buffers.get_tcp_buffer(), &vec![7, 0, 0, 0]);
 }
+
+impl Buffers {
+    pub(crate) fn cached_tcp_buffers(&self) -> usize {
+        self.tcp.cached.lock().unwrap().len()
+    }
+}
