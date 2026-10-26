@@ -65,12 +65,8 @@ commit and TLS responses. There is no Legacy Prelude fallback.
 
 | Sender | This Portal's Morph TCP ingress |
 |---|---|
-| 3.0.x Vector without authenticated Prelude | Rejected silently |
-| 3.1.0 Vector with authenticated Prelude | Accepted subject to TLS, AuthFrame and replay checks |
-
-This table describes the current implementation. The published 3.1.0 Portal
-allowed Legacy Prelude fallback; this development code deliberately tightens
-that policy without changing the Prelude wire format.
+| Without authenticated Prelude | Rejected silently |
+| With valid authenticated Prelude | Accepted subject to TLS, AuthFrame and replay checks |
 
 Test all three policies, invalid Tags, legacy input, invalid and replayed
 Counters, and the commit boundary after ClientHello acceptance. Verify that
