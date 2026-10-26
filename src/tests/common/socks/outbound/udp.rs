@@ -56,14 +56,13 @@ async fn udp_associate_wraps_payload_and_keeps_control_alive() {
         .unwrap();
     let mut packet = Vec::new();
     assert_eq!(socket.send(b"hello", &mut packet).await.unwrap(), 5);
-    let mut response = [0u8; 512];
-    let payload = socket.recv(&mut response).await.unwrap();
-    assert_eq!(&response[payload], b"hello");
+    let payload = socket.recv().await.unwrap();
+    assert_eq!(payload, b"hello");
     let capacity = packet.capacity();
     assert_eq!(socket.send(b"bye", &mut packet).await.unwrap(), 3);
     assert_eq!(packet.capacity(), capacity);
-    let payload = socket.recv(&mut response).await.unwrap();
-    assert_eq!(&response[payload], b"bye");
+    let payload = socket.recv().await.unwrap();
+    assert_eq!(payload, b"bye");
     drop(socket);
     server.await.unwrap();
 }
@@ -93,9 +92,8 @@ async fn udp_association_ends_when_control_connection_closes() {
         .dial_udp_target(&target, Duration::from_secs(2))
         .await
         .unwrap();
-    let mut response = [0u8; 64];
     assert!(
-        tokio::time::timeout(Duration::from_secs(1), socket.recv(&mut response))
+        tokio::time::timeout(Duration::from_secs(1), socket.recv())
             .await
             .unwrap()
             .is_err()

@@ -146,9 +146,11 @@ impl TargetReceiver<'_> {
     ) -> Result<Option<crate::vector::ReceivedUdpPacket>> {
         match self {
             Self::Network(socket) => {
-                buffer.resize(u16::MAX as usize + 262, 0);
-                let range = socket.recv(buffer).await?;
-                Ok(Some(crate::vector::ReceivedUdpPacket::Buffered(range)))
+                *buffer = Vec::new();
+                *buffer = socket.recv().await?;
+                Ok(Some(crate::vector::ReceivedUdpPacket::Buffered(
+                    0..buffer.len(),
+                )))
             }
             Self::Tunnel(receiver) => receiver.recv_into(buffer).await,
         }

@@ -112,9 +112,8 @@ async fn socks_control_and_udp_relay_select_sources_independently() {
             .await
             .unwrap();
         socket.send(b"cross-family", &mut Vec::new()).await.unwrap();
-        let mut bytes = [0; 128];
-        let payload = socket.recv(&mut bytes).await.unwrap();
-        assert_eq!(&bytes[payload], b"cross-family");
+        let payload = socket.recv().await.unwrap();
+        assert_eq!(payload, b"cross-family");
         drop(socket);
         server.await.unwrap();
     })

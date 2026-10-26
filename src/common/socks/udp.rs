@@ -4,10 +4,11 @@
 //! Payload-oriented direct and SOCKS5 UDP socket facade.
 
 use std::io::ErrorKind;
-use std::ops::Range;
 
 use anyhow::{Context, Result, bail};
 use tokio::net::{TcpStream, UdpSocket};
+
+use crate::transport::{BufferLease, get_udp_buffer};
 
 use super::protocol::parse_udp_header;
 
@@ -24,15 +25,48 @@ impl OutboundUdpSocket {
         }
     }
 
-    pub(crate) async fn recv(&self, buffer: &mut [u8]) -> Result<Range<usize>> {
-        match self {
-            Self::Direct(socket) => socket
-                .recv(buffer)
-                .await
-                .map(|size| 0..size)
-                .map_err(Into::into),
-            Self::Socks(association) => association.recv(buffer).await,
+    pub(crate) async fn recv(&self) -> Result<Vec<u8>> {
+        loop {
+            match self {
+                Self::Direct(socket) => socket.readable().await?,
+                Self::Socks(association) => association.readable().await?,
+            }
+            if let Some(payload) = self.try_recv(get_udp_buffer())? {
+                return Ok(payload);
+            }
         }
+    }
+
+    fn try_recv(&self, mut buffer: BufferLease) -> Result<Option<Vec<u8>>> {
+        let received = match self {
+            Self::Direct(socket) => socket.try_recv(&mut buffer).map_err(Into::into),
+            Self::Socks(association) => association
+                .socket
+                .try_recv(&mut buffer)
+                .context("common::socks::SocksUdpAssociation::recv: failed to read relay"),
+        };
+        let size = match received {
+            Ok(size) => size,
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == ErrorKind::WouldBlock) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        let start = match self {
+            Self::Direct(_) => 0,
+            Self::Socks(_) => {
+                let (header_len, fragment) = parse_udp_header(&buffer[..size])?;
+                if fragment != 0 {
+                    return Ok(None);
+                }
+                header_len
+            }
+        };
+        Ok(Some(buffer[start..size].to_vec()))
     }
 }
 
@@ -59,12 +93,12 @@ impl SocksUdpAssociation {
         Ok(payload.len())
     }
 
-    async fn recv(&self, buffer: &mut [u8]) -> Result<Range<usize>> {
+    async fn readable(&self) -> Result<()> {
         loop {
-            let size = tokio::select! {
-                result = self.socket.recv(buffer) => result.context(
+            tokio::select! {
+                result = self.socket.readable() => return result.context(
                     "common::socks::SocksUdpAssociation::recv: failed to read relay",
-                )?,
+                ),
                 result = self.control.readable() => {
                     result.context(
                         "common::socks::SocksUdpAssociation::recv: failed to poll control connection",
@@ -83,12 +117,7 @@ impl SocksUdpAssociation {
                         ),
                     }
                 }
-            };
-            let (header_len, fragment) = parse_udp_header(&buffer[..size])?;
-            if fragment != 0 {
-                continue;
             }
-            return Ok(header_len..size);
         }
     }
 }

@@ -4,9 +4,13 @@
 //! Bounded reusable relay scratch buffers.
 
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const TCP_CACHE_LIMIT: usize = 64;
+const UDP_BUFFER_SIZE: usize = u16::MAX as usize + 262;
+const UDP_CACHE_LIMIT: usize = 8;
+
+static UDP_POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct Buffers {
@@ -24,6 +28,12 @@ struct BufferPool {
 pub struct BufferLease {
     buffer: Option<Vec<u8>>,
     pool: Arc<BufferPool>,
+}
+
+pub(crate) fn get_udp_buffer() -> BufferLease {
+    BufferPool::acquire(
+        UDP_POOL.get_or_init(|| Arc::new(BufferPool::new(UDP_BUFFER_SIZE, UDP_CACHE_LIMIT))),
+    )
 }
 
 pub(crate) fn reserve_bounded(buffer: &mut Vec<u8>, required: usize, limit: usize) {

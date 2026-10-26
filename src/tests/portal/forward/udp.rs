@@ -1,7 +1,7 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! SOCKS UDP receive ranges and payload borrowing through the forwarding path.
+//! SOCKS UDP payload ownership and receive storage release through forwarding.
 
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ use crate::common::{
 use super::*;
 
 #[tokio::test]
-async fn socks_target_receiver_preserves_headers_and_borrows_payload_in_place() {
+async fn socks_target_receiver_copies_only_payload_and_releases_storage_before_waiting() {
     tokio::time::timeout(Duration::from_secs(3), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -44,14 +44,19 @@ async fn socks_target_receiver_preserves_headers_and_borrows_payload_in_place() 
         let _control = proxy.await.unwrap();
         let mut receiver = TargetReceiver::Network(&socket);
         let mut buffer = Vec::with_capacity(u16::MAX as usize + 262);
-        let pointer = buffer.as_ptr();
         for expected in [b"payload".as_slice(), b""] {
             let packet = receiver.recv(&mut buffer).await.unwrap().unwrap();
-            assert!(matches!(&packet, crate::vector::ReceivedUdpPacket::Buffered(range) if range.start == 10));
-            assert_eq!(&buffer[..4], &[0, 0, 0, 1]);
+            assert!(matches!(&packet, crate::vector::ReceivedUdpPacket::Buffered(range) if range.start == 0));
             assert_eq!(packet.payload(&buffer), expected);
-            assert_eq!(packet.payload(&buffer).as_ptr(), buffer[10..].as_ptr());
-            assert_eq!(buffer.as_ptr(), pointer);
+            assert_eq!(buffer.len(), expected.len());
+            assert_eq!(buffer.capacity(), expected.len());
         }
+        let mut receiving = Box::pin(receiver.recv(&mut buffer));
+        std::future::poll_fn(|cx| {
+            assert!(receiving.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        }).await;
+        drop(receiving);
+        assert_eq!(buffer.capacity(), 0);
     }).await.unwrap();
 }

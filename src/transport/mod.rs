@@ -11,7 +11,7 @@ mod quic_runtime;
 mod rate;
 mod stats;
 
-pub(crate) use buffers::{Buffers, reserve_bounded};
+pub(crate) use buffers::{BufferLease, Buffers, get_udp_buffer, reserve_bounded};
 pub(crate) use morph::{
     AuthenticatedPrelude, ClientPrelude, MorphKeys, MorphTcpStream, UdpRole, configure_morph_mtu,
     morph_endpoint_config, wrap_morph_udp_socket,
