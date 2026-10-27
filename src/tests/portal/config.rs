@@ -18,6 +18,8 @@ fn parse(values: &[(&str, &str)]) -> anyhow::Result<PortalRuntimeConfig> {
 #[test]
 fn absent_values_use_the_existing_defaults() {
     let config = parse(&[]).unwrap();
+    assert_eq!(config.egress_tls_pending_max, 128);
+    assert_eq!(config.egress_tls_idle_ttl, Duration::from_secs(120));
     assert_eq!(config.udp_queue_bytes, DEFAULT_QUIC_UDP_QUEUE_BYTES);
     assert_eq!(config.tcp_data_buf_size, DEFAULT_TCP_DATA_BUF_SIZE);
     assert_eq!(config.tcp_dial_timeout, DEFAULT_TCP_DIAL_TIMEOUT);
@@ -31,7 +33,11 @@ fn absent_values_use_the_existing_defaults() {
 
 #[test]
 fn all_integer_limits_reject_zero_instead_of_falling_back() {
-    for name in ["NOW_QUIC_UDP_QUEUE_BYTES", "NOW_TCP_DATA_BUF_SIZE"] {
+    for name in [
+        "NOW_QUIC_UDP_QUEUE_BYTES",
+        "NOW_TCP_DATA_BUF_SIZE",
+        "NOW_PORTAL_TLS_IDLE_MAX",
+    ] {
         let error = parse(&[(name, "0")]).unwrap_err().to_string();
         assert!(error.contains(name), "unexpected error for {name}: {error}");
     }
@@ -58,6 +64,7 @@ fn all_durations_reject_zero_and_invalid_syntax() {
 #[test]
 fn values_are_parsed_once_into_typed_fields() {
     let config = parse(&[
+        ("NOW_PORTAL_TLS_IDLE_MAX", "64"),
         ("NOW_QUIC_UDP_QUEUE_BYTES", "8192"),
         ("NOW_TCP_DATA_BUF_SIZE", "4096"),
         ("NOW_TCP_DIAL_TIMEOUT", "1100ms"),
@@ -70,6 +77,7 @@ fn values_are_parsed_once_into_typed_fields() {
     ])
     .unwrap();
 
+    assert_eq!(config.egress_tls_pending_max, 64);
     assert_eq!(config.udp_queue_bytes, 8192);
     assert_eq!(config.tcp_data_buf_size, 4096);
     assert_eq!(config.tcp_dial_timeout, Duration::from_millis(1100));
@@ -84,6 +92,7 @@ fn values_are_parsed_once_into_typed_fields() {
 #[test]
 fn overflow_is_a_startup_error() {
     assert!(parse(&[("NOW_TCP_DATA_BUF_SIZE", "999999999999999999999999")]).is_err());
+    assert!(parse(&[("NOW_PORTAL_TLS_IDLE_MAX", "1024")]).is_err());
     assert!(parse(&[("NOW_HANDSHAKE_TIMEOUT", "999999999999999999999999h")]).is_err());
 }
 

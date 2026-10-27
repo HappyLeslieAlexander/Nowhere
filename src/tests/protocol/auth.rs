@@ -60,7 +60,11 @@ fn replay_transport_role_and_truncation_fail() {
         assert!(validate_auth_frame(&changed, &creds, AuthTransport::TlsTcp, &exporter).is_err());
     }
     let egress = encode_auth_frame(creds.egress_key, AuthTransport::TlsTcp, &exporter);
-    assert!(validate_auth_frame(&egress, &creds, AuthTransport::TlsTcp, &exporter).is_err());
+    assert_eq!(
+        validate_auth_frame(&egress, &creds, AuthTransport::TlsTcp, &exporter).unwrap(),
+        ConnectionRole::Egress
+    );
+    assert!(validate_auth_frame(&egress, &creds, AuthTransport::Quic, &exporter).is_err());
 }
 
 #[test]

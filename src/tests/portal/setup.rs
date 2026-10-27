@@ -57,3 +57,27 @@ fn startup_url_preserves_effective_values_and_omits_credentials() {
         );
     }
 }
+
+#[test]
+fn egress_output_accepts_tcp_only_udp_only_and_dual_listeners() {
+    for endpoint in [
+        "127.0.0.1/tcp:2000",
+        "127.0.0.1/udp:2000",
+        "127.0.0.1/tcp:2000/udp:2001",
+    ] {
+        let url = Url::parse(&format!(
+            "portal://0123456789abcdef0123456789abcdef@{endpoint}?out=egress"
+        ))
+        .unwrap();
+        let portal = Portal::new(url, Logger).unwrap();
+        assert!(portal.inner.egress_registry.is_some());
+        assert_eq!(
+            !portal.inner.tcp_bind_addrs.is_empty(),
+            endpoint.contains("/tcp:")
+        );
+        assert_eq!(
+            !portal.inner.udp_bind_addrs.is_empty(),
+            endpoint.contains("/udp:")
+        );
+    }
+}

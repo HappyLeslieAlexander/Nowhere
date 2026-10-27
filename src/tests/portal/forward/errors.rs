@@ -11,7 +11,7 @@ use super::*;
 #[tokio::test]
 async fn failed_rejection_write_preserves_the_original_tcp_and_udp_error() {
     let portal = crate::Portal::new(
-        url::Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000?out=egress")
+        url::Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000?dial=::1")
             .unwrap(),
         Logger,
     )
@@ -37,6 +37,9 @@ async fn failed_rejection_write_preserves_the_original_tcp_and_udp_error() {
                 .await
         }
         .unwrap_err();
-        assert_eq!(error.to_string(), "Egress offline");
+        assert_eq!(
+            error.to_string(),
+            "target address family conflicts with dial"
+        );
     }
 }

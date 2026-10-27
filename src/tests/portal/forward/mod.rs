@@ -57,7 +57,7 @@ async fn full_ipv6_tls_quic_direct_socks_egress_tcp_udp_morph_matrix() {
                 let egress = crate::Egress::new(h.url("egress", "udp", morph), Logger).unwrap();
                 let task = tokio::spawn(egress.run());
                 tokio::time::timeout(Duration::from_secs(3), async {
-                    while !h.inner.egress_slot.as_ref().unwrap().online() {
+                    while !h.inner.egress_registry.as_ref().unwrap().online() {
                         tokio::task::yield_now().await;
                     }
                 })

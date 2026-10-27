@@ -96,10 +96,6 @@ async fn invalid_configuration_urls_fail_before_service_startup_with_safe_errors
             "scheme must be portal, vector or egress",
         ),
         (
-            format!("portal://{KEY}@*/tcp:2000?out=egress"),
-            "out=egress requires QUIC listener",
-        ),
-        (
             format!("portal://{KEY}@*:2000?out=egress&dial=auto"),
             "out=egress conflicts with explicit dial",
         ),

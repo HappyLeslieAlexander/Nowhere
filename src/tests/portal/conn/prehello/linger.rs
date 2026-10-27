@@ -56,7 +56,6 @@ async fn socket_retains_zero_linger_through_tls_and_authentication_failures() {
         "missing",
         "partial",
         "wrong-tag",
-        "egress",
         "alpn",
         "tls",
         "expired",
@@ -235,7 +234,16 @@ async fn accepted_hello_continues_normal_authentication_and_close() {
         let portal = h.inner.clone();
         let accepted_at = Instant::now();
         let connection = tokio::spawn(async move {
-            crate::portal::conn::tcp(portal, server, admission, accepted_at).await
+            crate::portal::conn::tcp(
+                portal,
+                server,
+                admission,
+                accepted_at,
+                Arc::new(tokio::sync::Semaphore::new(1))
+                    .try_acquire_owned()
+                    .unwrap(),
+            )
+            .await
         });
         let stream =
             MorphTcpStream::connect_current_for_test(client.unwrap(), h.inner.morph_keys.clone())
@@ -296,10 +304,17 @@ async fn already_expired_morph_connection_keeps_zero_linger() {
         .unauthenticated_admission
         .try_acquire(peer.ip())
         .unwrap();
-    let outcome =
-        crate::portal::conn::tcp(h.inner.clone(), server, admission, Instant::now() - TIMEOUT)
-            .await
-            .unwrap();
+    let outcome = crate::portal::conn::tcp(
+        h.inner.clone(),
+        server,
+        admission,
+        Instant::now() - TIMEOUT,
+        Arc::new(tokio::sync::Semaphore::new(1))
+            .try_acquire_owned()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
     assert!(matches!(
         outcome,
         crate::portal::conn::TcpOutcome::SilentPreHello

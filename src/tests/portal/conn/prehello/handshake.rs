@@ -368,7 +368,16 @@ async fn morph_deadline_includes_time_before_connection_task_starts() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     let portal = h.inner.clone();
     let connection = tokio::spawn(async move {
-        crate::portal::conn::tcp(portal, server, admission, accepted_at).await
+        crate::portal::conn::tcp(
+            portal,
+            server,
+            admission,
+            accepted_at,
+            Arc::new(tokio::sync::Semaphore::new(1))
+                .try_acquire_owned()
+                .unwrap(),
+        )
+        .await
     });
     let mut bytes = Vec::new();
     assert_silent_close(

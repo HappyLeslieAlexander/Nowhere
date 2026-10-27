@@ -135,7 +135,15 @@ async fn rejected_input_stops_reading_until_original_deadline() {
             .unwrap();
         let accepted_at = Instant::now() - timeout / 2;
         let deadline = accepted_at + timeout;
-        let connection = crate::portal::conn::tcp(h.inner.clone(), server, admission, accepted_at);
+        let connection = crate::portal::conn::tcp(
+            h.inner.clone(),
+            server,
+            admission,
+            accepted_at,
+            Arc::new(tokio::sync::Semaphore::new(1))
+                .try_acquire_owned()
+                .unwrap(),
+        );
         tokio::pin!(connection);
         let last = (case == "replay-commit").then(|| bytes.pop().unwrap());
         client.write_all(&bytes).await.unwrap();

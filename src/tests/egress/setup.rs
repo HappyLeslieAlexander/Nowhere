@@ -10,7 +10,7 @@ use crate::common::DialPolicy;
 use super::*;
 
 #[test]
-fn endpoint_accepts_only_one_quic_carrier_or_a_compact_port() {
+fn endpoint_accepts_one_carrier_or_a_compact_quic_port() {
     const KEY: &str = "0123456789abcdef0123456789abcdef";
     for endpoint in ["localhost:2000", "localhost/udp6:2000"] {
         let egress = Egress::new(
@@ -21,7 +21,14 @@ fn endpoint_accepts_only_one_quic_carrier_or_a_compact_port() {
         assert_eq!(egress.config.net, crate::vector::config::CarrierMode::Udp);
         assert_eq!(egress.config.endpoint(), endpoint);
     }
-    for endpoint in ["localhost/tcp:2000", "localhost/tcp:2000/udp:2001"] {
+    let tls = Egress::new(
+        Url::parse(&format!("egress://{KEY}@localhost/tcp:2000")).unwrap(),
+        Logger,
+    )
+    .unwrap();
+    assert_eq!(tls.config.net, crate::vector::config::CarrierMode::Tcp);
+    {
+        let endpoint = "localhost/tcp:2000/udp:2001";
         let error = Egress::new(
             Url::parse(&format!("egress://{KEY}@{endpoint}")).unwrap(),
             Logger,
@@ -29,7 +36,7 @@ fn endpoint_accepts_only_one_quic_carrier_or_a_compact_port() {
         .err()
         .unwrap();
         assert!(
-            error.to_string().contains("only a QUIC carrier"),
+            error.to_string().contains("exactly one carrier"),
             "{endpoint}: {error}"
         );
     }
@@ -67,4 +74,13 @@ fn fixed_quic_and_effective_defaults_ignore_unknown_options_and_hide_credentials
             ("etar".into(), "0".into()),
         ])
     );
+}
+
+#[test]
+fn tls_pool_max_requires_a_positive_bounded_integer() {
+    assert_eq!(parse_tls_pool_max("1").unwrap(), 1);
+    assert_eq!(parse_tls_pool_max("128").unwrap(), 128);
+    for value in ["0", "invalid", "999999999999999999999999999"] {
+        assert!(parse_tls_pool_max(value).is_err());
+    }
 }

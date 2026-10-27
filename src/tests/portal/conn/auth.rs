@@ -47,13 +47,13 @@ async fn shutdown_cancels_incomplete_quic_authentication_and_registration() {
             .await
             .unwrap();
         assert_eq!(inner.connection_admission.available_permits(), permits);
-        assert!(!inner.egress_slot.as_ref().unwrap().online());
+        assert!(!inner.egress_registry.as_ref().unwrap().online());
         endpoint.wait_idle().await;
     }
 }
 
 #[tokio::test]
-async fn connection_replay_authentication_failure_never_dials_or_claims_a_slot() {
+async fn connection_replay_authentication_failure_never_dials_or_registers() {
     let h = Harness::new("egress", false).await;
     let (e1, q1) = connect(&h).await;
     let replay = tag(&q1, true);
@@ -66,7 +66,7 @@ async fn connection_replay_authentication_failure_never_dials_or_claims_a_slot()
     tokio::time::timeout(Duration::from_secs(2), q2.closed())
         .await
         .unwrap();
-    assert!(!h.inner.egress_slot.as_ref().unwrap().online());
+    assert!(!h.inner.egress_registry.as_ref().unwrap().online());
     e2.wait_idle().await;
     h.close().await;
 }

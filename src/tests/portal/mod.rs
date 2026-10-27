@@ -43,6 +43,27 @@ impl Harness {
     }
 
     async fn configured(out: &str, morph: bool, host: &str, timeout: Option<Duration>) -> Self {
+        Self::configured_runtime(out, morph, host, |runtime| {
+            if let Some(timeout) = timeout {
+                runtime.handshake_timeout = timeout;
+            }
+        })
+        .await
+    }
+
+    async fn with_egress_ttl(ttl: Duration) -> Self {
+        Self::configured_runtime("egress", false, "127.0.0.1", |runtime| {
+            runtime.egress_tls_idle_ttl = ttl;
+        })
+        .await
+    }
+
+    async fn configured_runtime(
+        out: &str,
+        morph: bool,
+        host: &str,
+        configure: impl FnOnce(&mut PortalRuntimeConfig),
+    ) -> Self {
         let portal = Portal::new(
             Url::parse(&format!(
                 "portal://{KEY}@{host}:2000?out={out}&morph={}",
@@ -53,11 +74,10 @@ impl Harness {
         )
         .unwrap();
         let mut inner = portal.inner;
-        if let Some(timeout) = timeout {
+        {
             let inner = Arc::get_mut(&mut inner).unwrap();
-            inner.runtime.handshake_timeout = timeout;
-            let forward = Arc::get_mut(&mut inner.forward).unwrap();
-            forward.runtime.handshake_timeout = timeout;
+            configure(&mut inner.runtime);
+            Arc::get_mut(&mut inner.forward).unwrap().runtime = inner.runtime;
         }
         let tcp_listener = listener::listen_tcp(format!("{host}:0").parse().unwrap()).unwrap();
         let tcp = tcp_listener.local_addr().unwrap();
@@ -223,10 +243,4 @@ async fn exchange(client: &Arc<PortalClient>, tcp: &Target, udp: &Target) {
     }
     tunnel.close().await;
     drop(tunnel);
-}
-
-impl super::egress::EgressSlot {
-    fn online(&self) -> bool {
-        self.connection().is_ok()
-    }
 }
