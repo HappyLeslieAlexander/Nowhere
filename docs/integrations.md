@@ -19,7 +19,7 @@ allow the bounded shutdown to complete.
 |---|---|
 | Portal | Declared listeners and one fixed `out` |
 | Vector | SOCKS5 ingress through `in`; one carrier selected by `ENDPOINT` |
-| Egress | Outbound QUIC registration; target dialing when selected by Portal |
+| Egress | Outbound TLS or QUIC registration; target dialing when selected by Portal |
 
 `nowhere probe` performs a one-shot setup check without an ingress listener.
 `nowhere status` reads a local snapshot and exits. See [Platforms](platforms.md#process-control)

@@ -23,8 +23,7 @@ parsing is independent of the authenticated Wire frames.
 
 Test fresh and resumed connections, invalid credentials and replayed tags. A
 failed connection must not dial a target or claim Egress registration ownership.
-The authentication fixtures include Egress/TLS as a negative case;
-Egress does not support that carrier.
+The authentication fixtures include Egress tags for both TLS and QUIC.
 
 ## Flow direction and framing
 
@@ -35,7 +34,7 @@ half-close, rejection before READY and failure isolation after READY.
 A standard Vector uses the same Core protocol when Portal selects Egress as its
 exit. It does not implement registration or reverse Stream initiation. Egress
 peers separately test the [registration barrier](egress.md#registration),
-role-direction rejection and [Slot ownership](egress.md#registration-ownership-and-lifetime).
+role-direction rejection and [registration ownership](egress.md#registration-ownership-and-lifetime).
 
 ## UDP delivery and lifetime
 

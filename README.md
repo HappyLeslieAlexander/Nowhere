@@ -105,7 +105,7 @@ traffic travels in both directions.
 |  Vector  |---------------->|  Portal  |------------------>|  Target  |
 +----------+                 +----------+                   +----------+
                                    ^
-                                   | QUIC
+                                   | TLS / QUIC
                              +----------+     TCP / UDP     +----------+
                              |  Egress  |------------------>|  Target  |
                              +----------+                   +----------+
@@ -114,7 +114,7 @@ traffic travels in both directions.
 ### One endpoint grammar
 
 Configure each role with a URL. Portal declares one or two listener carriers;
-Vector selects one carrier and Egress selects QUIC. Choose ports and address
+Vector and Egress each select one carrier. Choose ports and address
 families through the endpoint path. See [Configuration](docs/configuration.md).
 
 ### Connection and flow
@@ -138,8 +138,8 @@ through the [Prelude Extension](docs/prelude.md).
 
 ### Remote exits
 
-Place target access where it belongs. With `out=egress`, one registered exit serves
-Portal's clients over QUIC. Follow the [Egress guide](docs/egress.md) to set it up.
+Place target access where it belongs. With `out=egress`, independent registered
+TLS and QUIC exits serve Portal's clients. Follow the [Egress guide](docs/egress.md) to set it up.
 
 ## Observability
 

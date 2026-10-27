@@ -94,8 +94,8 @@ egress://KEY@HOST/udp:2001
 ```
 
 Use a key from `nowhere generate-key`. Vector requires `in` for its local
-listener and selects one carrier through its endpoint path. Egress uses QUIC and
-registers only with a Portal configured for `out=egress`.
+listener and selects one carrier through its endpoint path. Egress uses TLS or
+QUIC and registers only with a Portal configured for `out=egress`.
 
 [Configuration](configuration.md) defines the complete CLI grammar, defaults,
 listener options and environment variables. [Integrations](integrations.md)

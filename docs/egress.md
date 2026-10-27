@@ -1,14 +1,9 @@
 # Egress Extension
 
-Egress is a Nowhere-specific extension to
-[Nowhere Protocol (NW3)](protocol.md). It is not part of NW3 Core. The extension
-preserves the Core Vector/Portal contract and uses a separately authenticated
-QUIC connection for a registered remote exit. It uses ALPN `nw3` without
-version negotiation or a capability frame.
-
-An ordinary Vector uses Core authentication and Flow framing even
-when Portal forwards through Egress. Vector does not send registration messages,
-derive the Egress role key or understand the Portal-to-Egress connection.
+Egress is a Nowhere-specific extension to [Nowhere Protocol (NW3)](protocol.md),
+not part of NW3 Core. A Portal with `out=egress` shares one logical output among
+all Egress connections authenticated with its Shared Key. Vector uses the
+unchanged Core protocol and does not know about Egress registration.
 
 ## Contents
 
@@ -16,19 +11,20 @@ derive the Egress role key or understand the Portal-to-Egress connection.
 - [Configure the peers](#configure-the-peers)
 - [Authentication](#authentication)
 - [Registration](#registration)
-- [Business Streams](#business-streams)
+- [Business flows](#business-flows)
 - [UDP identity and bridging](#udp-identity-and-bridging)
 - [Registration ownership and lifetime](#registration-ownership-and-lifetime)
+- [TLS Hydra](#tls-hydra)
 - [Morph](#morph)
 - [Observe registration](#observe-registration)
 - [Validation](#validation)
 
 ## Roles and connections
 
-Arrows show connection establishment; all connections carry bidirectional traffic:
+Arrows show connection establishment; traffic is bidirectional:
 
 ```text
-               TLS / QUIC                      QUIC
+               TLS / QUIC                   TLS / QUIC
 +----------+                 +----------+                 +----------+
 |  Vector  |---------------->|  Portal  |<----------------|  Egress  |
 +----------+                 +----------+                 +----------+
@@ -40,218 +36,200 @@ Arrows show connection establishment; all connections carry bidirectional traffi
                                                           +----------+
 ```
 
-Egress is the QUIC transport client and Portal is the transport server. Portal
-initiates business Streams on the registered connection; Egress accepts them and
-resolves/dials their targets. The connection has one fixed business initiation
-direction. Egress has no TLS carrier. TLS ingress bridged to QUIC Egress is
-ordinary forwarding, not a change to the Vector carrier.
-
-Portal uses one fixed output for its lifetime. `out=egress` requires a QUIC
-listener. Target dialing and DNS resolution belong to Egress.
+Each Egress is a transport client and Portal is the server. Multiple Egress
+instances may independently connect over TLS or QUIC. Portal initiates each
+business Flow; Egress resolves and dials the target. There is no discovery,
+coordination or instance identifier between Egress processes.
 
 ## Configure the peers
 
-Use a Shared Key from `nowhere generate-key` on Portal, Vector and Egress.
-Start Portal with a QUIC listener and the Egress output:
+Use the same Shared Key on Portal, Vector and Egress. Portal needs a listener for
+each Egress carrier in use:
 
 ```sh
 nowhere "portal://KEY@*/tcp:2000/udp:2001?out=egress"
-```
-
-Connect Egress using a trusted certificate pin:
-
-```sh
+nowhere "egress://KEY@relay.example/tcp:2000?pin=TRUSTED_SHA256"
 nowhere "egress://KEY@relay.example/udp:2001?pin=TRUSTED_SHA256"
 ```
 
-A Portal certificate validated by the system CA and hostname can be used
-instead of a pin. Vector connects to Portal as described in [Quick start](quick-start.md).
-
-For target source selection, set Egress `dial` or `dial4`/`dial6`. These options
-apply to Egress-to-Target work and do not bind the Portal connection. Portal
-`out=egress` conflicts with explicit `dial`, `dial4` or `dial6`, including `auto`.
-See [Configuration](configuration.md) for option defaults and binding rules.
+Each Egress URL selects one carrier. `HOST:PORT` retains its QUIC default.
+Portal's `out=egress` conflicts with explicit `dial`, `dial4` and `dial6`;
+Egress applies those options only to targets. Certificate trust, address family,
+Morph and other options are described in [Configuration](configuration.md).
 
 ## Authentication
 
-Core TLS 1.3, ALPN `nw3`, certificate verification and disabled 0-RTT requirements
-apply. Shared Key has the same validation and text-byte interpretation as Core.
-The extension uses the Core authentication root and an Egress role label:
+Both carriers use TLS 1.3, ALPN `nw3`, certificate verification, disabled
+0-RTT and the same Shared Key and Egress role-key derivation:
 
 ```text
 salt       = SHA256("nowhere/nw3/auth-root")
 root       = HMAC-SHA256(salt, shared_key)
 egress_key = HMAC-SHA256(root, "egress-authentication" || 0x01)
-
-exporter  = TLS-Exporter("EXPORTER-Nowhere-nw3-Auth", empty_context, 32)
-transport = 0x02
-AuthFrame = HMAC-SHA256(egress_key, transport || exporter)[0..16]
+exporter   = TLS-Exporter("EXPORTER-Nowhere-nw3-Auth", empty_context, 32)
+transport  = 0x01 for TLS/TCP; 0x02 for QUIC
+AuthFrame  = HMAC-SHA256(egress_key, transport || exporter)[0..16]
 ```
 
-The root and role key are 32 bytes; AuthFrame is exactly 16 bytes, without a role
-byte or metadata. Portal compares tags in constant time against the Vector and
-Egress role keys and fixes the matching role for the connection lifetime. TLS
-permits Vector only: an Egress tag over the TLS transport byte is invalid.
-Tags cannot move between connections, resumed connections, roles or carriers.
-
-The same Shared Key derives both authorities. Role derivation is domain
-separation, not independent credential isolation. Enabling Egress admission is a
-Portal policy decision; knowledge of the key alone does not bypass that policy.
-No target dial or Slot ownership precedes successful authentication.
+Portal compares the connection-bound tags against the Vector and Egress role
+keys in constant time. Tags cannot be replayed on another connection or carrier.
+The same Shared Key derives both authorities; role separation does not provide
+independent credentials. Registration is permitted only for `out=egress`.
 
 ## Registration
 
-Egress sends no Flow bytes on its authentication Stream. RegistrationResult is
-one byte: `0` ACCEPTED, `1` BUSY, followed by FIN on the authentication Stream.
-Invalid authentication or disallowed Egress policy closes the connection
-without an application result. Portal permits registration only with
-`out=egress`. It atomically claims the vacant Slot after successful
-authentication; an occupied Slot returns BUSY and the
-contender closes. An accepted connection has no Vector-originated business
-Streams. Egress must wait for ACCEPTED before processing any Portal business
-Stream or dialing a target; Stream arrival order cannot substitute for this
-barrier. Failure to write ACCEPTED releases only that connection's ownership.
+RegistrationResult is one byte: `00` ACCEPTED or `01` BUSY. Invalid
+authentication or disallowed Egress policy closes the connection without an
+application result. Egress waits for ACCEPTED before processing Flow requests.
 
-Egress is the transport client; Portal initiates business Streams:
+For TLS, authentication, registration and the sole Flow share the connection:
 
 ```text
-      Egress                                                  Portal
-         |                                                       |
-         |------------------- QUIC handshake ------------------->|
-         |---------- Client Stream 0: AuthFrame + FIN ---------->|
-         |<---------- Client Stream 0: ACCEPTED + FIN -----------|
-         |<-------- Server Stream 1: FlowStart + Target ---------|
-         |--------------- Server Stream 1: READY --------------->|
-         |<=============== Flow data after READY ===============>|
-         |                                                       |
+Egress → Portal: AuthFrame
+Egress ← Portal: ACCEPTED or BUSY
+Egress ← Portal: FlowStart + Target
+Egress → Portal: SetupResult
+Egress ↔ Portal: Payload after READY
 ```
 
-A BUSY result ends registration and does not authorize target work. Business
-Streams can arrive before the registration response; the ACCEPTED barrier
-applies to their processing.
+For QUIC, registration remains on client bidirectional Stream 0 and the reply is
+followed by FIN. The AuthFrame is followed by FIN, with no Flow bytes on that
+Stream. Portal then initiates each business bidirectional Stream, starting with
+Stream 1. Client-initiated Egress business Streams are role-direction violations.
+Unauthenticated DATAGRAMs and DATAGRAMs received while awaiting registration are
+discarded. QUIC business framing is unchanged. Existing QUIC Egress peers remain compatible;
+TLS Egress registration requires an updated Portal.
 
-Registration uses client bidirectional Stream 0, never a later Stream that
-happens to arrive first. RegistrationResult and SetupResult are distinct
-messages despite overlapping numeric values:
+Portal caps the aggregate number of pending TLS registrations with
+`NOW_PORTAL_TLS_IDLE_MAX` (default 128, range 1–1023). Connections
+being accepted count toward that cap. Full capacity returns BUSY. All accepted
+connections also hold the existing shared connection permit until they close;
+claiming a TLS connection releases only its pending-registration allowance.
 
-| RegistrationResult | Meaning |
-| --- | --- |
-| `00` | ACCEPTED |
-| `01` | BUSY |
-| Other values, missing result or trailing response bytes | Invalid registration |
+## Business flows
 
-The response contains exactly one result byte followed by FIN. Egress waits for
-the complete ACCEPTED response before target work. Any registration failure ends
-the attempt. The handshake/authentication and registration waits are bounded by
-Nowhere's configured deadlines. Unauthenticated DATAGRAMs and DATAGRAMs received
-by Egress while awaiting registration are discarded.
+Portal keeps one FIFO of registered connections across all Egress instances and
+both carriers. Claiming a QUIC connection immediately puts it back at the tail;
+it can carry multiple simultaneous Flows. Claiming a TLS connection permanently
+removes it; that connection carries exactly one Flow. Closed and expired entries
+are discarded. FIFO does not promise fairness, carrier priority, weight or a
+particular traffic split.
 
-## Business Streams
+For example, starting with four registered connections (head on the left):
 
-After registration, each Portal-initiated bidirectional Stream starts with the
-Core FlowStart and Target and receives one SetupResult from Egress. There is no
-AuthFrame on these Streams. The first server bidirectional Stream is 1, followed
-by 5, 9, and so on. Client-initiated business Streams on an Egress connection are
-role-direction violations and close the connection.
+```text
+   +----------+   +----------+   +----------+   +----------+
+   | QUIC A   |-->| TLS B    |-->| QUIC C   |-->| TLS D    |
+   +----------+   +----------+   +----------+   +----------+
 
-FlowStart reserved-bit handling, Target validation, payload waiting for READY,
-TCP half-close, UDP control lifetime, datagram framing and fragmentation use
-Core rules. Unidirectional Streams have no application messages.
-Each Flow sends at most one SetupResult. Invalid or truncated requests and
-ordinary resource/dial failures affect only that Flow; failures after READY
-close/reset it without another result. There is no carrier fallback.
+Claim QUIC A: it returns to the tail and can carry a Flow.
+
+   +----------+   +----------+   +----------+   +----------+
+   | TLS B    |-->| QUIC C   |-->| TLS D    |-->| QUIC A   |
+   +----------+   +----------+   +----------+   +----------+
+
+Claim TLS B: it leaves the FIFO and carries one Flow.
+
+   +----------+   +----------+   +----------+
+   | QUIC C   |-->| TLS D    |-->| QUIC A   |
+   +----------+   +----------+   +----------+
+```
+
+These labels identify connections in the example, not protocol instance IDs.
+
+When no connection is available, Flow setup waits for registration within the
+existing `NOW_FLOW_SETUP_TIMEOUT` budget. Once a connection has been selected,
+any setup or forwarding failure ends that Flow: Portal does not retry another
+Egress, change carrier, fall back locally or migrate active traffic.
+
+For either carrier, `FlowStart + Target`, `SetupResult`, TCP half-close and UDP
+semantics follow Core. TLS carries UDP using the existing stream framing; QUIC
+uses business Streams and DATAGRAMs. No mux or additional control protocol is
+introduced. Invalid requests and resource/dial failures affect the selected Flow.
 
 ## UDP identity and bridging
 
-Validate that the raw Stream is bidirectional and **server-initiated** before
-calculating the same Core formula in a wide integer:
+A QUIC Egress business Stream is server-initiated. Its connection-local UDP
+Flow ID follows the Core formula `(quic_stream_id >> 2) + 1`, with the range
+`1..=2^30-1`; the last usable server-initiated raw ID is `4294967289`.
+The authentication Stream creates no UDP route. Exhaustion stops admission,
+drains within the configured shutdown deadline, closes and reconnects.
 
-```text
-flow_id = (quic_stream_id >> 2) + 1
-1 <= flow_id <= 2^30 - 1
-```
-
-The last usable raw Egress Stream ID is `4294967289`. Never truncate or wrap.
-The authentication Stream creates no UDP route. Each ID is local to its own
-connection. At exhaustion stop admitting Flows, drain for the configured bounded
-deadline, close and reconnect. No control frame resets the ID space.
-
-After READY, UDP control Streams remain open in both directions without business
-bytes. FIN, RESET, STOP_SENDING, idle timeout or connection loss performs
-idempotent Flow cleanup. CLOSE DATAGRAM is auxiliary. Unknown, unauthenticated
-and not-yet-READY IDs are dropped without creating reassembly state.
-
-Portal bridges complete business datagrams. Each leg reassembles and encodes
-independently using its own ID and MTU. Client Stream 4 derives ID 2; Egress
-server Stream 1 derives ID 1:
-
-```text
-+----------+                    +----------+                    +----------+
-|  Vector  |<== ID 2 packets ==>|  Portal  |<== ID 1 packets ==>|  Egress  |
-+----------+                    +----------+                    +----------+
-```
-
-Each bridge owns its two Flow handles; no cross-connection ID identity is
-implied. Resource queues and reassembly remain bounded independently on both legs.
+Each bridge leg independently handles UDP framing, routing, reassembly and MTU;
+IDs do not identify a Flow across connections. FIN, reset, STOP_SENDING, idle
+expiry and connection loss reclaim the Flow without relying on CLOSE DATAGRAM.
 
 ## Registration ownership and lifetime
 
-A connection owns its fixed role, cancellation signal, active tasks, resource
-permits, UDP routes and reassembly state. A Flow owns its two handles, timeout,
-rate limiter and cancellation state. Portal owns one EgressSlot containing a
-valid registered QUIC connection.
+A registration owns its connection and cancellation state. TLS standby is
+claimed at most once; QUIC registration cleanup removes only the actual
+connection's queue entry. Each Flow owns its selected handles and cannot be
+recovered by a later registration. Portal shutdown cancels waiters and closes
+owned resources. QUIC retains its existing keepalive and idle lifecycle.
 
-The first authenticated connection claims the Slot atomically. Another cannot
-join or replace it. Cleanup compares the actual connection object identity
-before releasing the Slot; stale cleanup cannot release a new owner. Connection
-loss cancels every dependent Flow. Reconnect starts new Flows only. An offline
-Slot causes immediate DIAL_FAILED without waiting, queuing or local fallback.
-QUIC keepalive and idle timeouts maintain connection liveness without an
-application heartbeat.
-
-All Vectors using this Portal output share the registered connection's
-congestion and resource budgets. Egress reconnects after the configured backoff,
-`NOW_SERVICE_COOLDOWN` (default `3s`), and must register again. Previous Flows
-stay closed; Flow identity and target state are not restored.
-
-The Slot belongs to one registered connection, not to a reconnecting process:
+After a claim, the connection's carrier determines its ownership:
 
 ```text
-+---------------------+     authenticated claim      +---------------------+
-|     Vacant Slot     |----------------------------->|   Owned connection  |
-+---------------------+                              +---------------------+
-           ^                                                    |
-           |            connection identity matches             |
-           +----------------------------------------------------+
-
-Owned + another registrant     BUSY; the owner is unchanged.
-Owner lost                     Cancel dependent Flows, then release ownership.
-Stale owner's cleanup          Cannot release a different connection's Slot.
+                 +---------------------------+
+                 |  Portal FIFO: QUIC + TLS  |
+                 +-------------+-------------+
+                               | claim
+                +--------------+--------------+
+                |                             |
+                v                             v
+        +---------------+             +---------------+
+        | QUIC carrier  |             |  TLS standby  |
+        +-------+-------+             +-------+-------+
+                |                             |
+         +------+--------+                    v
+         |               |            +---------------+
+         v               v            |   one Flow    |
+  +-------------+ +-------------+     +-------+-------+
+  |  FIFO tail  | | open Stream |             |
+  +-------------+ +-------------+             v
+                                      +---------------+
+                                      |    closed     |
+                                      +---------------+
 ```
+
+Portal and Egress independently expire idle TLS standby connections after
+120 seconds. On Portal, the timer ends when the connection is claimed; on
+Egress, it ends when a FlowStart is received. An active Flow is not subject to
+this standby TTL. A claim racing expiration may fail directly.
+
+## TLS Hydra
+
+Each TLS Egress has one supervisor and starts with one standby seed. Its budget
+counts connections being established, registering and waiting for a Flow; active
+Flows do not count. `NOW_EGRESS_TLS_POOL_MAX` sets the per-process maximum,
+default 128 and minimum 1.
+
+On receiving FlowStart the connection leaves the standby budget, and the
+supervisor starts up to two replacements without exceeding the maximum.
+Failures, disconnects and expiry do not cause growth. If the budget reaches
+zero, the supervisor restores one seed; failed seed attempts use
+`NOW_SERVICE_COOLDOWN` (default `3s`). Unused surplus naturally expires, so the
+pool returns to the seed without a separate maintenance protocol.
 
 ## Morph
 
-When enabled, the Core UDP Morph transform masks Egress QUIC packets. Directional keys follow
-**transport roles**, not business-Stream initiation: Egress sends with `udp_c2s`
-and Portal sends with `udp_s2c`. Each outgoing UDP datagram has its own nonce;
-segmentation and MTU accounting retain Core behavior. Both peers must agree on
-Shared Key and Morph enablement out of band.
+TLS Egress uses the same authenticated TCP Prelude, replay protection and
+continuous TCP Morph transform as TLS Vector connections. QUIC Egress uses the
+existing UDP Morph transform; directional keys follow transport roles even
+though Portal initiates business Streams. Peers must agree on Shared Key and
+Morph enablement out of band.
 
 ## Observe registration
 
-The Slot's registration ownership is internal. IPC reports only logical TCP/UDP
-traffic and active business Flows; an idle registration does not add a Flow.
-Egress connection or registration failures are emitted to stderr as raw errors.
-The service retries while running. `nowhere probe` checks target setup through
-the configured Portal output. See [Operations](operations.md) and [Telemetry](telemetry.md).
+Registration ownership is internal. IPC reports TCP/UDP traffic and active
+business Flows; standby connections are not active Flows. Diagnostic stderr
+reports connection, registration and target failures. `nowhere probe` checks
+real target setup through the configured output. See [Operations](operations.md)
+and [Telemetry](telemetry.md).
 
 ## Validation
 
-The [authentication and role fixtures](../src/tests/protocol/vectors.json)
-are part of the GPL-3.0-only Nowhere test suite, including Egress key/tag and
-RegistrationResult values. The Egress/TLS tag is a negative role-validation
-fixture, not a supported carrier.
-
-Tests cover mixed TLS/QUIC Vector ingress, TCP/UDP forwarding, Morph on/off,
-registration barriers, BUSY, role-direction rejection, stale-owner cleanup,
-disconnect and reconnect. See [Testing](testing.md).
+The [authentication fixtures](../src/tests/protocol/vectors.json) include role
+keys and tags for both carriers. Tests cover mixed carriers, multiple instances,
+FIFO and QUIC rotation, TLS single-claim ownership, capacity, TTL, Hydra growth
+and decay, failure cleanup, Morph and TCP/UDP forwarding. See [Testing](testing.md).

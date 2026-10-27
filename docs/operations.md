@@ -73,9 +73,11 @@ firewall and container exposure.
 
 ## Monitor Egress
 
-Portal's `out` is fixed for its lifetime. `out=egress` requires a QUIC listener
-and cannot specify `dial`, `dial4` or `dial6`. New Flows fail immediately while
-Egress is offline; a second registrant receives BUSY.
+Portal's `out` is fixed for its lifetime. `out=egress` accepts registrations
+on enabled TLS and QUIC listeners and cannot specify `dial`, `dial4` or `dial6`.
+New Flows wait within their setup timeout while Egress is offline. Multiple
+instances can register; TLS registrations receive BUSY when the Portal-wide
+pending limit is full.
 
 Registration ownership remains internal to forwarding. An idle registered
 Egress has no business Flow. Diagnostic stderr reports registration, reconnection
@@ -100,7 +102,8 @@ through their lifetime; losing a CLOSE DATAGRAM does not keep a route alive.
 
 Admission and business resources are bounded. UDP budgets cover queued and
 reassembly bytes; full Flow queues drop datagrams without blocking the
-connection dispatcher. A shared Egress also shares congestion and budgets.
+connection dispatcher. Flows using the same QUIC Egress connection share its
+congestion and transport budgets.
 Observe per-process and per-Flow behavior when choosing concurrency or rate
 settings. Use [Testing](testing.md#performance-measurements) for measurements.
 

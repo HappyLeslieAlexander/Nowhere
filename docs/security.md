@@ -118,7 +118,7 @@ through TLS, ALPN and AuthFrame verification.
 |---|---|
 | Prelude, replay or ClientHello checks incomplete or rejected | Zero linger; abortive close |
 | TLS, ALPN or AuthFrame incomplete or rejected | Zero linger; abortive close |
-| Complete Vector AuthFrame within the deadline | Restore normal linger; normal close and half-close |
+| Complete authorized Vector or Egress AuthFrame within the deadline | Restore normal linger; normal close and half-close |
 
 Portal checks the original deadline before and after restoring normal linger.
 Expiry retains zero linger; failure, timeout or cancellation before successful
@@ -176,7 +176,7 @@ Shared Key permits decoding captured Identity and Counter metadata.
 
 ## Admission and Flow resources
 
-Authentication precedes target work and Egress Slot ownership. Portal applies
+Authentication precedes target work and Egress registration. Portal applies
 these limits before accepting a role:
 
 | Resource | Pre-authentication limit |
@@ -217,9 +217,9 @@ without truncation. ID exhaustion stops admission and triggers a bounded drain
 and close or reconnect. FIN, RESET, STOP_SENDING, idle timeout and connection loss
 reclaim UDP routes independently of CLOSE DATAGRAM delivery.
 
-Egress registers only when Portal has `out=egress`. Slot ownership is atomic;
-cleanup checks the actual connection identity. Egress waits for ACCEPTED before
-target work. Offline Flows fail immediately without local fallback. See
+Egress registers only when Portal has `out=egress`. Queue claims and cleanup
+are tied to the actual connection. Egress waits for ACCEPTED before target work.
+Offline Flows wait within the setup deadline, without local fallback. See
 [Egress ownership](egress.md#registration-ownership-and-lifetime).
 
 DNS and target sockets belong to the selected exit. Explicit source binding

@@ -83,7 +83,8 @@ production component they exercise.
 Cross-module integration tests live under the owning service. Portal's
 `mod.rs` provides the shared harness; `conn/`, `egress.rs` and `forward/`
 cover the service's connection, exit and forwarding boundaries. Shared fixtures
-use `support.rs` or `*_support.rs`, including test-only resource accessors.
+usually use `support.rs` or `*_support.rs`; small test-only resource accessors
+may live in their component's test module.
 
 Rust files begin with the copyright notice, SPDX identifier and a `//!` module
 purpose. Keep JSON fixtures valid JSON; describe their contract in this guide and in
@@ -104,10 +105,14 @@ When wire bytes change, update the specification, vectors and codec tests togeth
 | Authentication | ALPN, role and transport mismatch; fresh/resumed replay; pre-authentication admission, zero linger through Vector AuthFrame validation and post-authentication windows |
 | Forwarding | TLS/QUIC × direct/SOCKS5/Egress × TCP/UDP, IPv4/IPv6, Morph and concurrent Vectors |
 | Lifetime | Half-close, handshake/authentication/registration cancellation, setup cancellation, idle timeout, UDP control FIN/reset/stop, late DATAGRAMs and bounded drain |
-| Egress | ACCEPTED ordering, BUSY, immediate offline failure, reconnect and stale-owner cleanup |
+| Egress | Mixed-carrier FIFO, ACCEPTED/BUSY, offline waiting, Hydra growth and decay, TTL, claim races, reconnect and cleanup |
 | Configuration | Role-specific endpoint carrier counts and families, first duplicates, ignored unknowns, percent decoding, conflicts, effective configuration and explicit bind failure |
 | Telemetry | Known-byte counters, ownership counts, passive snapshots, ignored input, EOF and write timeout cleanup |
 | IPC | Frame/client limits, permissions, identity/incarnation checks, PID reuse and namespace isolation |
+
+TLS standby tests use short internal runtime durations through the production
+lifecycle paths; production standby TTL remains fixed at 120 seconds. They do
+not require a simulated clock or additional dependency features.
 
 A change to a resource owner must cover failure and cancellation as well as
 success. Assert that active counts and permits are released once. Parser mutation

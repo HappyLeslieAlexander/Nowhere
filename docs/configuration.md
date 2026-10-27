@@ -20,7 +20,7 @@ Configure listeners, transport selection and a fixed exit with service URLs.
 |---|---|---|
 | Portal | `portal://KEY@ENDPOINT` | TLS/QUIC listeners and one fixed exit |
 | Vector | `vector://KEY@ENDPOINT?in=HOST:PORT` | Local SOCKS5 ingress and one connection carrier to Portal |
-| Egress | `egress://KEY@ENDPOINT` | QUIC registration and target access |
+| Egress | `egress://KEY@ENDPOINT` | TLS or QUIC registration and target access |
 
 `KEY` is percent-decoded once and used as text bytes. All three roles require
 exactly 32 lowercase hexadecimal characters. Generate a key with
@@ -37,12 +37,12 @@ All roles use the same endpoint grammar, with different carrier limits:
 | ENDPOINT form | Portal | Vector | Egress |
 |---|---|---|---|
 | `HOST:PORT` | TLS and QUIC on the same port | TLS | QUIC |
-| `HOST/tcp:PORT` | TLS listener | TLS connection | Unsupported |
+| `HOST/tcp:PORT` | TLS listener | TLS connection | TLS connection |
 | `HOST/udp:PORT` | QUIC listener | QUIC connection | QUIC connection |
 | `HOST/tcp:PORT/udp:PORT` | Separate TLS and QUIC listener ports | Unsupported | Unsupported |
 
 Portal paths declare one or two carriers. Vector paths declare exactly one
-carrier; Egress paths declare exactly one QUIC carrier. Both TLS and QUIC carry
+carrier; Egress paths also declare exactly one carrier. Both TLS and QUIC carry
 TCP and UDP business Flows.
 
 Each carrier may specify an address family:
@@ -124,8 +124,8 @@ Portal listens on `ENDPOINT` and uses one fixed `out` for all Flows.
 | `rate` | `0..=2147483647` Mbps | `0` | Vector-to-Target upload limit; `0` disables it |
 | `etar` | `0..=2147483647` Mbps | `0` | Target-to-Vector download limit; `0` disables it |
 
-`out=egress` requires a QUIC listener and conflicts with explicit `dial`, `dial4`
-or `dial6`, including `auto`. See [Egress](egress.md) for registration and offline
+`out=egress` accepts Egress on any enabled TLS or QUIC listener and conflicts
+with explicit `dial`, `dial4` or `dial6`, including `auto`. See [Egress](egress.md) for registration and offline
 behavior.
 
 ### Target source selection
@@ -176,7 +176,8 @@ of which transport peer establishes the connection.
 egress://KEY@ENDPOINT
 ```
 
-Egress connects to Portal over QUIC and provides target access.
+Egress connects to Portal over its selected TLS or QUIC carrier and provides
+target access. The `HOST:PORT` shorthand continues to select QUIC.
 
 | Parameter | Accepted value | Default | Purpose |
 |---|---|---|---|
@@ -246,7 +247,9 @@ values; duration settings use values such as `5s` or `250ms`.
 | `NOW_QUIC_UDP_QUEUE_BYTES` | `4194304` | Connection-wide queue/reassembly reservation |
 | `NOW_SHUTDOWN_TIMEOUT` | `5s` | Bounded drain |
 | `NOW_RELOAD_INTERVAL` | `1h` | Supplied certificate reload |
-| `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect backoff |
+| `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect and failed-seed backoff |
+| `NOW_EGRESS_TLS_POOL_MAX` | `128` | Maximum TLS Egress pending connections per process |
+| `NOW_PORTAL_TLS_IDLE_MAX` | `128` | Portal-wide TLS Egress pending capacity |
 | `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
 | `NOW_MORPH_TCP_PRELUDE` | `fade` | [Morph prelude mode](#tcp-morph-prelude): `fade`, `full8` or `low7` |
 
