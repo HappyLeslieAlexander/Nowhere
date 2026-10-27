@@ -52,6 +52,11 @@ impl Egress {
             u8::from(config.morph)
         );
         let runtime = crate::portal::config::PortalRuntimeConfig::from_env()?;
+        let tls_pool_max = if config.net == crate::vector::config::CarrierMode::Tcp {
+            tls_pool_max_from_env()?
+        } else {
+            128
+        };
         let forward = Arc::new(Forwarder {
             runtime,
             outbound: Outlet::Network(Arc::new(OutboundDialer::new(dial, None))),
@@ -72,6 +77,7 @@ impl Egress {
             forward,
             tls,
             effective,
+            tls_pool_max,
         })
     }
 }
@@ -79,3 +85,24 @@ impl Egress {
 #[cfg(test)]
 #[path = "../tests/egress/setup.rs"]
 mod tests;
+
+fn tls_pool_max_from_env() -> Result<usize> {
+    match std::env::var("NOW_EGRESS_TLS_POOL_MAX") {
+        Ok(raw) => parse_tls_pool_max(&raw),
+        Err(std::env::VarError::NotPresent) => Ok(128),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn parse_tls_pool_max(raw: &str) -> Result<usize> {
+    let value = raw
+        .parse::<usize>()
+        .context("invalid NOW_EGRESS_TLS_POOL_MAX")?;
+    if value == 0 || value > Semaphore::MAX_PERMITS {
+        bail!(
+            "NOW_EGRESS_TLS_POOL_MAX must be in 1..={}",
+            Semaphore::MAX_PERMITS
+        );
+    }
+    Ok(value)
+}

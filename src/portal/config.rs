@@ -21,6 +21,8 @@ const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PortalRuntimeConfig {
+    pub(crate) egress_tls_pending_max: usize,
+    pub(crate) egress_tls_idle_ttl: Duration,
     pub(crate) udp_queue_bytes: usize,
     pub(crate) tcp_data_buf_size: usize,
     pub(crate) tcp_dial_timeout: Duration,
@@ -47,6 +49,7 @@ impl PortalRuntimeConfig {
     where
         F: FnMut(&str) -> Result<Option<String>>,
     {
+        let egress_tls_pending_max = read_usize(&mut source, "NOW_PORTAL_TLS_IDLE_MAX", 128, 1023)?;
         let udp_queue_bytes = read_usize(
             &mut source,
             "NOW_QUIC_UDP_QUEUE_BYTES",
@@ -95,6 +98,8 @@ impl PortalRuntimeConfig {
             read_duration(&mut source, "NOW_RELOAD_INTERVAL", DEFAULT_RELOAD_INTERVAL)?;
 
         Ok(Self {
+            egress_tls_pending_max,
+            egress_tls_idle_ttl: crate::common::EGRESS_TLS_IDLE_TTL,
             udp_queue_bytes,
             tcp_data_buf_size,
             tcp_dial_timeout,

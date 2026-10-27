@@ -1,12 +1,13 @@
 // Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! QUIC exit service registered with a Portal.
+//! Independently supervised TLS and QUIC exit services registered with a Portal.
 
 mod connection;
 mod registration;
 mod runtime;
 mod setup;
+mod tls;
 
 use std::sync::Arc;
 
@@ -20,4 +21,5 @@ pub struct Egress {
     forward: Arc<Forwarder>,
     tls: ClientTls,
     effective: String,
+    tls_pool_max: usize,
 }

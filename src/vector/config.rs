@@ -66,10 +66,17 @@ impl PortalClientConfig {
                 }
             }
             "egress" => {
-                if !remote.has_udp() || (!url.path().is_empty() && remote.has_tcp()) {
-                    bail!("{context}: path must declare only a QUIC carrier");
+                if url.path().is_empty() {
+                    CarrierMode::Udp
+                } else if remote.has_tcp() != remote.has_udp() {
+                    if remote.has_tcp() {
+                        CarrierMode::Tcp
+                    } else {
+                        CarrierMode::Udp
+                    }
+                } else {
+                    bail!("{context}: path must declare exactly one carrier");
                 }
-                CarrierMode::Udp
             }
             "nowhere" => match query.get("net").map(String::as_str) {
                 None | Some("tcp") => CarrierMode::Tcp,

@@ -11,6 +11,7 @@ use percent_encoding::percent_decode_str;
 use url::Url;
 
 pub const DEFAULT_RATE_LIMIT: i32 = 0;
+pub(crate) const EGRESS_TLS_IDLE_TTL: Duration = Duration::from_secs(120);
 
 pub fn query_first(parsed_url: &Url, allowed: &[&str]) -> Result<HashMap<String, String>> {
     let mut values = HashMap::with_capacity(allowed.len());

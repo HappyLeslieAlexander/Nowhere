@@ -43,7 +43,7 @@ struct PortalInner {
     unauthenticated_admission: Arc<admission::UnauthenticatedAdmission>,
     connection_admission: Arc<Semaphore>,
     forward: Arc<forward::Forwarder>,
-    egress_slot: Option<Arc<egress::EgressSlot>>,
+    egress_registry: Option<Arc<egress::EgressRegistry>>,
     effective: String,
     runtime: PortalRuntimeConfig,
 }

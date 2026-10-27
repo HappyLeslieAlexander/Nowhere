@@ -8,6 +8,8 @@ use std::io::ErrorKind;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{OwnedSemaphorePermit, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -17,7 +19,8 @@ use crate::transport::{MorphTcpStream, QuicConnection};
 use crate::vector::TcpTunnelGuard;
 
 use super::{
-    PortalInner, admission::UnauthenticatedGuard, egress::EgressSlot, forward::Incoming, prehello,
+    PortalInner, admission::UnauthenticatedGuard, egress::TlsConnection, forward::Incoming,
+    prehello,
 };
 
 pub(super) enum TcpOutcome {
@@ -30,6 +33,7 @@ pub(super) async fn tcp(
     stream: tokio::net::TcpStream,
     admission: UnauthenticatedGuard,
     accepted_at: Instant,
+    permit: OwnedSemaphorePermit,
 ) -> Result<TcpOutcome> {
     let morph = portal.morph_keys.is_some();
     let started_at = if morph { accepted_at } else { Instant::now() };
@@ -103,8 +107,8 @@ pub(super) async fn tcp(
             &exporter,
         )
         .await?;
-        if role != ConnectionRole::Vector {
-            bail!("invalid TLS role");
+        if role == ConnectionRole::Egress && portal.egress_registry.is_none() {
+            bail!("Egress registration unavailable");
         }
         if morph
             && !prehello::finish_authentication(tls.get_ref().0.get_ref(), deadline)
@@ -112,9 +116,9 @@ pub(super) async fn tcp(
         {
             bail!("TLS authentication deadline expired");
         }
-        Ok::<_, anyhow::Error>(Some(tls))
+        Ok::<_, anyhow::Error>(Some((tls, role)))
     });
-    let stream = tokio::select! {
+    let (mut stream, role) = tokio::select! {
         biased;
         _ = portal.forward.shutdown.cancelled() => return Ok(TcpOutcome::Closed),
         result = authentication => match result {
@@ -131,6 +135,46 @@ pub(super) async fn tcp(
         },
     };
     drop(admission);
+    if role == ConnectionRole::Egress {
+        let Some(registry) = &portal.egress_registry else {
+            bail!("Egress registration unavailable");
+        };
+        let Some(pending) = registry.reserve_tls() else {
+            tokio::select! {
+                _ = portal.forward.shutdown.cancelled() => {},
+                _ = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+                    stream.write_all(&[1]).await?;
+                    stream.flush().await
+                }) => {},
+            }
+            return Ok(TcpOutcome::Closed);
+        };
+        tokio::select! {
+            biased;
+            _ = portal.forward.shutdown.cancelled() => return Ok(TcpOutcome::Closed),
+            result = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+                stream.write_all(&[0]).await?;
+                stream.flush().await
+            }) => result.context("Egress registration timeout")??,
+        }
+        let expires_at = Instant::now() + portal.runtime.egress_tls_idle_ttl;
+        let (claim, claimed) = oneshot::channel();
+        let _registration = registry.register_tls(claim, expires_at);
+        let mut byte = [0];
+        tokio::select! {
+            biased;
+            _ = portal.forward.shutdown.cancelled() => {},
+            _ = tokio::time::sleep_until(expires_at) => {},
+            _ = stream.read(&mut byte) => {},
+            transfer = claimed => if let Ok(transfer) = transfer {
+                drop(pending);
+                let _ = transfer.send(TlsConnection { stream, permit });
+                return Ok(TcpOutcome::Closed);
+            },
+        }
+        return Ok(TcpOutcome::Closed);
+    }
+    let _permit = permit;
     let (read, write) = tokio::io::split(stream);
     portal
         .forward
@@ -147,14 +191,11 @@ pub(super) async fn tcp(
     Ok(TcpOutcome::Closed)
 }
 
-struct SlotOwner {
-    slot: Arc<EgressSlot>,
-    connection: Arc<QuicConnection>,
-}
+struct QuicOwner(Arc<QuicConnection>);
 
-impl Drop for SlotOwner {
+impl Drop for QuicOwner {
     fn drop(&mut self) {
-        self.slot.release(&self.connection);
+        self.0.close();
     }
 }
 
@@ -219,9 +260,10 @@ async fn quic_authenticated(
     connection.set_receive_window(limits.connection_receive_window.into());
     connection.set_max_concurrent_bi_streams(1024u32.into());
     let q = QuicConnection::new(connection.clone(), role == ConnectionRole::Egress);
+    let _connection_owner = QuicOwner(q.clone());
     let mut tasks = JoinSet::new();
     let _owner = if role == ConnectionRole::Egress {
-        let Some(slot) = &portal.egress_slot else {
+        let Some(registry) = &portal.egress_registry else {
             bail!("Egress registration unavailable");
         };
         tokio::select! {
@@ -231,23 +273,16 @@ async fn quic_authenticated(
                 result.context("Egress authentication Stream timeout")??;
             },
         }
-        if !slot.claim(q.clone()) {
-            send.write_all(&[1]).await?;
-            send.finish()?;
-            tokio::select! {
-                _ = portal.forward.shutdown.cancelled() => {},
-                _ = tokio::time::timeout(portal.runtime.handshake_timeout, send.stopped()) => {},
-            }
-            q.close();
-            return Ok(());
+        tokio::select! {
+            biased;
+            _ = portal.forward.shutdown.cancelled() => return Ok(()),
+            result = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+                send.write_all(&[0]).await?;
+                send.finish()?;
+                Ok::<_, anyhow::Error>(())
+            }) => result.context("Egress registration timeout")??,
         }
-        let owner = SlotOwner {
-            slot: slot.clone(),
-            connection: q.clone(),
-        };
-        send.write_all(&[0]).await?;
-        send.finish()?;
-        Some(owner)
+        Some(registry.register_quic(q.clone()))
     } else {
         let forward = portal.forward.clone();
         let q = q.clone();

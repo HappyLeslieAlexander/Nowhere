@@ -1,0 +1,147 @@
+// Copyright (C) 2026 NodePassProject <https://github.com/NodePassProject>
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! Atomic FIFO registration, carrier claims, and stale-entry cleanup.
+
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Result, anyhow};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
+use tokio::time::Instant;
+
+use crate::transport::QuicConnection;
+
+use super::TlsConnection;
+
+pub(in crate::portal) type Transfer = oneshot::Sender<TlsConnection>;
+
+enum EntryKind {
+    Quic(Arc<QuicConnection>),
+    Tls {
+        sender: oneshot::Sender<Transfer>,
+        expires_at: Instant,
+    },
+}
+
+struct Entry {
+    identity: Arc<()>,
+    kind: EntryKind,
+}
+
+pub(crate) struct EgressRegistry {
+    queue: Mutex<VecDeque<Entry>>,
+    available: Notify,
+    pending: Arc<Semaphore>,
+}
+
+impl EgressRegistry {
+    pub(in crate::portal) fn new(pending_max: usize) -> Self {
+        Self {
+            queue: Mutex::new(VecDeque::new()),
+            available: Notify::new(),
+            pending: Arc::new(Semaphore::new(pending_max)),
+        }
+    }
+
+    pub(in crate::portal) fn reserve_tls(&self) -> Option<OwnedSemaphorePermit> {
+        self.pending.clone().try_acquire_owned().ok()
+    }
+
+    pub(in crate::portal) fn register_quic(
+        self: &Arc<Self>,
+        q: Arc<QuicConnection>,
+    ) -> Registration {
+        self.register(EntryKind::Quic(q))
+    }
+
+    pub(in crate::portal) fn register_tls(
+        self: &Arc<Self>,
+        sender: oneshot::Sender<Transfer>,
+        expires_at: Instant,
+    ) -> Registration {
+        self.register(EntryKind::Tls { sender, expires_at })
+    }
+
+    fn register(self: &Arc<Self>, kind: EntryKind) -> Registration {
+        let identity = Arc::new(());
+        self.queue.lock().unwrap().push_back(Entry {
+            identity: identity.clone(),
+            kind,
+        });
+        self.available.notify_waiters();
+        Registration {
+            registry: self.clone(),
+            identity,
+        }
+    }
+
+    pub(super) async fn claim(&self) -> Result<Selected> {
+        loop {
+            let notified = self.available.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let selected = {
+                let mut queue = self.queue.lock().unwrap();
+                loop {
+                    let Some(entry) = queue.pop_front() else {
+                        break None;
+                    };
+                    match entry.kind {
+                        EntryKind::Quic(q) => {
+                            if q.connection.close_reason().is_some()
+                                || q.cancel.is_cancelled()
+                                || q.draining.is_cancelled()
+                            {
+                                continue;
+                            }
+                            queue.push_back(Entry {
+                                identity: entry.identity,
+                                kind: EntryKind::Quic(q.clone()),
+                            });
+                            break Some(Ok(Selected::Quic(q)));
+                        }
+                        EntryKind::Tls { sender, expires_at }
+                            if !sender.is_closed() && Instant::now() < expires_at =>
+                        {
+                            let (transfer, receiver) = oneshot::channel();
+                            if sender.send(transfer).is_err() {
+                                break Some(Err(anyhow!("Egress TLS claim failed")));
+                            }
+                            break Some(Ok(Selected::Tls(receiver)));
+                        }
+                        EntryKind::Tls { .. } => continue,
+                    }
+                }
+            };
+            match selected {
+                Some(selected) => return selected,
+                None => notified.await,
+            }
+        }
+    }
+}
+
+pub(in crate::portal) struct Registration {
+    registry: Arc<EgressRegistry>,
+    identity: Arc<()>,
+}
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        self.registry
+            .queue
+            .lock()
+            .unwrap()
+            .retain(|entry| !Arc::ptr_eq(&entry.identity, &self.identity));
+    }
+}
+
+pub(super) enum Selected {
+    Quic(Arc<QuicConnection>),
+    Tls(oneshot::Receiver<TlsConnection>),
+}
+
+#[cfg(test)]
+#[path = "../../tests/portal/egress/registry.rs"]
+mod tests;

@@ -43,7 +43,7 @@ pub(super) async fn register(connection: &quinn::Connection, key: [u8; 32]) -> R
     .context("registration timeout")??;
     match accepted {
         0 => {}
-        1 => anyhow::bail!("Egress registration rejected: slot occupied"),
+        1 => anyhow::bail!("Egress registration rejected: busy"),
         _ => anyhow::bail!("invalid Egress registration reply"),
     }
     Ok(())

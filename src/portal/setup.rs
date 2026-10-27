@@ -20,7 +20,7 @@ use crate::transport::{Buffers, MorphKeys, RateLimiter, Stats};
 
 use super::{
     Portal, PortalInner, admission,
-    egress::EgressSlot,
+    egress::EgressRegistry,
     forward::{Forwarder, Outlet},
 };
 
@@ -47,17 +47,16 @@ impl Portal {
             .then(|| MorphKeys::from_url(&url))
             .transpose()?;
         let out = query.get("out").map(String::as_str).unwrap_or("direct");
-        let slot = if out == "egress" {
-            if endpoint.udp.is_none() {
-                anyhow::bail!("out=egress requires QUIC listener");
-            }
+        let registry = if out == "egress" {
             if ["dial", "dial4", "dial6"]
                 .iter()
                 .any(|key| query.contains_key(*key))
             {
                 anyhow::bail!("out=egress conflicts with explicit dial settings");
             }
-            Some(Arc::new(EgressSlot::default()))
+            Some(Arc::new(EgressRegistry::new(
+                runtime.egress_tls_pending_max,
+            )))
         } else {
             None
         };
@@ -83,15 +82,15 @@ impl Portal {
         let effective = format!(
             "portal://{}?out={out_label}&tls={tls_mode}{}&morph={}&rate={rate}&etar={etar}",
             endpoint.canonical(),
-            if slot.is_some() {
+            if registry.is_some() {
                 String::new()
             } else {
                 format!("&{}", dial.to_string().replace(' ', "&"))
             },
             u8::from(morph_keys.is_some())
         );
-        let outbound = match &slot {
-            Some(slot) => Outlet::Egress(slot.clone()),
+        let outbound = match &registry {
+            Some(registry) => Outlet::Egress(registry.clone()),
             None => Outlet::Network(Arc::new(OutboundDialer::new(dial, socks))),
         };
         let forward = Arc::new(Forwarder {
@@ -137,7 +136,7 @@ impl Portal {
                 unauthenticated_admission: Arc::new(admission::UnauthenticatedAdmission::new()),
                 connection_admission: Arc::new(Semaphore::new(1024)),
                 forward,
-                egress_slot: slot,
+                egress_registry: registry,
                 effective,
                 runtime,
             }),

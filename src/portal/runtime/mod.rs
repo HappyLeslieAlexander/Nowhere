@@ -134,14 +134,14 @@ pub(super) async fn tcp_loop(
                             },
                         };
                         if morph && tokio::time::Instant::now() >= deadline { return conn::TcpOutcome::Closed; }
-                        let _permit = match permit {
+                        let permit = match permit {
                             Some(permit) => permit,
                             None => match p.connection_admission.clone().try_acquire_owned() {
                                 Ok(permit) => permit,
                                 Err(_) => return conn::TcpOutcome::Closed,
                             },
                         };
-                        let outcome = conn::tcp(p.clone(), stream, admission, accepted_at).await;
+                        let outcome = conn::tcp(p.clone(), stream, admission, accepted_at, permit).await;
                         if let Err(error) = &outcome && !crate::common::is_normal_close(error) {
                             p.forward.logger.error(format_args!("tls connection failed: {error:#}"));
                         }

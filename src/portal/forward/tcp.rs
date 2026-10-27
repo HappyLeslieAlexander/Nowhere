@@ -35,10 +35,10 @@ impl Forwarder {
                         None,
                     ))
                 }
-                Outlet::Egress(slot) => {
+                Outlet::Egress(registry) => {
                     let tunnel = tokio::time::timeout(
-                        self.runtime.tcp_dial_timeout,
-                        egress::open_tcp(slot.connection()?, target),
+                        crate::common::flow_setup_timeout(),
+                        egress::open_tcp(registry, target),
                     )
                     .await
                     .context("Egress TCP setup timeout")??;

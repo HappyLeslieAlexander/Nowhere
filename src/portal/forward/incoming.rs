@@ -26,16 +26,27 @@ pub(crate) enum Incoming {
 }
 
 impl Incoming {
-    pub(super) async fn request(&mut self) -> Result<Option<(FlowKind, Target)>> {
+    pub(super) async fn request(
+        &mut self,
+        started: Option<FlowKind>,
+    ) -> Result<Option<(FlowKind, Target)>> {
         match self {
             Self::Tls { reader, .. } => {
-                let Some(kind) = crate::protocol::read_flow_start(reader).await? else {
+                let kind = if let Some(kind) = started {
+                    kind
+                } else if let Some(kind) = crate::protocol::read_flow_start(reader).await? {
+                    kind
+                } else {
                     return Ok(None);
                 };
                 Ok(Some((kind, crate::protocol::read_request(reader).await?)))
             }
             Self::Quic { recv, .. } => {
-                let Some(kind) = crate::protocol::read_flow_start(recv).await? else {
+                let kind = if let Some(kind) = started {
+                    kind
+                } else if let Some(kind) = crate::protocol::read_flow_start(recv).await? {
+                    kind
+                } else {
                     return Ok(None);
                 };
                 Ok(Some((kind, crate::protocol::read_request(recv).await?)))

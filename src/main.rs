@@ -30,7 +30,7 @@ Usage:
   nowhere                              Show help and exit
   nowhere <portal-url>                 Run a Portal relay
   nowhere <vector-url>                 Run a SOCKS ingress Vector
-  nowhere <egress-url>                 Run a QUIC Egress
+  nowhere <egress-url>                 Run a TLS or QUIC Egress
   nowhere generate-key                 Generate a random 128-bit key as hex
   nowhere fingerprint <nowhere-url>    Read the TLS certificate SHA-256 fingerprint
   nowhere probe <vector-url> <target>  Test one real TCP Flow
@@ -61,15 +61,15 @@ Service options:
 
 Endpoint syntax:
   host:port                   Portal TLS+QUIC; Vector TLS; Egress QUIC.
-  host/tcp:port               One TLS carrier for Portal or Vector.
+  host/tcp:port               One TLS carrier for any role.
   host/udp:port               One QUIC carrier for any role.
   host/tcp:port/udp:port      Two carriers for Portal only.
   tcp4, udp4 / tcp6, udp6     Restrict a carrier to IPv4 or IPv6.
   *                           Portal wildcard; others require a concrete host.
 
 Constraints:
-  Vector paths declare one carrier; Egress paths declare only a QUIC carrier.
-  out=egress requires a QUIC listener and rejects dial, dial4 and dial6.
+  Vector and Egress paths each declare one carrier.
+  out=egress accepts TLS/QUIC and rejects dial, dial4 and dial6.
   Shared keys require exactly 32 lowercase hex text characters.
   Unknown parameters are ignored; first recognized duplicate wins.
   fingerprint requires morph=0|1; net defaults to tcp.

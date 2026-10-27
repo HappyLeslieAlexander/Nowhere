@@ -13,7 +13,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::common::{Logger, OutboundDialer};
-use crate::portal::egress::EgressSlot;
+use crate::portal::egress::EgressRegistry;
 use crate::protocol::{FlowKind, SetupResult};
 use crate::transport::{Buffers, RateLimiter, Stats};
 
@@ -21,7 +21,7 @@ pub(crate) use incoming::Incoming;
 
 pub(crate) enum Outlet {
     Network(Arc<OutboundDialer>),
-    Egress(Arc<EgressSlot>),
+    Egress(Arc<EgressRegistry>),
 }
 
 pub(crate) struct Forwarder {
@@ -56,13 +56,32 @@ impl Drop for ActiveFlow {
 impl Forwarder {
     pub(crate) async fn serve(
         self: Arc<Self>,
+        incoming: Incoming,
+        connection_cancel: CancellationToken,
+    ) {
+        self.serve_request(incoming, connection_cancel, None).await;
+    }
+
+    pub(crate) async fn serve_started(
+        self: Arc<Self>,
+        incoming: Incoming,
+        connection_cancel: CancellationToken,
+        kind: FlowKind,
+    ) {
+        self.serve_request(incoming, connection_cancel, Some(kind))
+            .await;
+    }
+
+    async fn serve_request(
+        self: Arc<Self>,
         mut incoming: Incoming,
         connection_cancel: CancellationToken,
+        started: Option<FlowKind>,
     ) {
         let request = tokio::select! {
             _=connection_cancel.cancelled()=>return,
             _=self.shutdown.cancelled()=>return,
-            request=tokio::time::timeout(self.runtime.handshake_timeout,incoming.request())=>request,
+            request=tokio::time::timeout(self.runtime.handshake_timeout,incoming.request(started))=>request,
         };
         let (kind, target) = match request {
             Ok(Ok(Some(request))) => request,

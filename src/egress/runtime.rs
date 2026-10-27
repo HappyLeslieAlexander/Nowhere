@@ -31,7 +31,12 @@ impl Egress {
                 None
             }
         };
-        let mut maintenance = Box::pin(self.maintain_connection());
+        let mut maintenance: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> =
+            if self.config.net == crate::vector::config::CarrierMode::Tcp {
+                Box::pin(self.maintain_tls())
+            } else {
+                Box::pin(self.maintain_connection())
+            };
         let mut maintenance_finished = false;
         let failure = tokio::select! {
             signal = signals.recv() => signal.map(|_| ()).err(),

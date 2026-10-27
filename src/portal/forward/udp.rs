@@ -28,9 +28,9 @@ impl Forwarder {
                     .dial_udp_target(target, self.runtime.udp_dial_timeout)
                     .await
                     .map(UdpTarget::Network),
-                Outlet::Egress(slot) => tokio::time::timeout(
-                    self.runtime.udp_dial_timeout,
-                    egress::open_udp(slot.connection()?, target, self.stats.clone()),
+                Outlet::Egress(registry) => tokio::time::timeout(
+                    crate::common::flow_setup_timeout(),
+                    egress::open_udp(registry, target, self.stats.clone()),
                 )
                 .await
                 .context("Egress UDP setup timeout")?

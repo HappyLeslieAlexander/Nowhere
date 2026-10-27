@@ -137,7 +137,7 @@ pub fn validate_auth_frame(
     let is_egress = bool::from(frame.ct_eq(&egress));
     match (is_vector, is_egress) {
         (true, false) => Ok(ConnectionRole::Vector),
-        (false, true) if transport == AuthTransport::Quic => Ok(ConnectionRole::Egress),
+        (false, true) => Ok(ConnectionRole::Egress),
         _ => bail!("invalid authentication tag or role"),
     }
 }
