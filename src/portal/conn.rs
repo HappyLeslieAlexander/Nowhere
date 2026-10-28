@@ -8,7 +8,7 @@ use std::io::ErrorKind;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -160,17 +160,11 @@ pub(super) async fn tcp(
         let expires_at = Instant::now() + portal.runtime.egress_tls_idle_ttl;
         let (claim, claimed) = oneshot::channel();
         let _registration = registry.register_tls(claim, expires_at);
-        let mut byte = [0];
-        tokio::select! {
-            biased;
-            _ = portal.forward.shutdown.cancelled() => {},
-            _ = tokio::time::sleep_until(expires_at) => {},
-            _ = stream.read(&mut byte) => {},
-            transfer = claimed => if let Ok(transfer) = transfer {
-                drop(pending);
-                let _ = transfer.send(TlsConnection { stream, permit });
-                return Ok(TcpOutcome::Closed);
-            },
+        if let Some(transfer) =
+            wait_tls_claim(&mut stream, claimed, expires_at, &portal.forward.shutdown).await
+        {
+            drop(pending);
+            let _ = transfer.send(TlsConnection { stream, permit });
         }
         return Ok(TcpOutcome::Closed);
     }
@@ -189,6 +183,22 @@ pub(super) async fn tcp(
         )
         .await;
     Ok(TcpOutcome::Closed)
+}
+
+async fn wait_tls_claim<T>(
+    stream: &mut (impl AsyncRead + Unpin),
+    claimed: oneshot::Receiver<T>,
+    expires_at: Instant,
+    shutdown: &CancellationToken,
+) -> Option<T> {
+    let mut byte = [0];
+    tokio::select! {
+        biased;
+        _ = shutdown.cancelled() => None,
+        _ = stream.read(&mut byte) => None,
+        transfer = claimed => transfer.ok(),
+        _ = tokio::time::sleep_until(expires_at) => None,
+    }
 }
 
 struct QuicOwner(Arc<QuicConnection>);
@@ -333,3 +343,7 @@ async fn quic_authenticated(
     while tasks.join_next().await.is_some() {}
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/portal/conn/standby.rs"]
+mod tests;

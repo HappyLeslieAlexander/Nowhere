@@ -271,6 +271,59 @@ async fn egress_ttl_expires_standby() {
 }
 
 #[tokio::test]
+async fn flow_start_wins_when_standby_ttl_is_also_ready() {
+    let deadline = Instant::now() - Duration::from_secs(1);
+    tokio::time::sleep_until(deadline).await;
+    for raw in [0, 1, 0xfe, 0xff] {
+        let kind = FlowKind::try_from(raw).unwrap();
+        let bytes = [raw];
+        let mut stream = bytes.as_slice();
+        assert_eq!(
+            wait_flow_start(&mut stream, &CancellationToken::new(), deadline)
+                .await
+                .unwrap(),
+            Some(kind)
+        );
+    }
+}
+
+#[tokio::test]
+async fn shutdown_keeps_priority_over_flow_start_and_standby_ttl() {
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+    let mut stream = &[FlowKind::Tcp as u8][..];
+    let error = wait_flow_start(
+        &mut stream,
+        &shutdown,
+        Instant::now() - Duration::from_secs(1),
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("shutting down"));
+    assert_eq!(stream.len(), 1);
+}
+
+#[tokio::test]
+async fn expired_standby_without_flow_start_expires_but_eof_still_fails() {
+    let shutdown = CancellationToken::new();
+    let deadline = Instant::now() - Duration::from_secs(1);
+    tokio::time::sleep_until(deadline).await;
+    let (mut stream, _peer) = tokio::io::duplex(1);
+    assert_eq!(
+        wait_flow_start(&mut stream, &shutdown, deadline)
+            .await
+            .unwrap(),
+        None
+    );
+    let mut stream = &[][..];
+    assert!(
+        wait_flow_start(&mut stream, &shutdown, deadline)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn max_one_replaces_consumed_standby_without_exceeding_one() {
     let (mut egress, mut rx, server) = fake_portal().await;
     egress.tls_pool_max = 1;

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use socket2::TcpKeepalive;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -138,14 +138,25 @@ async fn pending_connection(
             }
         }) => result.context("Egress TLS registration timeout")??,
     }
+    match wait_flow_start(&mut stream, &shutdown, Instant::now() + idle_ttl).await? {
+        Some(kind) => Ok(PendingResult::Started(Box::new(stream), kind)),
+        None => Ok(PendingResult::Expired),
+    }
+}
+
+async fn wait_flow_start(
+    stream: &mut (impl AsyncRead + Unpin),
+    shutdown: &CancellationToken,
+    expires_at: Instant,
+) -> Result<Option<FlowKind>> {
     tokio::select! {
         biased;
         _ = shutdown.cancelled() => bail!("Egress shutting down"),
-        _ = tokio::time::sleep(idle_ttl) => Ok(PendingResult::Expired),
-        result = crate::protocol::read_flow_start(&mut stream) => match result? {
-            Some(kind) => Ok(PendingResult::Started(Box::new(stream), kind)),
+        result = crate::protocol::read_flow_start(stream) => match result? {
+            Some(kind) => Ok(Some(kind)),
             None => bail!("Egress TLS standby disconnected"),
         },
+        _ = tokio::time::sleep_until(expires_at) => Ok(None),
     }
 }
 
