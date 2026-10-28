@@ -234,14 +234,19 @@ A dash means that the role does not recognize the parameter.
 ## Runtime environment
 
 Set environment variables before starting the service. Byte sizes use integer
-values; duration settings use values such as `5s` or `250ms`.
+values; duration settings use values such as `5s` or `250ms`. Vector, Portal and
+Egress validate all duration settings listed below at startup, including settings
+not used by the selected role or carrier. Values must be positive, valid Unicode,
+and fit the duration parser and timer implementation; UDP idle must also fit
+QUIC's idle-timeout limit. Invalid values fail startup with the variable name.
+Only unset variables use defaults.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `NOW_TCP_DATA_BUF_SIZE` | `32768` | TCP copy buffer bytes |
 | `NOW_TCP_DIAL_TIMEOUT`, `NOW_UDP_DIAL_TIMEOUT` | `15s` | Target dial limits |
 | `NOW_HANDSHAKE_TIMEOUT` | `5s` | Transport/authentication limit |
-| `NOW_FLOW_SETUP_TIMEOUT` | `20s` | Flow setup limit |
+| `NOW_FLOW_SETUP_TIMEOUT` | `20s` | Complete Flow setup operation deadline |
 | `NOW_TCP_READ_TIMEOUT` | `30s` | TCP half-close completion limit |
 | `NOW_UDP_IDLE_TIMEOUT` | `120s` | UDP Flow/QUIC idle limit |
 | `NOW_QUIC_UDP_QUEUE_BYTES` | `4194304` | Connection-wide queue/reassembly reservation |
@@ -252,6 +257,32 @@ values; duration settings use values such as `5s` or `250ms`.
 | `NOW_PORTAL_TLS_IDLE_MAX` | `128` | Portal-wide TLS Egress pending capacity |
 | `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
 | `NOW_MORPH_TCP_PRELUDE` | `fade` | [Morph prelude mode](#tcp-morph-prelude): `fade`, `full8` or `low7` |
+
+### Timeout semantics
+
+- **Operation Deadline:** one budget for an operation, without restarting it at
+  each stage. Vector TCP and UDP setup share `NOW_FLOW_SETUP_TIMEOUT` from the
+  start of setup through READY, including DNS, connection acquisition, initial
+  TLS/QUIC handshakes, reuse/lock and Stream-credit waits, AuthFrame and request
+  writes, and result reads. Existing shorter handshake stage limits still apply.
+  Portal-to-Egress setup keeps one budget for selection, claim, request and
+  result. Probe uses the same Vector setup operation; cleanup has its own budget.
+  QUIC Egress registration uses one `NOW_HANDSHAKE_TIMEOUT` after transport
+  connection, covering `open_bi`, AuthFrame write/finish and the complete reply.
+  `NOW_TCP_READ_TIMEOUT` is a completion deadline for the remaining TCP direction
+  after the other direction finishes normally (Half-Close). Traffic does not
+  restart it; it is not a timeout on every TCP read.
+- **Idle Timeout:** `NOW_UDP_IDLE_TIMEOUT` retains the existing UDP Flow activity
+  and QUIC transport idle rules. It does not cap the total lifetime of an active
+  Flow. Fully open TCP Flows have no read-idle timeout.
+- **Fixed TTL:** unused TLS Egress standby connections expire after a fixed
+  `120s`, independently at Portal and Egress. Activity does not renew this TTL;
+  claimed connections leave standby and follow normal Flow lifetime rules.
+  UDP fragment reassembly retains its fixed `10s` expiry.
+
+Certificate reload, service cooldown and shutdown retain their existing
+scheduling, backoff and drain behavior. Setup deadlines end at READY; they do
+not limit established Flow lifetimes.
 
 ### QUIC window profiles
 

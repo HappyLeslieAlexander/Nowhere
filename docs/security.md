@@ -219,7 +219,12 @@ reclaim UDP routes independently of CLOSE DATAGRAM delivery.
 
 Egress registers only when Portal has `out=egress`. Queue claims and cleanup
 are tied to the actual connection. Egress waits for ACCEPTED before target work.
-Offline Flows wait within the setup deadline, without local fallback. See
+Offline Flows wait within the setup deadline, without local fallback. Vector
+connection acquisition, request writing and READY reading share one Flow setup
+deadline; timeout drops pending streams and UDP routes. A temporary first-Flow
+QUIC connection is closed, while a reused connection retains its other Flows.
+QUIC Egress registration bounds Stream acquisition, AuthFrame sending and the
+complete ACCEPTED reply with one handshake deadline. See
 [Egress ownership](egress.md#registration-ownership-and-lifetime).
 
 DNS and target sockets belong to the selected exit. Explicit source binding

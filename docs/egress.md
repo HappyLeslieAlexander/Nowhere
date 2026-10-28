@@ -138,7 +138,8 @@ Claim TLS B: it leaves the FIFO and carries one Flow.
 These labels identify connections in the example, not protocol instance IDs.
 
 When no connection is available, Flow setup waits for registration within the
-existing `NOW_FLOW_SETUP_TIMEOUT` budget. Once a connection has been selected,
+`NOW_FLOW_SETUP_TIMEOUT` operation budget. Selection, claim, request writing and
+result reading share that budget. Once a connection has been selected,
 any setup or forwarding failure ends that Flow: Portal does not retry another
 Egress, change carrier, fall back locally or migrate active traffic.
 
