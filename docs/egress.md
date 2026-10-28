@@ -197,6 +197,11 @@ Portal and Egress independently expire idle TLS standby connections after
 Egress, it ends when a FlowStart is received. An active Flow is not subject to
 this standby TTL. A claim racing expiration may fail directly.
 
+Egress enables kernel TCP keepalive on its TLS connections to Portal before
+the handshake, with a 15-second idle time and a 15-second probe interval.
+The probe count uses the system default. Keepalive remains enabled through
+standby and active Flows; it does not extend the standby TTL.
+
 ## TLS Hydra
 
 Each TLS Egress has one supervisor and starts with one standby seed. Its budget
