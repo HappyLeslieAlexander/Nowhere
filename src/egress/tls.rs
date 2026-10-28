@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use socket2::TcpKeepalive;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -32,7 +33,6 @@ impl Egress {
         let mut flows = JoinSet::new();
         let mut seed_at = Instant::now();
         loop {
-            // Reap completed Flows even while standby completions remain continuously ready.
             while flows.try_join_next().is_some() {}
             tokio::select! {
                 biased;
@@ -116,10 +116,13 @@ async fn pending_connection(
         .tcp_endpoint()
         .context("TLS Egress endpoint missing")?;
     let address = config.remote.carrier_addr(endpoint);
+    let keepalive = tcp_keepalive();
     let (mut stream, exporter) = tokio::select! {
         biased;
         _ = shutdown.cancelled() => bail!("Egress shutting down"),
-        result = tls.connect_tcp(&address, &config.dial_policy, endpoint.family) => result?,
+        result = tls.connect_tcp_with_keepalive(
+            &address, &config.dial_policy, endpoint.family, Some(&keepalive),
+        ) => result?,
     };
     tokio::select! {
         biased;
@@ -144,6 +147,12 @@ async fn pending_connection(
             None => bail!("Egress TLS standby disconnected"),
         },
     }
+}
+
+fn tcp_keepalive() -> TcpKeepalive {
+    TcpKeepalive::new()
+        .with_time(Duration::from_secs(15))
+        .with_interval(Duration::from_secs(15))
 }
 
 #[cfg(test)]

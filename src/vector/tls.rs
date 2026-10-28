@@ -15,6 +15,7 @@ use rustls::crypto::{
 };
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
+use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::{TlsConnector, client::TlsStream};
@@ -106,12 +107,28 @@ impl ClientTls {
         dial_policy: &crate::common::DialPolicy,
         family: AddressFamily,
     ) -> Result<(TlsStream<MorphTcpStream<TcpStream>>, TlsExporter)> {
+        self.connect_tcp_with_keepalive(endpoint, dial_policy, family, None)
+            .await
+    }
+
+    pub(crate) async fn connect_tcp_with_keepalive(
+        &self,
+        endpoint: &str,
+        dial_policy: &crate::common::DialPolicy,
+        family: AddressFamily,
+        keepalive: Option<&TcpKeepalive>,
+    ) -> Result<(TlsStream<MorphTcpStream<TcpStream>>, TlsExporter)> {
         let stream = dial_tcp_with_policy(dial_policy, endpoint, handshake_timeout(), family)
             .await
             .with_context(|| format!("vector::tls::connect_tcp: failed to dial {endpoint}"))?;
         stream
             .set_nodelay(true)
             .context("vector::tls::connect_tcp: failed to set TCP_NODELAY")?;
+        if let Some(keepalive) = keepalive {
+            SockRef::from(&stream)
+                .set_tcp_keepalive(keepalive)
+                .context("Egress TLS: failed to configure TCP keepalive")?;
+        }
         let connector = TlsConnector::from(self.rustls.clone());
         let tls = timeout(handshake_timeout(), async {
             let stream =
