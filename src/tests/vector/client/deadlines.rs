@@ -46,6 +46,7 @@ async fn tls_tcp_and_udp_share_handshake_and_ready_budget() {
         let mut client = PortalClient::new(
             config,
             &credentials,
+            4 * 1024 * 1024,
             Arc::new(Stats::default()),
             true,
             CancellationToken::new(),

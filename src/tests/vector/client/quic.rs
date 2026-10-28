@@ -129,6 +129,7 @@ async fn normal_tcp_and_udp_first_flows_pipeline_on_stream_zero_and_reuse_withou
         let client = PortalClient::new(
             template.config.clone(),
             &template.credentials,
+            template.udp_queue_bytes,
             stats.clone(),
             true,
             CancellationToken::new(),

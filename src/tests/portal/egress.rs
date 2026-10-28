@@ -5,6 +5,99 @@
 
 use super::*;
 
+#[test]
+fn configured_udp_budget_is_consumed_by_each_quic_role() {
+    for role in ["portal", "vector", "egress"] {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "portal::tests::egress::configured_udp_budget_child",
+                "--nocapture",
+            ])
+            .env("NOW_TEST_UDP_BUDGET_ROLE", role)
+            .env(
+                "NOW_QUIC_UDP_QUEUE_BYTES",
+                if role == "egress" { "1" } else { "8192" },
+            )
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{role}: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[tokio::test]
+async fn configured_udp_budget_child() {
+    let Ok(role) = std::env::var("NOW_TEST_UDP_BUDGET_ROLE") else {
+        return;
+    };
+    let h = Harness::configured_runtime(
+        if role == "egress" { "egress" } else { "direct" },
+        false,
+        "127.0.0.1",
+        |runtime| runtime.udp_queue_bytes = if role == "portal" { 1 } else { 8192 },
+    )
+    .await;
+    let egress_task = if role == "egress" {
+        let egress = crate::Egress::new(h.url("egress", "udp", false), Logger).unwrap();
+        let task = tokio::spawn(egress.run());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !h.inner.egress_registry.as_ref().unwrap().online() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        Some(task)
+    } else {
+        None
+    };
+    let (config, credentials) =
+        PortalClientConfig::from_probe_url(&h.url("vector", "udp", false)).unwrap();
+    let client = PortalClient::new(
+        config,
+        &credentials,
+        if role == "vector" { 1 } else { 8192 },
+        Arc::new(crate::transport::Stats::default()),
+        true,
+        CancellationToken::new(),
+    )
+    .unwrap();
+    let (target, echo) = udp_echo().await;
+    let mut tunnel = crate::vector::udp_flow::open_udp(client.clone(), &target)
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    assert!(tunnel.send(b"xx").await.unwrap());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), tunnel.recv_into(&mut buffer))
+            .await
+            .is_err()
+    );
+    assert!(tunnel.send(b"x").await.unwrap());
+    let packet = tokio::time::timeout(Duration::from_secs(2), tunnel.recv_into(&mut buffer))
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(packet.payload(&buffer), b"x");
+    drop(packet);
+    tunnel.close().await;
+    client
+        .close(tokio::time::Instant::now() + Duration::from_secs(1))
+        .await;
+    if let Some(task) = egress_task {
+        task.abort();
+        let _ = task.await;
+    }
+    h.close().await;
+    echo.abort();
+}
+
 #[tokio::test]
 async fn offline_flow_waits_for_a_new_registration() {
     let h = Harness::new("egress", false).await;

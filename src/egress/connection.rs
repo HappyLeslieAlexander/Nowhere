@@ -55,7 +55,11 @@ impl Egress {
         let limits = crate::transport::transport_flow_control()?;
         connection.set_receive_window(limits.connection_receive_window.into());
         connection.set_max_concurrent_bi_streams(1024u32.into());
-        let q = QuicConnection::new(connection.clone(), true);
+        let q = QuicConnection::new(
+            connection.clone(),
+            true,
+            self.forward.runtime.udp_queue_bytes,
+        );
         let _owner = ConnectionGuard {
             connection: q.clone(),
         };

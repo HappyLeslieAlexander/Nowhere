@@ -21,6 +21,7 @@ use super::format::{format_duration, panel};
 pub(crate) struct ProbeClient {
     config: PortalClientConfig,
     credentials: Credentials,
+    udp_queue_bytes: usize,
 }
 
 pub(crate) struct ProbeReport {
@@ -38,6 +39,9 @@ impl ProbeClient {
         Ok(Self {
             config,
             credentials,
+            udp_queue_bytes: crate::common::read_quic_udp_queue_bytes(
+                &mut crate::common::env_value,
+            )?,
         })
     }
 
@@ -46,6 +50,7 @@ impl ProbeClient {
         let client = PortalClient::new(
             self.config.clone(),
             &self.credentials,
+            self.udp_queue_bytes,
             Arc::new(Stats::default()),
             false,
             shutdown,

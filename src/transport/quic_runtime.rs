@@ -49,9 +49,11 @@ pub(crate) struct QuicConnection {
 }
 
 impl QuicConnection {
-    pub(crate) fn new(connection: quinn::Connection, server_initiated: bool) -> Arc<Self> {
-        let bytes = crate::common::env_int("NOW_QUIC_UDP_QUEUE_BYTES", 4 * 1024 * 1024)
-            .clamp(2, i32::MAX) as usize;
+    pub(crate) fn new(
+        connection: quinn::Connection,
+        server_initiated: bool,
+        bytes: usize,
+    ) -> Arc<Self> {
         let this = Arc::new(Self {
             connection,
             server_initiated,

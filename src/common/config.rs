@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use percent_encoding::percent_decode_str;
+use tokio::sync::Semaphore;
 use url::Url;
 
 pub const DEFAULT_RATE_LIMIT: i32 = 0;
@@ -77,6 +78,24 @@ pub(crate) fn env_value(name: &str) -> Result<Option<String>> {
         Err(std::env::VarError::NotPresent) => Ok(None),
         Err(std::env::VarError::NotUnicode(_)) => bail!("{name} is not valid Unicode"),
     }
+}
+
+pub(crate) fn read_quic_udp_queue_bytes<F>(source: &mut F) -> Result<usize>
+where
+    F: FnMut(&str) -> Result<Option<String>>,
+{
+    let name = "NOW_QUIC_UDP_QUEUE_BYTES";
+    let Some(raw) = source(name)? else {
+        return Ok(4 * 1024 * 1024);
+    };
+    let max = Semaphore::MAX_PERMITS.min(u32::MAX as usize);
+    let bytes = raw
+        .parse::<usize>()
+        .with_context(|| format!("invalid {name}={raw:?}"))?;
+    if bytes == 0 || bytes > max {
+        bail!("{name} must be in 1..={max}: {raw:?}");
+    }
+    Ok(bytes)
 }
 
 pub(crate) fn read_duration<F>(source: &mut F, name: &str, default: Duration) -> Result<Duration>

@@ -241,6 +241,12 @@ and fit the duration parser and timer implementation; UDP idle must also fit
 QUIC's idle-timeout limit. Invalid values fail startup with the variable name.
 Only unset variables use defaults.
 
+`NOW_QUIC_UDP_QUEUE_BYTES` is also validated once at startup by all three roles,
+including TLS-only configurations. It accepts positive integer byte counts up to
+the smaller of `Semaphore::MAX_PERMITS` and `u32::MAX`. The saved value bounds each
+QUIC connection's UDP queue and reassembly reservations, and Vector's separate
+local UDP queue budget. Invalid values fail startup with the variable name.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `NOW_TCP_DATA_BUF_SIZE` | `32768` | TCP copy buffer bytes |

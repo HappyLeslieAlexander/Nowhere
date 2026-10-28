@@ -33,6 +33,7 @@ pub(crate) struct PortalClient {
     credentials: Credentials,
     tls: ClientTls,
     flow_setup_timeout: Duration,
+    udp_queue_bytes: usize,
     quic: Mutex<Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
     pub(super) shutdown: CancellationToken,
 }
@@ -50,6 +51,7 @@ impl PortalClient {
     pub(crate) fn new(
         config: PortalClientConfig,
         credentials: &Credentials,
+        udp_queue_bytes: usize,
         stats: Arc<Stats>,
         account_stats: bool,
         shutdown: CancellationToken,
@@ -63,6 +65,7 @@ impl PortalClient {
             credentials: credentials.clone(),
             tls,
             flow_setup_timeout: crate::common::flow_setup_timeout(),
+            udp_queue_bytes,
             quic: Mutex::new(None),
             shutdown,
         }))

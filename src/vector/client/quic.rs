@@ -70,7 +70,7 @@ impl PortalClient {
             .export_keying_material(&mut exporter, EXPORTER_LABEL, b"")
             .map_err(|e| OpenFlowError::Transport(anyhow!("exporter failed: {e:?}")))?;
         let auth = encode_auth_frame(self.credentials.vector_key, AuthTransport::Quic, &exporter);
-        let q = QuicConnection::new(connection, false);
+        let q = QuicConnection::new(connection, false, self.udp_queue_bytes);
         let mut attempt = ConnectionAttempt(Some(q.clone()));
         let (flow, result) = self.start_quic_flow(&q, kind, target, Some(auth)).await?;
         let limits =

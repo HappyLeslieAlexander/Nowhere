@@ -79,6 +79,8 @@ impl VectorRuntime {
 
     fn build(parsed_url: Url, logger: Logger) -> Result<Self> {
         crate::common::validate_timeout_env()?;
+        let udp_queue_bytes =
+            crate::common::read_quic_udp_queue_bytes(&mut crate::common::env_value)?;
         let config = VectorConfig::from_url(&parsed_url)?;
         let credentials = Credentials::new(&parsed_url)?;
         let stats = Arc::new(Stats::default());
@@ -86,11 +88,10 @@ impl VectorRuntime {
         let read_bps = rate_limit_bytes_per_second(config.rate_mbps) as i64;
         let write_bps = rate_limit_bytes_per_second(config.etar_mbps) as i64;
         let rate_limiter = RateLimiter::new(read_bps, write_bps).map(Arc::new);
-        let udp_queue_bytes = crate::common::env_int("NOW_QUIC_UDP_QUEUE_BYTES", 4 * 1024 * 1024)
-            .clamp(1, i32::MAX) as usize;
         let client = PortalClient::new(
             config.portal_client_config(),
             &credentials,
+            udp_queue_bytes,
             stats.clone(),
             true,
             shutdown.clone(),

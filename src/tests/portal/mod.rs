@@ -129,6 +129,7 @@ impl Harness {
         PortalClient::new(
             config,
             &creds,
+            self.inner.runtime.udp_queue_bytes,
             Arc::new(crate::transport::Stats::default()),
             true,
             CancellationToken::new(),

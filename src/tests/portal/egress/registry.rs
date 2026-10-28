@@ -47,7 +47,7 @@ async fn quic_pair() -> (
         server,
         endpoint,
         server_connection,
-        QuicConnection::new(connection, true),
+        QuicConnection::new(connection, true, 4 * 1024 * 1024),
     )
 }
 

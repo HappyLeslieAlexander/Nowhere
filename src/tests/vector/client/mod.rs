@@ -50,6 +50,7 @@ fn quic_fixture_with_transport(
     let client = PortalClient::new(
         config,
         &credentials,
+        4 * 1024 * 1024,
         Arc::new(Stats::default()),
         true,
         CancellationToken::new(),
@@ -233,6 +234,7 @@ async fn shutdown_cancels_an_in_progress_quic_handshake_and_releases_the_cache_l
     let client = PortalClient::new(
         config,
         &credentials,
+        4 * 1024 * 1024,
         Arc::new(Stats::default()),
         true,
         CancellationToken::new(),

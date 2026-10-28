@@ -98,6 +98,47 @@ fn duration_defaults_overrides_and_invalid_values() {
 }
 
 #[test]
+fn quic_udp_queue_bytes_defaults_and_bounds_are_strict() {
+    assert_eq!(
+        read_quic_udp_queue_bytes(&mut |_| Ok(None)).unwrap(),
+        4 * 1024 * 1024
+    );
+    let max = Semaphore::MAX_PERMITS.min(u32::MAX as usize);
+    for bytes in [1, 8192, max] {
+        assert_eq!(
+            read_quic_udp_queue_bytes(&mut |name| {
+                assert_eq!(name, "NOW_QUIC_UDP_QUEUE_BYTES");
+                Ok(Some(bytes.to_string()))
+            })
+            .unwrap(),
+            bytes
+        );
+    }
+    for raw in [
+        "0",
+        "-1",
+        "",
+        "invalid",
+        "1.5",
+        " 8",
+        "999999999999999999999999",
+        &(max + 1).to_string(),
+    ] {
+        let error = read_quic_udp_queue_bytes(&mut |_| Ok(Some(raw.into()))).unwrap_err();
+        assert!(format!("{error:#}").contains("NOW_QUIC_UDP_QUEUE_BYTES"));
+    }
+}
+
+#[test]
+fn invalid_quic_udp_queue_bytes_is_rejected_by_each_service_at_startup() {
+    for role in ["portal", "vector", "egress"] {
+        for raw in ["0", "-1", "invalid", "999999999999999999999999"] {
+            assert_invalid_startup(role, "NOW_QUIC_UDP_QUEUE_BYTES", std::ffi::OsStr::new(raw));
+        }
+    }
+}
+
+#[test]
 fn invalid_duration_is_rejected_by_each_service_at_startup() {
     for role in ["portal", "vector", "egress"] {
         for name in [
@@ -141,6 +182,7 @@ fn non_unicode_duration_is_a_startup_error() {
     let raw = std::ffi::OsString::from_vec(vec![0xff]);
     for role in ["portal", "vector", "egress"] {
         assert_invalid_startup(role, "NOW_FLOW_SETUP_TIMEOUT", &raw);
+        assert_invalid_startup(role, "NOW_QUIC_UDP_QUEUE_BYTES", &raw);
     }
 }
 
@@ -160,6 +202,6 @@ fn invalid_duration_startup_child() {
         "egress" => crate::Egress::new(url, crate::Logger).err(),
         _ => panic!("invalid test role"),
     }
-    .expect("invalid duration did not stop startup");
+    .expect("invalid configuration did not stop startup");
     assert!(format!("{error:#}").contains(&name), "{error:#}");
 }

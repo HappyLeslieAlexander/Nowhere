@@ -6,11 +6,8 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use tokio::sync::Semaphore;
 
-use crate::common::{env_value, read_duration, validate_timeouts};
-
-const DEFAULT_QUIC_UDP_QUEUE_BYTES: usize = 4 * 1024 * 1024;
+use crate::common::{env_value, read_duration, read_quic_udp_queue_bytes, validate_timeouts};
 
 const DEFAULT_TCP_DATA_BUF_SIZE: usize = 32 * 1024;
 const DEFAULT_TCP_DIAL_TIMEOUT: Duration = Duration::from_secs(15);
@@ -47,12 +44,7 @@ impl PortalRuntimeConfig {
     {
         validate_timeouts(&mut source)?;
         let egress_tls_pending_max = read_usize(&mut source, "NOW_PORTAL_TLS_IDLE_MAX", 128, 1023)?;
-        let udp_queue_bytes = read_usize(
-            &mut source,
-            "NOW_QUIC_UDP_QUEUE_BYTES",
-            DEFAULT_QUIC_UDP_QUEUE_BYTES,
-            Semaphore::MAX_PERMITS.min(u32::MAX as usize),
-        )?;
+        let udp_queue_bytes = read_quic_udp_queue_bytes(&mut source)?;
         let tcp_data_buf_size = read_usize(
             &mut source,
             "NOW_TCP_DATA_BUF_SIZE",

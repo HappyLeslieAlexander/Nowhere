@@ -92,7 +92,7 @@ async fn stream_id_exhaustion_enters_bounded_drain_without_truncation() {
     auth.write_all(&tag(&q, false)).await.unwrap();
     auth.finish().unwrap();
     recv.read_to_end(0).await.unwrap();
-    let owned = crate::transport::QuicConnection::new(q, false);
+    let owned = crate::transport::QuicConnection::new(q, false, h.inner.runtime.udp_queue_bytes);
     assert_eq!(
         owned.flow_id(4294967288).unwrap(),
         crate::protocol::MAX_FLOW_ID

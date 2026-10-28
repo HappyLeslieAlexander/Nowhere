@@ -37,3 +37,46 @@ fn connection_reassembly_preserves_configured_budget_and_releases_reservations()
         assert_eq!(budget.available_permits(), bytes);
     }
 }
+
+#[test]
+fn reassembly_enforces_the_exact_nondefault_byte_budget() {
+    let bytes = 8192;
+    let mut state = UdpState::new(bytes);
+    let budget = Arc::new(Semaphore::new(bytes));
+    for size in [bytes + 1, bytes] {
+        let payload = vec![1; size];
+        let mut completed = None;
+        for fragment in crate::protocol::encode_udp_fragments(1, 1, &payload, 1200).unwrap() {
+            let OwnedUdpFrame::Fragment { fragment, .. } =
+                decode_udp_frame_owned(bytes::Bytes::from(fragment)).unwrap()
+            else {
+                panic!("fragment expected");
+            };
+            let result =
+                state
+                    .reassembly
+                    .push_with(1, fragment, std::time::Instant::now(), |size| {
+                        reserve_udp_budget(budget.clone(), size as usize)
+                    });
+            if size > bytes {
+                assert!(matches!(result, ReassemblyOutcome::Dropped(_)));
+                assert_eq!(budget.available_permits(), bytes);
+            } else if let ReassemblyOutcome::Complete {
+                payload,
+                reservation,
+                ..
+            } = result
+            {
+                assert_eq!(budget.available_permits(), 0);
+                completed = Some((payload, reservation));
+            }
+        }
+        if size == bytes {
+            let (received, reservation) = completed.expect("budget-sized packet must reassemble");
+            assert_eq!(&received[..], &payload);
+            drop(reservation);
+        }
+        assert_eq!(budget.available_permits(), bytes);
+        assert_eq!(state.reassembly.reserved_bytes(), 0);
+    }
+}
