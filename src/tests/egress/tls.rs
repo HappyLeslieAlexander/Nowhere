@@ -3,16 +3,31 @@
 
 //! Hydra growth, standby accounting, cooldown, and Egress-side TTL.
 
-use super::*;
 use std::time::Duration;
+
+use socket2::SockRef;
 use tokio::sync::mpsc;
 use url::Url;
 
+use super::*;
+
 const KEY: &str = "0123456789abcdef0123456789abcdef";
+
+type ServerTlsStream = tokio_rustls::server::TlsStream<MorphTcpStream<tokio::net::TcpStream>>;
 
 async fn fake_portal() -> (
     Egress,
-    mpsc::UnboundedReceiver<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>,
+    mpsc::UnboundedReceiver<ServerTlsStream>,
+    tokio::task::JoinHandle<()>,
+) {
+    fake_portal_with_morph(false).await
+}
+
+async fn fake_portal_with_morph(
+    morph: bool,
+) -> (
+    Egress,
+    mpsc::UnboundedReceiver<ServerTlsStream>,
     tokio::task::JoinHandle<()>,
 ) {
     let url = Url::parse(&format!("portal://{KEY}@127.0.0.1:2000?morph=0")).unwrap();
@@ -27,20 +42,26 @@ async fn fake_portal() -> (
     let address = listener.local_addr().unwrap();
     let egress = Egress::new(
         Url::parse(&format!(
-            "egress://{KEY}@{}/tcp:{}?morph=0&pin={pin}",
+            "egress://{KEY}@{}/tcp:{}?morph={}&pin={pin}",
             address.ip(),
-            address.port()
+            address.port(),
+            u8::from(morph),
         ))
         .unwrap(),
         crate::common::Logger,
     )
     .unwrap();
+    let keys = egress.config.morph_keys.clone();
     let (tx, rx) = mpsc::unbounded_channel();
     let task = tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let acceptor = tokio_rustls::TlsAcceptor::from(tls.clone());
             let tx = tx.clone();
+            let keys = keys.clone();
             tokio::spawn(async move {
+                let (stream, _) = MorphTcpStream::accept_bootstrap(stream, keys)
+                    .await
+                    .unwrap();
                 if let Ok(mut stream) = acceptor.accept(stream).await {
                     let mut auth = [0; 16];
                     if stream.read_exact(&mut auth).await.is_ok()
@@ -56,13 +77,121 @@ async fn fake_portal() -> (
     (egress, rx, task)
 }
 
-async fn receive(
-    rx: &mut mpsc::UnboundedReceiver<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>,
-) -> tokio_rustls::server::TlsStream<tokio::net::TcpStream> {
+async fn receive(rx: &mut mpsc::UnboundedReceiver<ServerTlsStream>) -> ServerTlsStream {
     tokio::time::timeout(Duration::from_secs(2), rx.recv())
         .await
         .unwrap()
         .unwrap()
+}
+
+#[tokio::test]
+async fn tcp_keepalive_uses_fifteen_seconds_and_preserves_default_retries() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stream = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let socket = SockRef::from(&stream);
+    assert!(!socket.keepalive().unwrap());
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+    let retries = socket.tcp_keepalive_retries().unwrap();
+
+    socket.set_tcp_keepalive(&tcp_keepalive()).unwrap();
+    assert!(socket.keepalive().unwrap());
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+    {
+        assert_eq!(
+            socket.tcp_keepalive_time().unwrap(),
+            Duration::from_secs(15)
+        );
+        assert_eq!(
+            socket.tcp_keepalive_interval().unwrap(),
+            Duration::from_secs(15)
+        );
+        assert_eq!(socket.tcp_keepalive_retries().unwrap(), retries);
+    }
+}
+
+#[tokio::test]
+async fn tcp_keepalive_survives_standby_and_flow_start_with_and_without_morph() {
+    for morph in [false, true] {
+        let (egress, mut rx, server) = fake_portal_with_morph(morph).await;
+        let task = tokio::spawn(pending_connection(
+            egress.config.clone(),
+            egress.tls.clone(),
+            egress.credentials.egress_key,
+            egress.forward.shutdown.clone(),
+            Duration::from_secs(120),
+        ));
+        let mut peer = receive(&mut rx).await;
+        peer.write_all(&[0]).await.unwrap();
+        peer.flush().await.unwrap();
+        let PendingResult::Started(mut stream, FlowKind::Tcp) =
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("expected a started TCP Flow");
+        };
+        let socket = SockRef::from(stream.get_ref().0.get_ref());
+        assert!(socket.keepalive().unwrap());
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+        {
+            assert_eq!(
+                socket.tcp_keepalive_time().unwrap(),
+                Duration::from_secs(15)
+            );
+            assert_eq!(
+                socket.tcp_keepalive_interval().unwrap(),
+                Duration::from_secs(15)
+            );
+        }
+        stream.write_all(b"flow").await.unwrap();
+        stream.flush().await.unwrap();
+        let mut payload = [0; 4];
+        tokio::time::timeout(Duration::from_secs(2), peer.read_exact(&mut payload))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&payload, b"flow");
+        assert!(
+            SockRef::from(stream.get_ref().0.get_ref())
+                .keepalive()
+                .unwrap()
+        );
+        server.abort();
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[tokio::test]
+async fn tcp_keepalive_configuration_error_stops_before_handshake() {
+    let (egress, _rx, server) = fake_portal().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let peer = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut byte = [0];
+        assert_eq!(stream.read(&mut byte).await.unwrap(), 0);
+    });
+    let invalid = TcpKeepalive::new().with_retries(u32::MAX);
+    let error = egress
+        .tls
+        .connect_tcp_with_keepalive(
+            &address,
+            &egress.config.dial_policy,
+            crate::common::AddressFamily::Any,
+            Some(&invalid),
+        )
+        .await
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("failed to configure TCP keepalive"));
+    tokio::time::timeout(Duration::from_secs(2), peer)
+        .await
+        .unwrap()
+        .unwrap();
+    server.abort();
 }
 
 #[tokio::test]
@@ -161,7 +290,6 @@ async fn max_one_replaces_consumed_standby_without_exceeding_one() {
             .await
             .is_err()
     );
-    // FlowStart ends Egress standby TTL even while Target is still incomplete.
     tokio::time::sleep(ttl + Duration::from_millis(50)).await;
     let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = crate::protocol::Target::Ip(target.local_addr().unwrap());

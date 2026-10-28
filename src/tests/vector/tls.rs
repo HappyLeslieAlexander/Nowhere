@@ -48,7 +48,7 @@ async fn client_prefers_fixed_nw3_alpn() {
         "vector://0123456789abcdef0123456789abcdef@{endpoint}?morph=0&unknown=ignored&pin={pin}&in=127.0.0.1:1080"
     );
 
-    let _ = ClientTls::new(&config(&raw))
+    let (stream, _) = ClientTls::new(&config(&raw))
         .unwrap()
         .connect_tcp(
             &endpoint.to_string(),
@@ -57,6 +57,11 @@ async fn client_prefers_fixed_nw3_alpn() {
         )
         .await
         .unwrap();
+    assert!(
+        !socket2::SockRef::from(stream.get_ref().0.get_ref())
+            .keepalive()
+            .unwrap()
+    );
     server_task.await.unwrap().unwrap();
 }
 
