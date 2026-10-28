@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use tokio::time::Instant;
 
@@ -101,12 +101,10 @@ impl EgressRegistry {
                             });
                             break Some(Ok(Selected::Quic(q)));
                         }
-                        EntryKind::Tls { sender, expires_at }
-                            if !sender.is_closed() && Instant::now() < expires_at =>
-                        {
+                        EntryKind::Tls { sender, expires_at } if Instant::now() < expires_at => {
                             let (transfer, receiver) = oneshot::channel();
                             if sender.send(transfer).is_err() {
-                                break Some(Err(anyhow!("Egress TLS claim failed")));
+                                continue;
                             }
                             break Some(Ok(Selected::Tls(receiver)));
                         }

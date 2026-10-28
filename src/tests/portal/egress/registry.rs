@@ -151,3 +151,57 @@ async fn expired_tls_is_skipped_before_its_owner_gets_scheduled() {
     assert!(transfer.is_closed());
     assert!(!registry.online());
 }
+
+#[tokio::test]
+async fn failed_tls_dispatch_skips_to_the_next_live_tls_or_quic() {
+    let (server, endpoint, _peer, quic) = quic_pair().await;
+    for use_quic in [false, true] {
+        let registry = Arc::new(EgressRegistry::new(2));
+        let (dead, receiver) = oneshot::channel();
+        let _dead =
+            registry.register_tls(dead, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL);
+        drop(receiver);
+        let (live, receiver) = oneshot::channel();
+        let _live = if use_quic {
+            registry.register_quic(quic.clone())
+        } else {
+            registry.register_tls(live, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL)
+        };
+        let selected = registry.claim().await.unwrap();
+        if use_quic {
+            assert!(matches!(selected, Selected::Quic(q) if Arc::ptr_eq(&q, &quic)));
+        } else {
+            assert!(matches!(selected, Selected::Tls(_)));
+            assert!(receiver.await.is_ok());
+        }
+    }
+    quic.close();
+    endpoint.close(0u32.into(), b"test");
+    server.close(0u32.into(), b"test");
+}
+
+#[tokio::test]
+async fn failed_tls_dispatch_waits_for_a_new_registration_when_queue_is_empty() {
+    let registry = Arc::new(EgressRegistry::new(1));
+    let (dead, receiver) = oneshot::channel();
+    let _dead = registry.register_tls(dead, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL);
+    drop(receiver);
+    let claim = registry.claim();
+    tokio::pin!(claim);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut claim)
+            .await
+            .is_err()
+    );
+    assert!(!registry.online());
+    let (live, receiver) = oneshot::channel();
+    let _live = registry.register_tls(live, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL);
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), claim)
+            .await
+            .unwrap()
+            .unwrap(),
+        Selected::Tls(_)
+    ));
+    assert!(receiver.await.is_ok());
+}
