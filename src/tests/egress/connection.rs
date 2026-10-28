@@ -140,3 +140,72 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     task.await.unwrap().unwrap();
     endpoint.wait_idle().await;
 }
+
+#[tokio::test]
+async fn registration_deadline_covers_stream_credit_auth_write_and_complete_reply() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef";
+    for stage in 0..4 {
+        let url = Url::parse(&format!("portal://{KEY}@127.0.0.1:2000")).unwrap();
+        let (_, tls, mut quic) = crate::common::new_server_configs_with_reload_interval(
+            &url,
+            std::time::Duration::from_secs(3600),
+            Logger,
+        )
+        .unwrap();
+        let pin = crate::tls_test_support::server_certificate_pin(&tls);
+        let transport = Arc::get_mut(&mut quic.transport).unwrap();
+        if stage == 1 {
+            transport.stream_receive_window(0u32.into());
+        } else {
+            transport.max_concurrent_bidi_streams(0u32.into());
+        }
+        let endpoint = quinn::Endpoint::server(quic, "127.0.0.1:0".parse().unwrap()).unwrap();
+        let mut egress = Egress::new(
+            Url::parse(&format!(
+                "egress://{KEY}@{}?morph=0&pin={pin}",
+                endpoint.local_addr().unwrap(),
+            ))
+            .unwrap(),
+            Logger,
+        )
+        .unwrap();
+        Arc::get_mut(&mut egress.forward)
+            .unwrap()
+            .runtime
+            .handshake_timeout = std::time::Duration::from_millis(600);
+        let task = tokio::spawn(async move { egress.run_connection().await });
+        let connection = endpoint.accept().await.unwrap().await.unwrap();
+        let held = if stage >= 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            connection.set_max_concurrent_bi_streams(1u32.into());
+            let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+            assert_eq!(recv.read_to_end(16).await.unwrap().len(), 16);
+            if stage == 3 {
+                send.write_all(&[0]).await.unwrap();
+            }
+            Some((send, recv))
+        } else {
+            None
+        };
+        let error = tokio::time::timeout(
+            std::time::Duration::from_millis(if stage >= 2 { 550 } else { 850 }),
+            task,
+        )
+        .await
+        .expect("registration ignored its total deadline")
+        .unwrap()
+        .unwrap_err();
+        assert!(
+            error
+                .downcast_ref::<tokio::time::error::Elapsed>()
+                .is_some(),
+            "{error:#}"
+        );
+        assert!(format!("{error:#}").contains("registration timeout"));
+        tokio::time::timeout(std::time::Duration::from_secs(1), connection.closed())
+            .await
+            .expect("registration timeout retained its connection");
+        drop(held);
+        endpoint.close(0u32.into(), b"done");
+    }
+}

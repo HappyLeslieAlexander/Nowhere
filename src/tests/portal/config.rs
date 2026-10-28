@@ -51,6 +51,8 @@ fn all_durations_reject_zero_and_invalid_syntax() {
         "NOW_TCP_READ_TIMEOUT",
         "NOW_UDP_IDLE_TIMEOUT",
         "NOW_HANDSHAKE_TIMEOUT",
+        "NOW_FLOW_SETUP_TIMEOUT",
+        "NOW_SERVICE_COOLDOWN",
         "NOW_SHUTDOWN_TIMEOUT",
         "NOW_RELOAD_INTERVAL",
     ] {

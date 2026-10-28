@@ -3,9 +3,12 @@
 
 //! Vector client fixtures, setup cancellation, and shutdown deadline tests.
 
+mod deadlines;
 mod quic;
 
 use std::sync::atomic::Ordering;
+
+use tokio::time::timeout;
 
 use crate::common::Logger;
 use crate::protocol::{
@@ -16,6 +19,12 @@ use crate::vector::tls::EXPORTER_LABEL;
 use super::*;
 
 fn quic_fixture() -> (quinn::Endpoint, Arc<PortalClient>) {
+    quic_fixture_with_transport(|_| {})
+}
+
+fn quic_fixture_with_transport(
+    configure: impl FnOnce(&mut quinn::TransportConfig),
+) -> (quinn::Endpoint, Arc<PortalClient>) {
     let url = url::Url::parse("portal://0123456789abcdef0123456789abcdef@127.0.0.1:2000").unwrap();
     let (_, tls, mut server) = crate::common::new_server_configs_with_reload_interval(
         &url,
@@ -28,6 +37,7 @@ fn quic_fixture() -> (quinn::Endpoint, Arc<PortalClient>) {
         .unwrap()
         .datagram_receive_buffer_size(Some(65536))
         .max_concurrent_bidi_streams(1024u32.into());
+    configure(Arc::get_mut(&mut server.transport).unwrap());
     let endpoint = quinn::Endpoint::server(server, "127.0.0.1:0".parse().unwrap()).unwrap();
     let (config, credentials) = PortalClientConfig::from_probe_url(
         &url::Url::parse(&format!(
