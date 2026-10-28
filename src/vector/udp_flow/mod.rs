@@ -206,14 +206,7 @@ pub(crate) async fn open_udp(
     target: &Target,
 ) -> std::result::Result<UdpTunnel, OpenFlowError> {
     if client.config.net == super::config::CarrierMode::Tcp {
-        let (mut reader, mut writer, guard) = client
-            .open_tls_stream()
-            .await
-            .map_err(OpenFlowError::Transport)?;
-        super::client::write_start(&mut writer, FlowKind::Udp, target)
-            .await
-            .map_err(OpenFlowError::Protocol)?;
-        super::client::read_ready(&mut reader).await?;
+        let (reader, writer, guard) = client.open_tls_flow(FlowKind::Udp, target).await?;
         Ok(UdpTunnel::stream(
             reader,
             writer,

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout, timeout_at};
 
 use crate::common::handshake_timeout;
 use crate::protocol::{
@@ -33,10 +33,13 @@ impl PortalClient {
         kind: FlowKind,
         target: &Target,
     ) -> std::result::Result<QuicFlow, OpenFlowError> {
+        let deadline = Instant::now() + self.flow_setup_timeout;
         tokio::select! {
             biased;
             _ = self.shutdown.cancelled() => Err(OpenFlowError::Cancelled),
-            result = self.open_quic_flow_inner(kind, target) => result,
+            result = timeout_at(deadline, self.open_quic_flow_inner(kind, target)) => {
+                result.map_err(|error| OpenFlowError::Transport(error.into()))?
+            },
         }
     }
 
@@ -119,13 +122,9 @@ impl PortalClient {
         send.write_all(&bytes[..prefix + size])
             .await
             .map_err(|e| OpenFlowError::Transport(e.into()))?;
-        let result = timeout(
-            crate::common::flow_setup_timeout(),
-            crate::protocol::read_flow_result(&mut recv),
-        )
-        .await
-        .map_err(|error| OpenFlowError::Transport(error.into()))?
-        .map_err(OpenFlowError::Protocol)?;
+        let result = crate::protocol::read_flow_result(&mut recv)
+            .await
+            .map_err(OpenFlowError::Protocol)?;
         Ok((QuicFlow { send, recv, udp }, SetupResult::from(result)))
     }
 }

@@ -23,6 +23,7 @@ impl Egress {
         if url.scheme() != "egress" {
             bail!("Egress configuration: URL scheme must be egress");
         }
+        let runtime = crate::portal::config::PortalRuntimeConfig::from_env()?;
         let query = query_first(
             &url,
             &[
@@ -51,7 +52,6 @@ impl Egress {
             dial.to_string().replace(' ', "&"),
             u8::from(config.morph)
         );
-        let runtime = crate::portal::config::PortalRuntimeConfig::from_env()?;
         let tls_pool_max = if config.net == crate::vector::config::CarrierMode::Tcp {
             tls_pool_max_from_env()?
         } else {

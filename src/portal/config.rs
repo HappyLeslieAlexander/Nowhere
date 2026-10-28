@@ -8,6 +8,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use tokio::sync::Semaphore;
 
+use crate::common::{env_value, read_duration, validate_timeouts};
+
 const DEFAULT_QUIC_UDP_QUEUE_BYTES: usize = 4 * 1024 * 1024;
 
 const DEFAULT_TCP_DATA_BUF_SIZE: usize = 32 * 1024;
@@ -36,19 +38,14 @@ pub(crate) struct PortalRuntimeConfig {
 
 impl PortalRuntimeConfig {
     pub(crate) fn from_env() -> Result<Self> {
-        Self::from_source(|name| match std::env::var(name) {
-            Ok(value) => Ok(Some(value)),
-            Err(std::env::VarError::NotPresent) => Ok(None),
-            Err(std::env::VarError::NotUnicode(value)) => {
-                bail!("portal::config: {name} is not valid Unicode: {value:?}")
-            }
-        })
+        Self::from_source(env_value)
     }
 
     fn from_source<F>(mut source: F) -> Result<Self>
     where
         F: FnMut(&str) -> Result<Option<String>>,
     {
+        validate_timeouts(&mut source)?;
         let egress_tls_pending_max = read_usize(&mut source, "NOW_PORTAL_TLS_IDLE_MAX", 128, 1023)?;
         let udp_queue_bytes = read_usize(
             &mut source,
@@ -82,8 +79,6 @@ impl PortalRuntimeConfig {
             "NOW_UDP_IDLE_TIMEOUT",
             DEFAULT_UDP_IDLE_TIMEOUT,
         )?;
-        quinn::IdleTimeout::try_from(udp_idle_timeout)
-            .context("portal::config: NOW_UDP_IDLE_TIMEOUT exceeds QUIC implementation limit")?;
         let handshake_timeout = read_duration(
             &mut source,
             "NOW_HANDSHAKE_TIMEOUT",
@@ -125,26 +120,6 @@ where
         .with_context(|| format!("portal::config: invalid {name}={raw:?}"))?;
     if value == 0 || value > max {
         bail!("portal::config: {name} must be in 1..={max}: {raw:?}");
-    }
-    Ok(value)
-}
-
-fn read_duration<F>(source: &mut F, name: &str, default: Duration) -> Result<Duration>
-where
-    F: FnMut(&str) -> Result<Option<String>>,
-{
-    let Some(raw) = source(name)? else {
-        return Ok(default);
-    };
-    let value = humantime::parse_duration(&raw)
-        .with_context(|| format!("portal::config: invalid {name}={raw:?}"))?;
-    if value.is_zero() {
-        bail!("portal::config: {name} must be greater than zero: {raw:?}");
-    }
-    if tokio::time::Instant::now().checked_add(value).is_none()
-        || std::time::Instant::now().checked_add(value).is_none()
-    {
-        bail!("portal::config: {name} exceeds timer implementation limit: {raw:?}");
     }
     Ok(value)
 }

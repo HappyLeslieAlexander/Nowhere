@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::common::{flow_setup_timeout, handshake_timeout, shutdown_timeout};
+use crate::common::shutdown_timeout;
 use crate::protocol::{Carrier, Credentials, SetupResult, Target};
 use crate::transport::Stats;
 use crate::vector::{PortalClient, PortalClientConfig};
@@ -51,15 +51,11 @@ impl ProbeClient {
             shutdown,
         )?;
         let started = Instant::now();
-        let opened = tokio::time::timeout(
-            handshake_timeout() * 2 + flow_setup_timeout(),
-            client.open_tcp(&target),
-        )
-        .await;
+        let opened = client.open_tcp(&target).await;
         let elapsed = started.elapsed();
         let mut cleanup = Ok(());
         let (carrier, result) = match opened {
-            Ok(Ok(tunnel)) => {
+            Ok(tunnel) => {
                 let carrier = tunnel.carrier();
                 cleanup = tokio::time::timeout(shutdown_timeout(), tunnel.close())
                     .await
@@ -67,13 +63,12 @@ impl ProbeClient {
                     .and_then(|result| result.map_err(Into::into));
                 (carrier_name(carrier), Ok(SetupResult::Ready))
             }
-            Ok(Err(error)) => {
+            Err(error) => {
                 let result = error
                     .setup_result()
                     .map_or_else(|| Err(anyhow::Error::new(error)), Ok);
                 ("—", result)
             }
-            Err(_) => ("—", Err(anyhow::anyhow!("Flow setup timeout"))),
         };
         if tokio::time::timeout(
             shutdown_timeout(),

@@ -71,11 +71,71 @@ pub fn env_int(name: &str, default_value: i32) -> i32 {
         .unwrap_or(default_value)
 }
 
-pub fn env_duration(name: &str, default_value: Duration) -> Duration {
-    std::env::var(name)
-        .ok()
-        .and_then(|s| humantime::parse_duration(&s).ok())
-        .unwrap_or(default_value)
+pub(crate) fn env_value(name: &str) -> Result<Option<String>> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => bail!("{name} is not valid Unicode"),
+    }
+}
+
+pub(crate) fn read_duration<F>(source: &mut F, name: &str, default: Duration) -> Result<Duration>
+where
+    F: FnMut(&str) -> Result<Option<String>>,
+{
+    let Some(raw) = source(name)? else {
+        return Ok(default);
+    };
+    parse_duration(name, &raw)
+}
+
+fn parse_duration(name: &str, raw: &str) -> Result<Duration> {
+    let value =
+        humantime::parse_duration(raw).with_context(|| format!("invalid {name}={raw:?}"))?;
+    if value.is_zero() {
+        bail!("{name} must be greater than zero: {raw:?}");
+    }
+    if tokio::time::Instant::now().checked_add(value).is_none()
+        || std::time::Instant::now().checked_add(value).is_none()
+    {
+        bail!("{name} exceeds timer implementation limit: {raw:?}");
+    }
+    if name == "NOW_UDP_IDLE_TIMEOUT" {
+        quinn::IdleTimeout::try_from(value)
+            .context("NOW_UDP_IDLE_TIMEOUT exceeds QUIC implementation limit")?;
+    }
+    Ok(value)
+}
+
+pub(crate) fn validate_timeout_env() -> Result<()> {
+    validate_timeouts(&mut env_value)
+}
+
+pub(crate) fn validate_timeouts<F>(source: &mut F) -> Result<()>
+where
+    F: FnMut(&str) -> Result<Option<String>>,
+{
+    for name in [
+        "NOW_TCP_DIAL_TIMEOUT",
+        "NOW_UDP_DIAL_TIMEOUT",
+        "NOW_TCP_READ_TIMEOUT",
+        "NOW_UDP_IDLE_TIMEOUT",
+        "NOW_HANDSHAKE_TIMEOUT",
+        "NOW_FLOW_SETUP_TIMEOUT",
+        "NOW_SHUTDOWN_TIMEOUT",
+        "NOW_RELOAD_INTERVAL",
+        "NOW_SERVICE_COOLDOWN",
+    ] {
+        if let Some(raw) = source(name)? {
+            parse_duration(name, &raw)?;
+        }
+    }
+    Ok(())
+}
+
+fn env_duration(name: &str, default_value: Duration) -> Duration {
+    read_duration(&mut env_value, name, default_value)
+        .expect("duration environment must be validated at startup")
 }
 
 pub fn rate_limit_bytes_per_second(mbps: i32) -> u64 {

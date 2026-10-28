@@ -46,7 +46,11 @@ impl Egress {
                 connection.close(0u32.into(), b"shutdown");
                 return Ok(());
             },
-            result = super::registration::register(&connection, self.credentials.egress_key) => result?,
+            result = super::registration::register(
+                &connection,
+                self.credentials.egress_key,
+                tokio::time::Instant::now() + self.forward.runtime.handshake_timeout,
+            ) => result?,
         }
         let limits = crate::transport::transport_flow_control()?;
         connection.set_receive_window(limits.connection_receive_window.into());

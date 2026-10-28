@@ -150,6 +150,7 @@ impl ClientTls {
 }
 
 pub(crate) async fn fetch_certificate_fingerprint(config: &PortalClientConfig) -> Result<String> {
+    crate::common::validate_timeout_env()?;
     let endpoint = config
         .tcp_endpoint()
         .context("TCP carrier is not configured")?;

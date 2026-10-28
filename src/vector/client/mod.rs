@@ -6,11 +6,12 @@
 mod quic;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use tokio::time::{Instant, timeout};
+use tokio::time::{Instant, timeout_at};
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::{
@@ -31,6 +32,7 @@ pub(crate) struct PortalClient {
     pub(super) account_stats: bool,
     credentials: Credentials,
     tls: ClientTls,
+    flow_setup_timeout: Duration,
     quic: Mutex<Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
     pub(super) shutdown: CancellationToken,
 }
@@ -52,6 +54,7 @@ impl PortalClient {
         account_stats: bool,
         shutdown: CancellationToken,
     ) -> Result<Arc<Self>> {
+        crate::common::validate_timeout_env()?;
         let tls = ClientTls::new(&config)?;
         Ok(Arc::new(Self {
             config,
@@ -59,6 +62,7 @@ impl PortalClient {
             account_stats,
             credentials: credentials.clone(),
             tls,
+            flow_setup_timeout: crate::common::flow_setup_timeout(),
             quic: Mutex::new(None),
             shutdown,
         }))
@@ -69,15 +73,7 @@ impl PortalClient {
         target: &Target,
     ) -> std::result::Result<TcpTunnel, OpenFlowError> {
         let (reader, writer, mut guard) = if self.config.net == CarrierMode::Tcp {
-            let (mut reader, mut writer, guard) = self
-                .open_tls_stream()
-                .await
-                .map_err(OpenFlowError::Transport)?;
-            write_start(&mut writer, FlowKind::Tcp, target)
-                .await
-                .map_err(OpenFlowError::Protocol)?;
-            read_ready(&mut reader).await?;
-            (reader, writer, guard)
+            self.open_tls_flow(FlowKind::Tcp, target).await?
         } else {
             let flow = self.open_quic_flow(FlowKind::Tcp, target).await?;
             (
@@ -96,6 +92,25 @@ impl PortalClient {
             self.config.net.carrier(),
             guard,
         ))
+    }
+
+    pub(super) async fn open_tls_flow(
+        &self,
+        kind: FlowKind,
+        target: &Target,
+    ) -> std::result::Result<(BoxReader, BoxWriter, TcpTunnelGuard), OpenFlowError> {
+        let deadline = Instant::now() + self.flow_setup_timeout;
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => Err(OpenFlowError::Cancelled),
+            result = timeout_at(deadline, async {
+                let (mut reader, mut writer, guard) = self.open_tls_stream()
+                    .await.map_err(OpenFlowError::Transport)?;
+                write_start(&mut writer, kind, target).await.map_err(OpenFlowError::Protocol)?;
+                read_ready(&mut reader).await?;
+                Ok((reader, writer, guard))
+            }) => result.map_err(|error| OpenFlowError::Transport(error.into()))?,
+        }
     }
 
     pub(crate) async fn open_tls_stream(&self) -> Result<(BoxReader, BoxWriter, TcpTunnelGuard)> {
@@ -153,13 +168,9 @@ pub(crate) async fn write_start(
 }
 
 pub(crate) async fn read_ready(reader: &mut BoxReader) -> std::result::Result<(), OpenFlowError> {
-    let result = timeout(
-        crate::common::flow_setup_timeout(),
-        crate::protocol::read_flow_result(reader),
-    )
-    .await
-    .map_err(|error| OpenFlowError::Transport(error.into()))?
-    .map_err(OpenFlowError::Protocol)?;
+    let result = crate::protocol::read_flow_result(reader)
+        .await
+        .map_err(OpenFlowError::Protocol)?;
     match SetupResult::from(result) {
         SetupResult::Ready => Ok(()),
         result => Err(OpenFlowError::Setup(result)),

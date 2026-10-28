@@ -78,6 +78,7 @@ impl VectorRuntime {
     }
 
     fn build(parsed_url: Url, logger: Logger) -> Result<Self> {
+        crate::common::validate_timeout_env()?;
         let config = VectorConfig::from_url(&parsed_url)?;
         let credentials = Credentials::new(&parsed_url)?;
         let stats = Arc::new(Stats::default());
