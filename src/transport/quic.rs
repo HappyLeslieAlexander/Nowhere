@@ -3,6 +3,8 @@
 
 //! Shared transport flow-control budgets for QUIC connections.
 
+use std::sync::OnceLock;
+
 use anyhow::{Result, bail};
 
 const MIB: u32 = 1024 * 1024;
@@ -28,12 +30,30 @@ impl TransportFlowControl {
     }
 }
 
-pub(crate) fn transport_flow_control() -> Result<TransportFlowControl> {
-    parse_transport_profile(
+static TRANSPORT_PROFILE: OnceLock<TransportFlowControl> = OnceLock::new();
+
+/// The profile parsed once at startup. A bad NOW_TRANSPORT_MEMORY_PROFILE is
+/// rejected by [`validate_transport_profile`] during startup, so this can
+/// never fail per connection.
+pub(crate) fn transport_flow_control() -> TransportFlowControl {
+    *TRANSPORT_PROFILE.get_or_init(|| {
+        parse_transport_profile(
+            std::env::var("NOW_TRANSPORT_MEMORY_PROFILE")
+                .ok()
+                .as_deref(),
+        )
+        .unwrap_or(TransportFlowControl::THROUGHPUT)
+    })
+}
+
+pub(crate) fn validate_transport_profile() -> Result<()> {
+    let profile = parse_transport_profile(
         std::env::var("NOW_TRANSPORT_MEMORY_PROFILE")
             .ok()
             .as_deref(),
-    )
+    )?;
+    let _ = TRANSPORT_PROFILE.set(profile);
+    Ok(())
 }
 
 fn parse_transport_profile(value: Option<&str>) -> Result<TransportFlowControl> {

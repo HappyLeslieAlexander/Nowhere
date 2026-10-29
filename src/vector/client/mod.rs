@@ -60,7 +60,7 @@ impl PortalClient {
         account_stats: bool,
         shutdown: CancellationToken,
     ) -> Result<Arc<Self>> {
-        crate::common::validate_timeout_env()?;
+        crate::common::validate_runtime_env()?;
         let tls = ClientTls::new(&config)?;
         Ok(Arc::new(Self {
             config,

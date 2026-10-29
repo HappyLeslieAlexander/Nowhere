@@ -6,9 +6,9 @@
 use super::*;
 
 #[test]
-fn snapshots_have_only_six_statistics() {
+fn snapshots_have_the_full_statistics_schema() {
     let value = serde_json::to_value(TelemetrySnapshot::default()).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 6);
+    assert_eq!(value.as_object().unwrap().len(), 10);
     for field in [
         "tcp_upload_bytes",
         "tcp_download_bytes",
@@ -16,9 +16,25 @@ fn snapshots_have_only_six_statistics() {
         "udp_download_bytes",
         "tcp_active",
         "udp_active",
+        "udp_dropped_malformed",
+        "udp_dropped_source_mismatch",
+        "udp_dropped_busy",
+        "silent_rejections",
     ] {
         assert_eq!(value[field], 0);
     }
+    // Snapshots from instances that predate the drop counters still parse.
+    let legacy: TelemetrySnapshot = serde_json::from_value(serde_json::json!({
+        "tcp_upload_bytes": 1,
+        "tcp_download_bytes": 2,
+        "udp_upload_bytes": 3,
+        "udp_download_bytes": 4,
+        "tcp_active": 5,
+        "udp_active": 6,
+    }))
+    .unwrap();
+    assert_eq!(legacy.udp_dropped_malformed, 0);
+    assert_eq!(legacy.silent_rejections, 0);
     for kind in ["unknown", "", "HELLO", "SNAPSHOT"] {
         assert!(
             serde_json::from_value::<ServerMessage>(serde_json::json!({"type":kind,"data":{}}))

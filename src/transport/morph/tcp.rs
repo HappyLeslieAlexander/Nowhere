@@ -18,6 +18,8 @@ use super::{
 const TCP_STREAM_LIMIT: u64 = (1u64 << 38) - 64;
 const TCP_PRELUDE_ENV: &str = "NOW_MORPH_TCP_PRELUDE";
 
+static TCP_PRELUDE_POLICY: std::sync::OnceLock<TcpPreludePolicy> = std::sync::OnceLock::new();
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TcpPreludePolicy {
     Fade,
@@ -26,8 +28,9 @@ enum TcpPreludePolicy {
 }
 
 impl TcpPreludePolicy {
-    fn from_env() -> io::Result<Self> {
-        Self::parse(std::env::var(TCP_PRELUDE_ENV))
+    fn current() -> Self {
+        *TCP_PRELUDE_POLICY
+            .get_or_init(|| Self::parse(std::env::var(TCP_PRELUDE_ENV)).unwrap_or(Self::Fade))
     }
 
     fn parse(value: Result<String, std::env::VarError>) -> io::Result<Self> {
@@ -41,6 +44,12 @@ impl TcpPreludePolicy {
                 format!("{TCP_PRELUDE_ENV} must be fade, full8 or low7"),
             )),
         }
+    }
+
+    fn validate_env() -> io::Result<()> {
+        let policy = Self::parse(std::env::var(TCP_PRELUDE_ENV))?;
+        let _ = TCP_PRELUDE_POLICY.set(policy);
+        Ok(())
     }
 
     fn generate(self) -> io::Result<[u8; TCP_PRELUDE_LEN]> {
@@ -75,6 +84,12 @@ impl TcpPreludePolicy {
         }
         Ok(prelude)
     }
+}
+
+/// Validate NOW_MORPH_TCP_PRELUDE at startup: a bad value must fail startup
+/// instead of every outbound TLS connection at connect time.
+pub(crate) fn validate_morph_prelude_env() -> std::io::Result<()> {
+    TcpPreludePolicy::validate_env()
 }
 
 fn sample_below(
@@ -124,7 +139,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         let Some(keys) = keys else {
             return Ok(Self { inner, morph: None });
         };
-        let mut prelude = TcpPreludePolicy::from_env()?.generate()?;
+        let mut prelude = TcpPreludePolicy::current().generate()?;
         let mut nonce = [0u8; NONCE_LEN];
         getrandom::fill(&mut nonce).map_err(io::Error::other)?;
         keys.encode_prelude(&mut prelude, &nonce, identity.allocate()?);

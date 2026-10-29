@@ -86,7 +86,7 @@ pub(super) fn configure_transport(
     keep_alive_interval: Option<Duration>,
     morph_enabled: bool,
 ) -> Result<()> {
-    let flow_control = transport_flow_control()?;
+    let flow_control = transport_flow_control();
     let transport = Arc::get_mut(&mut server_config.transport).ok_or_else(|| {
         anyhow::anyhow!("portal::configure_transport: server transport already shared")
     })?;

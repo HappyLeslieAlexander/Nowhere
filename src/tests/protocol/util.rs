@@ -7,7 +7,15 @@ use super::*;
 
 #[test]
 fn domain_validation_accepts_ascii_idna_wire_names() {
-    for domain in [b"example.com".as_slice(), b"xn--bcher-kva.example", b"a"] {
+    for domain in [
+        b"example.com".as_slice(),
+        b"xn--bcher-kva.example",
+        b"a",
+        // Underscore labels are real, resolvable names (_dmarc, ACME DNS-01).
+        b"_dmarc.example.com".as_slice(),
+        b"_acme-challenge.example.com".as_slice(),
+        b"foo_bar.example.com".as_slice(),
+    ] {
         validate_domain_bytes(domain, "test").unwrap();
     }
 }
@@ -21,7 +29,6 @@ fn domain_validation_rejects_unsafe_and_oversized_names() {
         b"bad[host]",
         b"bad/host",
         b"bad@host",
-        b"bad_host",
         b"bad..host",
         b"-bad.host",
         b"bad-.host",

@@ -37,6 +37,7 @@ impl Portal {
         if url.scheme() != "portal" || url.password().is_some() || url.fragment().is_some() {
             anyhow::bail!("invalid Portal URL");
         }
+        crate::common::validate_runtime_env()?;
         let query = query_first(&url, PORTAL_QUERY_PARAMETERS)?;
         validate_query(&query)?;
         let endpoint = ServiceEndpoint::parse(&url, true, "portal endpoint")?;

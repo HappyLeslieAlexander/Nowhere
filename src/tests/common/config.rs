@@ -154,6 +154,21 @@ fn invalid_quic_udp_queue_bytes_is_rejected_by_each_service_at_startup() {
 }
 
 #[test]
+fn invalid_runtime_env_is_rejected_by_each_service_at_startup() {
+    for role in ["portal", "vector", "egress"] {
+        for (name, raw) in [
+            ("NOW_TRANSPORT_MEMORY_PROFILE", "typo"),
+            ("NOW_MORPH_TCP_PRELUDE", "typo"),
+            ("NOW_TCP_DATA_BUF_SIZE", "0"),
+            ("NOW_TCP_DATA_BUF_SIZE", "2000000"),
+            ("NOW_TCP_DATA_BUF_SIZE", "invalid"),
+        ] {
+            assert_invalid_startup(role, name, std::ffi::OsStr::new(raw));
+        }
+    }
+}
+
+#[test]
 fn invalid_duration_is_rejected_by_each_service_at_startup() {
     for role in ["portal", "vector", "egress"] {
         for name in [
@@ -207,8 +222,15 @@ fn invalid_duration_startup_child() {
         return;
     };
     let name = std::env::var("NOW_TEST_TIMEOUT_NAME").unwrap();
+    // Vector needs its SOCKS listener so configuration errors surface from the
+    // runtime environment instead of the missing ingress parameter.
+    let ingress = if role == "vector" {
+        "?in=127.0.0.1:1080"
+    } else {
+        ""
+    };
     let url = Url::parse(&format!(
-        "{role}://0123456789abcdef0123456789abcdef@127.0.0.1:2000"
+        "{role}://0123456789abcdef0123456789abcdef@127.0.0.1:2000{ingress}"
     ))
     .unwrap();
     let error = match role.as_str() {

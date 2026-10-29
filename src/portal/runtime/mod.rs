@@ -142,7 +142,11 @@ pub(super) async fn tcp_loop(
                             None => tokio::select! {
                                 biased;
                                 _ = p.forward.shutdown.cancelled() => return conn::TcpOutcome::Closed,
-                                _ = tokio::time::sleep_until(deadline) => return conn::TcpOutcome::Closed,
+                                // A park that outlives its deadline is a silent
+                                // rejection: it never got a reply either.
+                                _ = tokio::time::sleep_until(deadline) => {
+                                    return conn::TcpOutcome::SilentPreHello;
+                                }
                                 admission = p.unauthenticated_admission.acquire(peer.ip()) => admission,
                             },
                         };
@@ -169,7 +173,11 @@ pub(super) async fn tcp_loop(
                 Err(error) => break Err(error.into()),
             },
             joined = tasks.join_next(), if !tasks.is_empty() => {
-                if let Some(Ok(outcome)) = joined { rejected.record(outcome, &portal.forward.logger); }
+                match joined {
+                    Some(Ok(outcome)) => rejected.record(outcome, &portal.forward.logger, &portal.forward.stats),
+                    Some(Err(error)) => p_debug_log(&portal, &error),
+                    None => {},
+                }
             },
         }
     };
@@ -177,8 +185,9 @@ pub(super) async fn tcp_loop(
         tasks.abort_all();
     }
     while let Some(joined) = tasks.join_next().await {
-        if let Ok(outcome) = joined {
-            rejected.record(outcome, &portal.forward.logger);
+        match joined {
+            Ok(outcome) => rejected.record(outcome, &portal.forward.logger, &portal.forward.stats),
+            Err(error) => p_debug_log(&portal, &error),
         }
     }
     rejected.report(&portal.forward.logger);
@@ -209,9 +218,17 @@ impl SilentRejections {
         }
     }
 
-    fn record(&mut self, outcome: conn::TcpOutcome, logger: &crate::common::Logger) {
+    fn record(
+        &mut self,
+        outcome: conn::TcpOutcome,
+        logger: &crate::common::Logger,
+        stats: &crate::transport::Stats,
+    ) {
         if matches!(outcome, conn::TcpOutcome::SilentPreHello) {
             self.count = self.count.saturating_add(1);
+            stats
+                .silent_rejections
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         if self.reported_at.elapsed() >= std::time::Duration::from_secs(60) {
             self.report(logger);
@@ -245,8 +262,16 @@ pub(super) async fn quic_loop(
                     let _ = incoming.retry();
                     continue;
                 }
-                let Some(admission) = portal.unauthenticated_admission.try_acquire(incoming.remote_address().ip()) else { incoming.ignore(); continue; };
-                let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else { incoming.ignore(); continue; };
+                let Some(admission) = portal.unauthenticated_admission.try_acquire(incoming.remote_address().ip()) else {
+                    portal.forward.stats.silent_rejections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    incoming.ignore();
+                    continue;
+                };
+                let Ok(permit) = portal.connection_admission.clone().try_acquire_owned() else {
+                    portal.forward.stats.silent_rejections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    incoming.ignore();
+                    continue;
+                };
                 let p = portal.clone();
                 tasks.spawn(async move {
                     let _permit = permit;
@@ -255,7 +280,11 @@ pub(super) async fn quic_loop(
                     }
                 });
             },
-            _ = tasks.join_next(), if !tasks.is_empty() => {},
+            joined = tasks.join_next(), if !tasks.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    portal.forward.logger.debug(format_args!("quic connection task failed: {error}"));
+                }
+            },
         }
     };
     if result.is_err() {
@@ -263,4 +292,11 @@ pub(super) async fn quic_loop(
     }
     while tasks.join_next().await.is_some() {}
     result
+}
+
+fn p_debug_log(portal: &Arc<PortalInner>, error: &tokio::task::JoinError) {
+    portal
+        .forward
+        .logger
+        .debug(format_args!("connection task failed: {error}"));
 }

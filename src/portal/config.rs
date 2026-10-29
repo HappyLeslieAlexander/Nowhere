@@ -67,7 +67,7 @@ impl PortalRuntimeConfig {
             &mut source,
             "NOW_TCP_DATA_BUF_SIZE",
             DEFAULT_TCP_DATA_BUF_SIZE,
-            isize::MAX as usize,
+            crate::common::TCP_DATA_BUF_MAX,
         )?;
         let tcp_dial_timeout = read_duration(
             &mut source,

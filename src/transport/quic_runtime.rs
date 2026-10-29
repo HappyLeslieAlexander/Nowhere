@@ -46,6 +46,7 @@ pub(crate) struct QuicConnection {
     pub(crate) draining: CancellationToken,
     state: Mutex<UdpState>,
     budget: Arc<Semaphore>,
+    stats: Option<Arc<crate::transport::Stats>>,
 }
 
 impl QuicConnection {
@@ -53,6 +54,7 @@ impl QuicConnection {
         connection: quinn::Connection,
         server_initiated: bool,
         bytes: usize,
+        stats: Option<Arc<crate::transport::Stats>>,
     ) -> Arc<Self> {
         let this = Arc::new(Self {
             connection,
@@ -61,6 +63,7 @@ impl QuicConnection {
             draining: CancellationToken::new(),
             state: Mutex::new(UdpState::new(bytes)),
             budget: Arc::new(Semaphore::new(bytes)),
+            stats,
         });
         let task = this.clone();
         tokio::spawn(async move {
@@ -128,8 +131,11 @@ impl QuicConnection {
                     None
                 }
             };
-            if let Some(packet) = packet {
-                let _ = route.sender.try_send(packet);
+            if let Some(packet) = packet
+                && route.sender.try_send(packet).is_err()
+                && let Some(stats) = &self.stats
+            {
+                stats.udp_dropped_busy.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

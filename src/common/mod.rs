@@ -14,13 +14,13 @@ mod socks;
 mod tls;
 
 pub use config::{
-    DEFAULT_RATE_LIMIT, flow_setup_timeout, handshake_timeout, query_first,
+    DEFAULT_RATE_LIMIT, TCP_DATA_BUF_MAX, flow_setup_timeout, handshake_timeout, query_first,
     rate_limit_bytes_per_second, service_cooldown_with_jitter, shutdown_timeout, tcp_data_buf_size,
     tcp_read_timeout, udp_idle_timeout,
 };
 pub(crate) use config::{
     EGRESS_TLS_IDLE_TTL, env_value, first_raw_query_value, read_duration,
-    read_quic_udp_queue_bytes, validate_timeout_env, validate_timeouts,
+    read_quic_udp_queue_bytes, validate_runtime_env, validate_timeouts,
 };
 pub(crate) use datagram::{
     BudgetedDatagram, UdpDatagramSend, reserve_udp_budget, send_quic_udp_packet,

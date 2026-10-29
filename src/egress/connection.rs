@@ -43,7 +43,7 @@ impl Egress {
         // Resolved before registration: after register() succeeds the connection
         // is already queued on the Portal, and this call must never be able to
         // drop it without an application-level close.
-        let limits = crate::transport::transport_flow_control()?;
+        let limits = crate::transport::transport_flow_control();
         tokio::select! {
             biased;
             _ = self.forward.shutdown.cancelled() => {
@@ -62,6 +62,7 @@ impl Egress {
             connection.clone(),
             true,
             self.forward.runtime.udp_queue_bytes,
+            Some(self.forward.stats.clone()),
         );
         let _owner = ConnectionGuard {
             connection: q.clone(),

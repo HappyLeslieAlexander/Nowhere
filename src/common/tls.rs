@@ -68,6 +68,16 @@ pub(crate) fn new_server_configs_with_reload_interval(
             (server_crypto, cert_sha256)
         }
         TlsMode::CaTrusted => {
+            let missing: Vec<&str> = ["crt", "key"]
+                .into_iter()
+                .filter(|name| query.get(*name).is_none_or(|value| value.is_empty()))
+                .collect();
+            if !missing.is_empty() {
+                anyhow::bail!(
+                    "common::tls::new_server_configs: tls=2 requires missing parameters: {}",
+                    missing.join(", ")
+                );
+            }
             let crt_file = query.get("crt").cloned().unwrap_or_default();
             let key_file = query.get("key").cloned().unwrap_or_default();
             let (resolver, cert_sha256) =

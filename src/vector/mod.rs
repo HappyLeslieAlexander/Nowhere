@@ -89,7 +89,7 @@ impl VectorRuntime {
     }
 
     fn build(parsed_url: Url, logger: Logger) -> Result<Self> {
-        crate::common::validate_timeout_env()?;
+        crate::common::validate_runtime_env()?;
         let udp_queue_bytes =
             crate::common::read_quic_udp_queue_bytes(&mut crate::common::env_value)?;
         let config = VectorConfig::from_url(&parsed_url)?;
@@ -112,7 +112,7 @@ impl VectorRuntime {
                 config,
                 logger,
                 stats,
-                buffers: Buffers::new(tcp_data_buf_size()),
+                buffers: Buffers::new(tcp_data_buf_size()?),
                 rate_limiter,
                 client,
                 local_udp_budget: Arc::new(Semaphore::new(udp_queue_bytes)),

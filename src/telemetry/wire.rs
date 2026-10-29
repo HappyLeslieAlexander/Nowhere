@@ -65,6 +65,16 @@ pub(crate) struct TelemetrySnapshot {
     pub(crate) udp_download_bytes: u64,
     pub(crate) tcp_active: i64,
     pub(crate) udp_active: i64,
+    /// Counters added after the initial schema: `default` keeps this reader
+    /// compatible with snapshots from instances that predate them.
+    #[serde(default)]
+    pub(crate) udp_dropped_malformed: u64,
+    #[serde(default)]
+    pub(crate) udp_dropped_source_mismatch: u64,
+    #[serde(default)]
+    pub(crate) udp_dropped_busy: u64,
+    #[serde(default)]
+    pub(crate) silent_rejections: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

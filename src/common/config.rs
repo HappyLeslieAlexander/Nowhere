@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use percent_encoding::percent_decode_str;
+
+use super::Logger;
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -22,9 +24,16 @@ pub fn query_first(parsed_url: &Url, allowed: &[&str]) -> Result<HashMap<String,
     for pair in query.split('&') {
         let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
         let Ok(key) = decode_query_component(raw_key, "query key") else {
+            // A mistyped security parameter (pin, morph, tls, ...) must never
+            // disappear silently into a default value.
+            Logger.error(format_args!("ignoring query key with invalid encoding"));
             continue;
         };
-        if !allowed.contains(&key.as_str()) || values.contains_key(&key) {
+        if !allowed.contains(&key.as_str()) {
+            Logger.error(format_args!("ignoring unknown query parameter {key:?}"));
+            continue;
+        }
+        if values.contains_key(&key) {
             continue;
         }
         values.insert(key, decode_query_component(raw_value, "query value")?);
@@ -62,14 +71,6 @@ fn decode_query_component(raw: &str, name: &str) -> Result<String> {
         .decode_utf8()
         .with_context(|| format!("invalid UTF-8 in {name}"))
         .map(|value| value.into_owned())
-}
-
-pub fn env_int(name: &str, default_value: i32) -> i32 {
-    std::env::var(name)
-        .ok()
-        .and_then(|s| s.parse::<i32>().ok())
-        .filter(|v| *v >= 0)
-        .unwrap_or(default_value)
 }
 
 pub(crate) fn env_value(name: &str) -> Result<Option<String>> {
@@ -129,6 +130,15 @@ fn parse_duration(name: &str, raw: &str) -> Result<Duration> {
     Ok(value)
 }
 
+/// Startup-time validation for every per-connection runtime read: a bad value
+/// must fail startup instead of failing each connection at handshake time.
+pub(crate) fn validate_runtime_env() -> Result<()> {
+    validate_timeout_env()?;
+    crate::transport::validate_transport_profile()?;
+    crate::transport::validate_morph_prelude_env().map_err(|error| anyhow::anyhow!("{error}"))?;
+    Ok(())
+}
+
 pub(crate) fn validate_timeout_env() -> Result<()> {
     validate_timeouts(&mut env_value)
 }
@@ -164,8 +174,22 @@ pub fn rate_limit_bytes_per_second(mbps: i32) -> u64 {
     if mbps <= 0 { 0 } else { mbps as u64 * 125_000 }
 }
 
-pub fn tcp_data_buf_size() -> usize {
-    env_int("NOW_TCP_DATA_BUF_SIZE", 32 * 1024) as usize
+/// One mebibyte: a larger relay buffer is a misconfiguration that would be
+/// pinned per flow by the buffer pool.
+pub const TCP_DATA_BUF_MAX: usize = 1024 * 1024;
+
+pub fn tcp_data_buf_size() -> Result<usize> {
+    let name = "NOW_TCP_DATA_BUF_SIZE";
+    let Some(raw) = env_value(name)? else {
+        return Ok(32 * 1024);
+    };
+    let value = raw
+        .parse::<usize>()
+        .with_context(|| format!("invalid {name}={raw:?}"))?;
+    if value == 0 || value > TCP_DATA_BUF_MAX {
+        bail!("{name} must be in 1..={TCP_DATA_BUF_MAX}: {raw:?}");
+    }
+    Ok(value)
 }
 
 pub fn tcp_read_timeout() -> Duration {

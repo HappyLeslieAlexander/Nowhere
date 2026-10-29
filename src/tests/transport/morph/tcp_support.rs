@@ -258,7 +258,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
     }
 
     pub(crate) async fn connect_legacy_for_test(inner: S, keys: MorphKeys) -> io::Result<Self> {
-        let prelude = TcpPreludePolicy::from_env()?.generate()?;
+        let prelude = TcpPreludePolicy::current().generate()?;
         let mut nonce = [0; NONCE_LEN];
         getrandom::fill(&mut nonce).map_err(io::Error::other)?;
         Self::connect_with_bootstrap(inner, keys, prelude, nonce).await

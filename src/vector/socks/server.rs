@@ -8,6 +8,7 @@ mod udp;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::{Context, Result, anyhow};
@@ -73,6 +74,7 @@ pub(in crate::vector) async fn serve_listener(
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer)) => {
                     let Some(admission) = try_admit_client(&vector) else {
+                        vector.stats.silent_rejections.fetch_add(1, Ordering::Relaxed);
                         drop(stream);
                         continue;
                     };
@@ -95,7 +97,11 @@ pub(in crate::vector) async fn serve_listener(
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
             },
-            Some(_) = clients.join_next(), if !clients.is_empty() => {}
+            joined = clients.join_next(), if !clients.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    vector.logger.debug(format_args!("socks client task failed: {error}"));
+                }
+            }
         }
     }
     while clients.join_next().await.is_some() {}

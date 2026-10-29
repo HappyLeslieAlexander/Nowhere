@@ -132,7 +132,8 @@ Hello contains `instance`: `contract`, random `id`, `role`, `pid`,
 }
 ```
 
-Snapshot contains exactly six integer fields:
+Snapshot contains ten integer fields. The four drop counters were added after
+the initial schema; readers must treat them as optional and default to zero.
 
 | Field | Meaning |
 |---|---|
@@ -142,6 +143,10 @@ Snapshot contains exactly six integer fields:
 | `udp_download_bytes` | Cumulative UDP payload toward the Vector |
 | `tcp_active` | Currently owned TCP business Flows |
 | `udp_active` | Currently owned UDP business Flows |
+| `udp_dropped_malformed` | UDP datagrams dropped before routing: undecodable, fragmented, or zero target port |
+| `udp_dropped_source_mismatch` | UDP datagrams from a source that does not match the association lock |
+| `udp_dropped_busy` | UDP datagrams dropped under resource pressure: byte budgets, full queues, target admission |
+| `silent_rejections` | Pre-authentication connections closed without a reply |
 
 ```json
 {
@@ -152,7 +157,11 @@ Snapshot contains exactly six integer fields:
     "udp_upload_bytes": 512,
     "udp_download_bytes": 1024,
     "tcp_active": 2,
-    "udp_active": 1
+    "udp_active": 1,
+    "udp_dropped_malformed": 0,
+    "udp_dropped_source_mismatch": 0,
+    "udp_dropped_busy": 0,
+    "silent_rejections": 0
   }
 }
 ```

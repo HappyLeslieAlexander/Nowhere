@@ -93,17 +93,27 @@ pub(super) async fn run_udp_association(
                     Err(error) => break Err(error.into()),
                 };
                 if source.ip() != control_peer.ip() {
+                    vector
+                        .stats
+                        .udp_dropped_source_mismatch
+                        .fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
                 if !accept_udp_source(&client_endpoint, control_peer.ip(), source) {
+                    vector
+                        .stats
+                        .udp_dropped_source_mismatch
+                        .fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
                 activity.touch();
                 idle_deadline = activity.next_deadline(idle_after);
                 let Ok((target, fragment, payload)) = decode_udp_packet(&packet[..size]) else {
+                    vector.stats.udp_dropped_malformed.fetch_add(1, Ordering::Relaxed);
                     continue;
                 };
                 if fragment != 0 || target.port() == 0 {
+                    vector.stats.udp_dropped_malformed.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
                 let Ok(permit) = vector
@@ -111,6 +121,7 @@ pub(super) async fn run_udp_association(
                     .clone()
                     .try_acquire_many_owned(payload.len().max(1) as u32)
                 else {
+                    vector.stats.udp_dropped_busy.fetch_add(1, Ordering::Relaxed);
                     continue;
                 };
                 let mut payload = QueuedLocalPacket {
@@ -120,13 +131,18 @@ pub(super) async fn run_udp_association(
                 };
                 if let Some(queue) = flows.get(&target) {
                     match queue.try_send(payload) {
-                        FlowSend::Queued | FlowSend::Full => continue,
+                        FlowSend::Queued => continue,
+                        FlowSend::Full => {
+                            vector.stats.udp_dropped_busy.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
                         FlowSend::Closed(returned) => payload = returned,
                     }
                     flows.remove(&target);
                 }
                 flows.retain(|_, queue| !queue.sender.is_closed());
                 let Some(target_admission) = try_admit_udp_target(&active_targets) else {
+                    vector.stats.udp_dropped_busy.fetch_add(1, Ordering::Relaxed);
                     continue;
                 };
                 let (queue, receiver) = UdpFlowQueue::new(vector.local_udp_flow_budget);

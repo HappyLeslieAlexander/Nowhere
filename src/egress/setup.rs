@@ -23,6 +23,7 @@ impl Egress {
         if url.scheme() != "egress" {
             bail!("Egress configuration: URL scheme must be egress");
         }
+        crate::common::validate_runtime_env()?;
         let runtime = crate::portal::config::PortalRuntimeConfig::from_env()?;
         let query = query_first(
             &url,
@@ -62,7 +63,7 @@ impl Egress {
             outbound: Outlet::Network(Arc::new(OutboundDialer::new(dial, None))),
             logger,
             stats: Arc::new(Stats::default()),
-            buffers: Buffers::new(crate::common::tcp_data_buf_size()),
+            buffers: Buffers::new(crate::common::tcp_data_buf_size()?),
             rate: RateLimiter::new(
                 crate::common::rate_limit_bytes_per_second(upload) as i64,
                 crate::common::rate_limit_bytes_per_second(download) as i64,

@@ -53,9 +53,12 @@ pub(super) fn validate_domain_bytes(domain: &[u8], context: &str) -> Result<()> 
         if label.first() == Some(&b'-') || label.last() == Some(&b'-') {
             bail!("{context}: DNS label begins or ends with hyphen");
         }
+        // Hostnames are dialed, not parsed for security, so real-world
+        // underscore labels (_dmarc, _acme-challenge) pass alongside the
+        // RFC-952 alphabet.
         if !label
             .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_'))
         {
             bail!("{context}: invalid DNS label bytes");
         }

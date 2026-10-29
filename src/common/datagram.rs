@@ -62,19 +62,31 @@ pub(crate) async fn send_quic_udp_packet(
         }
 
         let packet_id = take_packet_id(next_packet_id);
-        let fragments = encode_udp_fragments(flow_id, packet_id, payload, max_size)?;
-        let mut retry = false;
+        let fragments: Vec<Vec<u8>> =
+            encode_udp_fragments(flow_id, packet_id, payload, max_size)?.collect();
+        // Pre-flight every fragment against the advertised limit: dropping the
+        // whole packet here beats orphaning fragments that were already sent,
+        // which would pin the receiver's reassembly budget until the TTL.
+        if fragments.iter().any(|fragment| fragment.len() > max_size) {
+            return Ok(UdpDatagramSend::DroppedTooLarge);
+        }
+        let mut sent_any = false;
         for fragment in fragments {
             match conn.send_datagram_wait(Bytes::from(fragment)).await {
-                Ok(()) => {}
+                Ok(()) => sent_any = true,
                 Err(quinn::SendDatagramError::TooLarge) => {
-                    retry = true;
+                    if sent_any {
+                        // A mid-packet limit shrink after fragments left:
+                        // resending under a fresh packet id would orphan the
+                        // earlier ones on top of these.
+                        return Ok(UdpDatagramSend::DroppedTooLarge);
+                    }
                     break;
                 }
                 Err(error) => return Err(error.into()),
             }
         }
-        if !retry {
+        if sent_any {
             return Ok(UdpDatagramSend::Sent);
         }
     }

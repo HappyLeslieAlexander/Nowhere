@@ -79,7 +79,7 @@ async fn accepted_barrier_prevents_dial_when_business_stream_arrives_first() {
     )
     .unwrap();
     let pin = crate::tls_test_support::server_certificate_pin(&tls);
-    let limits = crate::transport::transport_flow_control().unwrap();
+    let limits = crate::transport::transport_flow_control();
     let transport = Arc::get_mut(&mut quic.transport).unwrap();
     transport
         .max_concurrent_bidi_streams(1u32.into())

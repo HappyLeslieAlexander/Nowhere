@@ -17,6 +17,12 @@ impl Logger {
         self.write(args, false);
     }
 
+    /// Diagnostics that only matter while debugging: panics swallowed by
+    /// supervisors, ignored connections, and similar background noise.
+    pub fn debug(&self, args: fmt::Arguments<'_>) {
+        self.write(args, true);
+    }
+
     pub fn error(&self, args: fmt::Arguments<'_>) {
         self.write(args, true);
     }
