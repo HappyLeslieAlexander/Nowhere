@@ -1,5 +1,13 @@
 # Nowhere 改进计划
 
+> **状态：已执行完毕（2026-10-30）。** 阶段 0–4 全部落地，分六个 commit：
+> `8ee6f26`（批次 1：0.1/0.2/0.4/2.1/2.6/1.6）、`25b43b7`（批次 2：0.3/1.1/1.4/1.5）、
+> `72260a1`（批次 3：1.2/1.3/2.2/2.3）、`e70d62a`（批次 4：2.4/2.5/3.1/3.2/3.3/3.4）、
+> `99e1a07`（阶段 4 工程卫生）、`4e21797`(阶段 4.3 文档)。质量门（fmt / test / clippy -D warnings /
+> release build）全绿，测试 373 → 393。
+> 唯一未实施项：4.2 的 auth.rs 换用 `hkdf` crate（计划内标注"可选、非缺陷"）与
+> diagnostic.rs typed error 重构（计划内标注"较大，可独立 PR"）。
+>
 > 来源：2026-10-30 全库代码评审（portal / vector / transport / protocol+common / egress+telemetry+toolbox，约 2.7 万行，含 1.1 万行测试）。
 > 原则：只列需要改动的事项，每项给出确切位置、问题机制、修复方案与可执行的验收标准。
 > 合入门槛（每 PR）：`cargo fmt --all -- --check`、`cargo test --all-targets --locked`、`cargo clippy --all-targets --locked -- -D warnings`、`cargo build --release --locked`。
