@@ -599,7 +599,14 @@ async fn invalid_bootstrap_returns_original_stream_without_reading_tls() {
             .await
             .err()
             .unwrap();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        // A valid tag with an invalid counter is PermissionDenied; a decode
+        // failure (peer without the key) stays InvalidData.
+        let expected = if invalid_counter {
+            io::ErrorKind::PermissionDenied
+        } else {
+            io::ErrorKind::InvalidData
+        };
+        assert_eq!(error.kind(), expected);
         let mut unread = [0; 12];
         receiver.read_exact(&mut unread).await.unwrap();
         assert_eq!(&unread, b"unparsed TLS");

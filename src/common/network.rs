@@ -77,7 +77,9 @@ pub(crate) async fn dial_tcp_with_policy(
             format!("common::util::dial_tcp_from_local_ip: failed to resolve target: {target}")
         })?;
 
-        connect_tcp_candidates(policy, filter_addrs_for_family(addrs, policy, family)).await
+        let candidates =
+            interleave_address_families(filter_addrs_for_family(addrs, policy, family));
+        connect_tcp_candidates(policy, candidates, timeout).await
     };
 
     tokio::time::timeout(timeout, connect)
@@ -95,11 +97,9 @@ pub(crate) async fn dial_udp_with_policy(
             format!("common::util::dial_udp_from_local_ip: failed to resolve target: {target}")
         })?;
 
-        connect_udp_candidates(
-            policy,
-            filter_addrs_for_family(addrs, policy, AddressFamily::Any),
-        )
-        .await
+        let candidates =
+            interleave_address_families(filter_addrs_for_family(addrs, policy, AddressFamily::Any));
+        connect_udp_candidates(policy, candidates, timeout).await
     };
 
     tokio::time::timeout(timeout, connect)
@@ -107,15 +107,54 @@ pub(crate) async fn dial_udp_with_policy(
         .context("common::util::dial_udp_from_local_ip: dial timeout")?
 }
 
+/// RFC 8305 candidate ordering: alternate address families so a black-holed
+/// family cannot head-of-line block the reachable one.
+fn interleave_address_families(addresses: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    let (v6, v4): (Vec<_>, Vec<_>) = addresses.into_iter().partition(|address| address.is_ipv6());
+    let mut v6 = v6.into_iter();
+    let mut v4 = v4.into_iter();
+    let mut interleaved = Vec::with_capacity(v6.len() + v4.len());
+    loop {
+        match (v6.next(), v4.next()) {
+            (None, None) => break interleaved,
+            (first, second) => {
+                interleaved.extend(first);
+                interleaved.extend(second);
+            }
+        }
+    }
+}
+
 async fn connect_tcp_candidates(
     policy: &DialPolicy,
     addresses: Vec<SocketAddr>,
+    budget: Duration,
 ) -> Result<TcpStream> {
     let mut last_err = None;
-    for address in addresses {
-        match connect_tcp_addr(policy.local_ip(address.ip())?, address).await {
-            Ok(stream) => return Ok(stream),
-            Err(error) => last_err = Some(error),
+    let mut remaining = budget;
+    let total = addresses.len();
+    for (index, address) in addresses.into_iter().enumerate() {
+        // Every candidate gets an equal share of the time left, so one
+        // unreachable family cannot starve the rest until the whole budget.
+        let share = (remaining / (total - index) as u32).max(Duration::from_millis(1));
+        let started = std::time::Instant::now();
+        match tokio::time::timeout(
+            share,
+            connect_tcp_addr(policy.local_ip(address.ip())?, address),
+        )
+        .await
+        {
+            Ok(Ok(stream)) => return Ok(stream),
+            Ok(Err(error)) => last_err = Some(error),
+            Err(_) => {
+                last_err = Some(anyhow!(
+                    "common::util::connect_tcp_addr: dial to {address} timed out"
+                ))
+            }
+        }
+        remaining = remaining.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break;
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow!("common::util::dial_tcp_from_local_ip: no target address matches configured address family")))
@@ -124,12 +163,31 @@ async fn connect_tcp_candidates(
 async fn connect_udp_candidates(
     policy: &DialPolicy,
     addresses: Vec<SocketAddr>,
+    budget: Duration,
 ) -> Result<UdpSocket> {
     let mut last_err = None;
-    for address in addresses {
-        match connect_udp_addr(policy.local_ip(address.ip())?, address).await {
-            Ok(socket) => return Ok(socket),
-            Err(error) => last_err = Some(error),
+    let mut remaining = budget;
+    let total = addresses.len();
+    for (index, address) in addresses.into_iter().enumerate() {
+        let share = (remaining / (total - index) as u32).max(Duration::from_millis(1));
+        let started = std::time::Instant::now();
+        match tokio::time::timeout(
+            share,
+            connect_udp_addr(policy.local_ip(address.ip())?, address),
+        )
+        .await
+        {
+            Ok(Ok(socket)) => return Ok(socket),
+            Ok(Err(error)) => last_err = Some(error),
+            Err(_) => {
+                last_err = Some(anyhow!(
+                    "common::util::connect_udp_addr: dial to {address} timed out"
+                ))
+            }
+        }
+        remaining = remaining.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break;
         }
     }
     Err(last_err

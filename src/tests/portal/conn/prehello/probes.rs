@@ -49,14 +49,26 @@ async fn probe(address: std::net::SocketAddr, size: usize, decoded: bool, split:
         bytes.is_empty(),
         "size={size}, decoded={decoded}, split={split}, fin={fin}"
     );
-    assert!(
-        start.elapsed() >= TIMEOUT,
-        "early close: size={size}, decoded={decoded}, split={split}, fin={fin}"
-    );
+    // Only a full prelude+nonce of garbage proves the peer lacks the key;
+    // shorter inputs (or a clean EOF) stay ambiguous and keep the park.
+    // Wire image of one prelude: TCP_PRELUDE_LEN(64) + NONCE_LEN(12).
+    let full_garbage = !decoded && size >= 76;
+    if decoded || !full_garbage {
+        // A valid prelude with a non-hello payload keeps the silent park.
+        assert!(
+            start.elapsed() >= TIMEOUT,
+            "early close: size={size}, decoded={decoded}, split={split}, fin={fin}"
+        );
+    } else {
+        assert!(
+            start.elapsed() < TIMEOUT,
+            "held slot: size={size}, decoded={decoded}, split={split}, fin={fin}"
+        );
+    }
 }
 
 #[tokio::test]
-async fn invalid_morph_probe_matrix_is_silent_until_original_deadline() {
+async fn morph_probe_matrix_closes_garbage_fast_and_parks_valid_preludes() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let permits = h.inner.connection_admission.available_permits();
     for decoded in [false, true] {
@@ -78,7 +90,7 @@ async fn invalid_morph_probe_matrix_is_silent_until_original_deadline() {
 }
 
 #[tokio::test]
-async fn wrong_morph_key_is_silent_until_deadline() {
+async fn wrong_morph_key_fails_fast_without_holding_a_slot() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let mut url = h.url("vector", "tcp", true);
     url.set_username("ffffffffffffffffffffffffffffffff")
@@ -98,7 +110,7 @@ async fn wrong_morph_key_is_silent_until_deadline() {
             .unwrap()
             .is_err()
     );
-    assert!(start.elapsed() >= TIMEOUT);
+    assert!(start.elapsed() < TIMEOUT);
     wait_active(&h, 0).await;
     h.close().await;
 }
@@ -135,7 +147,7 @@ async fn truncated_valid_client_hello_with_fin_keeps_original_deadline() {
 }
 
 #[tokio::test]
-async fn excess_rejected_input_remains_silent_and_keeps_the_deadline() {
+async fn excess_garbage_closes_immediately_and_releases_admission() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let start = Instant::now();
     let mut stream = TcpStream::connect(h.tcp).await.unwrap();
@@ -149,7 +161,7 @@ async fn excess_rejected_input_remains_silent_and_keeps_the_deadline() {
     .unwrap();
     assert_silent_close(result);
     assert!(bytes.is_empty());
-    assert!(start.elapsed() >= TIMEOUT);
+    assert!(start.elapsed() < TIMEOUT);
     wait_active(&h, 0).await;
     assert_eq!(h.inner.connection_admission.available_permits(), 1024);
     h.close().await;

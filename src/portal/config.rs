@@ -17,10 +17,16 @@ const DEFAULT_UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const DEFAULT_UNAUTHENTICATED_MAX: usize = 256;
+const DEFAULT_UNAUTHENTICATED_PER_SOURCE: usize = 32;
+const MAX_UNAUTHENTICATED_MAX: usize = 4096;
+const MAX_UNAUTHENTICATED_PER_SOURCE_MAX: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PortalRuntimeConfig {
     pub(crate) egress_tls_pending_max: usize,
+    pub(crate) unauthenticated_max: usize,
+    pub(crate) unauthenticated_per_source: usize,
     pub(crate) egress_tls_idle_ttl: Duration,
     pub(crate) udp_queue_bytes: usize,
     pub(crate) tcp_data_buf_size: usize,
@@ -44,6 +50,18 @@ impl PortalRuntimeConfig {
     {
         validate_timeouts(&mut source)?;
         let egress_tls_pending_max = read_usize(&mut source, "NOW_PORTAL_TLS_IDLE_MAX", 128, 1023)?;
+        let unauthenticated_max = read_usize(
+            &mut source,
+            "NOW_UNAUTH_MAX",
+            DEFAULT_UNAUTHENTICATED_MAX,
+            MAX_UNAUTHENTICATED_MAX,
+        )?;
+        let unauthenticated_per_source = read_usize(
+            &mut source,
+            "NOW_UNAUTH_PER_SOURCE",
+            DEFAULT_UNAUTHENTICATED_PER_SOURCE,
+            MAX_UNAUTHENTICATED_PER_SOURCE_MAX,
+        )?;
         let udp_queue_bytes = read_quic_udp_queue_bytes(&mut source)?;
         let tcp_data_buf_size = read_usize(
             &mut source,
@@ -86,6 +104,8 @@ impl PortalRuntimeConfig {
 
         Ok(Self {
             egress_tls_pending_max,
+            unauthenticated_max,
+            unauthenticated_per_source,
             egress_tls_idle_ttl: crate::common::EGRESS_TLS_IDLE_TTL,
             udp_queue_bytes,
             tcp_data_buf_size,

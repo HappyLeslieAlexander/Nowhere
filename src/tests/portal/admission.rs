@@ -5,6 +5,9 @@
 
 use super::*;
 
+const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 256;
+const MAX_UNAUTHENTICATED_PER_SOURCE: usize = 32;
+
 impl UnauthenticatedAdmission {
     pub(in crate::portal) fn active(&self) -> usize {
         self.state
@@ -16,7 +19,10 @@ impl UnauthenticatedAdmission {
 
 #[test]
 fn unauthenticated_budgets_bound_sources_and_reclaim_permissions() {
-    let admission = Arc::new(UnauthenticatedAdmission::new());
+    let admission = Arc::new(UnauthenticatedAdmission::new(
+        MAX_UNAUTHENTICATED_CONNECTIONS,
+        MAX_UNAUTHENTICATED_PER_SOURCE,
+    ));
     let mut held = Vec::new();
     for _ in 0..MAX_UNAUTHENTICATED_PER_SOURCE {
         held.push(admission.try_acquire("127.0.0.1".parse().unwrap()).unwrap());
@@ -80,7 +86,10 @@ async fn waiters_wake_on_release_and_cancel_without_leaking_admission() {
     use std::future::{Future, poll_fn};
     use std::task::Poll;
 
-    let admission = Arc::new(UnauthenticatedAdmission::new());
+    let admission = Arc::new(UnauthenticatedAdmission::new(
+        MAX_UNAUTHENTICATED_CONNECTIONS,
+        MAX_UNAUTHENTICATED_PER_SOURCE,
+    ));
     let source = "127.0.0.1".parse().unwrap();
     let mut held = (0..MAX_UNAUTHENTICATED_PER_SOURCE)
         .map(|_| admission.try_acquire(source).unwrap())
@@ -118,7 +127,10 @@ async fn waiters_wake_on_release_and_cancel_without_leaking_admission() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_release_and_cancellation_reclaim_every_processing_permit() {
     for _ in 0..64 {
-        let admission = Arc::new(UnauthenticatedAdmission::new());
+        let admission = Arc::new(UnauthenticatedAdmission::new(
+            MAX_UNAUTHENTICATED_CONNECTIONS,
+            MAX_UNAUTHENTICATED_PER_SOURCE,
+        ));
         let source = "127.0.0.1".parse().unwrap();
         let held = (0..MAX_UNAUTHENTICATED_PER_SOURCE)
             .map(|_| admission.try_acquire(source).unwrap())
@@ -160,7 +172,10 @@ async fn concurrent_release_and_cancellation_reclaim_every_processing_permit() {
 
 #[tokio::test]
 async fn release_after_enable_wakes_a_waiter_that_has_not_been_polled() {
-    let admission = Arc::new(UnauthenticatedAdmission::new());
+    let admission = Arc::new(UnauthenticatedAdmission::new(
+        MAX_UNAUTHENTICATED_CONNECTIONS,
+        MAX_UNAUTHENTICATED_PER_SOURCE,
+    ));
     let source: IpAddr = "127.0.0.1".parse().unwrap();
     let guard = admission.try_acquire(source).unwrap();
     let mut notified = std::pin::pin!(admission.released.notified());
@@ -173,7 +188,10 @@ async fn release_after_enable_wakes_a_waiter_that_has_not_been_polled() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cascading_releases_drain_every_waiter_despite_stolen_slots() {
-    let admission = Arc::new(UnauthenticatedAdmission::new());
+    let admission = Arc::new(UnauthenticatedAdmission::new(
+        MAX_UNAUTHENTICATED_CONNECTIONS,
+        MAX_UNAUTHENTICATED_PER_SOURCE,
+    ));
     let source: IpAddr = "127.0.0.1".parse().unwrap();
     let mut held: Vec<_> = (0..MAX_UNAUTHENTICATED_PER_SOURCE)
         .map(|_| admission.try_acquire(source).unwrap())

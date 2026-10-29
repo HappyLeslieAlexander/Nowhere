@@ -80,14 +80,11 @@ impl ReloadingCertResolver {
 
 impl ResolvesServerCert for ReloadingCertResolver {
     fn resolve(&self, _client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
-        let should_reload = self
-            .cached
-            .read()
-            .map(|c| c.last_reload.elapsed() >= self.reload_interval)
-            .unwrap_or(false);
-
-        if should_reload
-            && let Ok(mut cached) = self.cached.write()
+        // Single-flight reload: only the handshake that crosses the reload
+        // interval pays the disk I/O under the write lock, while every other
+        // concurrent handshake proceeds immediately with the cached cert
+        // instead of queueing behind slow storage.
+        if let Ok(mut cached) = self.cached.try_write()
             && cached.last_reload.elapsed() >= self.reload_interval
         {
             match load_certified_key(&self.crt_file, &self.key_file, &self.provider) {
@@ -102,7 +99,14 @@ impl ResolvesServerCert for ReloadingCertResolver {
             cached.last_reload = Instant::now();
         }
 
-        self.cached.read().ok().map(|c| c.cert.clone())
+        // A poisoned lock degrades to the last successfully loaded cert.
+        Some(
+            self.cached
+                .read()
+                .unwrap_or_else(|err| err.into_inner())
+                .cert
+                .clone(),
+        )
     }
 }
 

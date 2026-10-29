@@ -9,9 +9,6 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
 
-pub(super) const MAX_UNAUTHENTICATED_CONNECTIONS: usize = 256;
-pub(super) const MAX_UNAUTHENTICATED_PER_SOURCE: usize = 32;
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum SourceKey {
     V4(Ipv4Addr),
@@ -34,13 +31,17 @@ struct AdmissionState {
 }
 
 pub(super) struct UnauthenticatedAdmission {
+    max_total: usize,
+    max_per_source: usize,
     state: Mutex<AdmissionState>,
     released: Notify,
 }
 
 impl UnauthenticatedAdmission {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(max_total: usize, max_per_source: usize) -> Self {
         Self {
+            max_total,
+            max_per_source,
             state: Mutex::new(AdmissionState::default()),
             released: Notify::new(),
         }
@@ -64,9 +65,7 @@ impl UnauthenticatedAdmission {
         let key = SourceKey::from(source);
         let mut state = self.state.lock().unwrap_or_else(|err| err.into_inner());
         let source_count = state.per_source.get(&key).copied().unwrap_or_default();
-        if state.total >= MAX_UNAUTHENTICATED_CONNECTIONS
-            || source_count >= MAX_UNAUTHENTICATED_PER_SOURCE
-        {
+        if state.total >= self.max_total || source_count >= self.max_per_source {
             return None;
         }
         state.total += 1;

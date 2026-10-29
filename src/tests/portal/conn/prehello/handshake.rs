@@ -80,7 +80,7 @@ async fn accepted_hello_generates_alpn_alert_before_socket_delivery() {
 async fn standard_tls_responds_and_morph_alpn_rejection_closes_after_acceptance() {
     let h = Harness::new("direct", false).await;
     let mut stream = TcpStream::connect(h.tcp).await.unwrap();
-    stream.write_all(&[0xff]).await.unwrap();
+    let _ = stream.write_all(&[0xff]).await;
     let mut bytes = Vec::new();
     tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut bytes))
         .await
@@ -314,14 +314,16 @@ async fn bootstrap_prehello_tls_and_auth_share_one_deadline() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     stream.write_all(&[0; 12]).await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
-    stream.write_all(&[0xff]).await.unwrap();
+    // An all-zero prelude fails the HMAC: the server closes immediately
+    // instead of holding the shared deadline.
+    let _ = stream.write_all(&[0xff]).await;
     let mut bytes = Vec::new();
     let result = tokio::time::timeout(Duration::from_millis(250), stream.read_to_end(&mut bytes))
         .await
         .unwrap();
     assert_silent_close(result);
     assert!(bytes.is_empty());
-    assert!(start.elapsed() >= TIMEOUT);
+    assert!(start.elapsed() < TIMEOUT);
     h.close().await;
 
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;

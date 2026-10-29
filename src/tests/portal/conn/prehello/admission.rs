@@ -7,21 +7,23 @@ use super::*;
 
 #[tokio::test]
 async fn shutdown_releases_all_morph_prehello_states() {
-    for (size, fin) in [
-        (0, false),
-        (76, false),
-        (77, false),
-        (77, true),
-        (200_000, false),
-    ] {
+    for (size, fin) in [(0, false), (1, false), (77, true), (200_000, false)] {
         let h = Harness::new("direct", true).await;
         let inner = h.inner.clone();
         let permits = inner.connection_admission.available_permits();
-        let mut stream = TcpStream::connect(h.tcp).await.unwrap();
+        let stream = TcpStream::connect(h.tcp).await.unwrap();
+        let mut stream =
+            MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
+                .await
+                .unwrap();
+        // A valid prelude parks the connection; a garbage prelude would close
+        // immediately and never reach the shutdown path under test.
+        use tokio::io::AsyncWriteExt;
         stream.write_all(&vec![0xff; size]).await.unwrap();
         if fin {
             stream.shutdown().await.unwrap();
         }
+        drop(stream);
         wait_active(&h, 1).await;
         tokio::time::sleep(Duration::from_millis(10)).await;
         h.close().await;
@@ -35,9 +37,14 @@ async fn silent_connections_park_above_source_limit_until_original_deadline() {
     let h = Harness::with_handshake_timeout(true, Duration::from_secs(1)).await;
     let mut streams = Vec::new();
     for _ in 0..64 {
-        let mut stream = TcpStream::connect(h.tcp).await.unwrap();
-        stream.write_all(&[0xff; 77]).await.unwrap();
-        streams.push(stream);
+        let stream = TcpStream::connect(h.tcp).await.unwrap();
+        let mut morph =
+            MorphTcpStream::connect_current_for_test(stream, h.inner.morph_keys.clone())
+                .await
+                .unwrap();
+        use tokio::io::AsyncWriteExt;
+        morph.write_all(&[0xff; 1]).await.unwrap();
+        streams.push(morph.into_inner());
     }
     wait_active(&h, 32).await;
     let mut readers = tokio::task::JoinSet::new();

@@ -42,6 +42,28 @@ async fn capture(h: &Harness, authentication: AuthenticatedPrelude, payload: &[u
     bytes
 }
 
+/// HMAC failures (modified or legacy preludes) close immediately: they prove
+/// the peer does not hold the key, so no admission slot is held.
+async fn silent_fast(h: &Harness, bytes: &[u8]) {
+    let start = Instant::now();
+    let mut stream = TcpStream::connect(h.tcp).await.unwrap();
+    stream.write_all(bytes).await.unwrap();
+    stream.shutdown().await.unwrap();
+    let mut response = Vec::new();
+    let result = tokio::time::timeout(
+        TIMEOUT + Duration::from_secs(2),
+        stream.read_to_end(&mut response),
+    )
+    .await
+    .unwrap();
+    assert_silent_close(result);
+    assert!(response.is_empty());
+    assert!(
+        start.elapsed() < TIMEOUT,
+        "HMAC failure must not hold an admission slot"
+    );
+}
+
 async fn silent(h: &Harness, bytes: &[u8], split: bool) {
     let start = Instant::now();
     let mut stream = TcpStream::connect(h.tcp).await.unwrap();
@@ -92,8 +114,6 @@ async fn rejected_input_stops_reading_until_original_deadline() {
     let timeout = Duration::from_secs(2);
     let h = Harness::with_handshake_timeout(true, timeout).await;
     for (index, (case, reset)) in [
-        ("prelude", false),
-        ("prelude", true),
         ("replay-precheck", false),
         ("hello", false),
         ("replay-commit", false),
@@ -108,10 +128,6 @@ async fn rejected_input_stops_reading_until_original_deadline() {
             hello(&h, crate::protocol::ALPN)
         };
         let mut bytes = capture(&h, token, &payload).await;
-        if case == "prelude" {
-            bytes[0] ^= 1;
-            bytes.truncate(76);
-        }
         let replay = h.inner.prelude_replay.as_ref().unwrap();
         if case == "replay-precheck" {
             assert!(replay.commit(token));
@@ -218,6 +234,17 @@ async fn rejected_input_stops_reading_until_original_deadline() {
 }
 
 #[tokio::test]
+async fn hmac_failure_releases_the_slot_even_when_the_client_resets() {
+    let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
+    let mut bytes = capture(&h, authentication(3), &hello(&h, crate::protocol::ALPN)).await;
+    bytes[0] ^= 1;
+    bytes.truncate(76);
+    silent_fast(&h, &bytes).await;
+    wait_active(&h, 0).await;
+    h.close().await;
+}
+
+#[tokio::test]
 async fn accepted_authenticated_hello_commits_before_response_and_replay_stays_silent() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let token = authentication(1);
@@ -304,23 +331,23 @@ async fn concurrent_authenticated_connections_only_one_enters_tls() {
 }
 
 #[tokio::test]
-async fn modified_prelude_prefix_and_tail_are_silent_even_with_valid_hello() {
+async fn modified_prelude_prefix_and_tail_close_without_a_hold_slot() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     for (counter, offset) in [(5, 0), (6, 32), (7, 63)] {
         let token = authentication(counter);
         let bytes = capture(&h, token, &hello(&h, crate::protocol::ALPN)).await;
         let mut modified = bytes.clone();
         modified[offset] ^= 1;
-        silent(&h, &modified, false).await;
+        silent_fast(&h, &modified).await;
         assert!(h.inner.prelude_replay.as_ref().unwrap().precheck(token));
         receives_tls(&h, &bytes).await;
-        silent(&h, &modified, true).await;
+        silent_fast(&h, &modified).await;
     }
     h.close().await;
 }
 
 #[tokio::test]
-async fn legacy_prelude_with_valid_hello_is_silently_rejected() {
+async fn legacy_prelude_with_valid_hello_closes_without_a_hold_slot() {
     let h = Harness::with_handshake_timeout(true, TIMEOUT).await;
     let payload = hello(&h, crate::protocol::ALPN);
     let (sender, mut reader) = tokio::io::duplex(76 + payload.len());
@@ -331,8 +358,8 @@ async fn legacy_prelude_with_valid_hello_is_silently_rejected() {
     sender.write_all(&payload).await.unwrap();
     let mut bytes = vec![0; 76 + payload.len()];
     reader.read_exact(&mut bytes).await.unwrap();
-    silent(&h, &bytes, false).await;
-    silent(&h, &bytes, true).await;
+    silent_fast(&h, &bytes).await;
+    silent_fast(&h, &bytes).await;
     wait_active(&h, 0).await;
     assert_eq!(h.inner.connection_admission.available_permits(), 1024);
     h.close().await;

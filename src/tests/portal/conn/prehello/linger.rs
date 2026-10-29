@@ -6,7 +6,7 @@
 use super::*;
 
 #[tokio::test]
-async fn burst_and_segmented_input_share_silent_close_policy() {
+async fn burst_and_segmented_garbage_share_the_immediate_silent_close() {
     let timeout = Duration::from_secs(2);
     let h = Harness::with_handshake_timeout(true, timeout).await;
     let mut probes = tokio::task::JoinSet::new();
@@ -19,15 +19,18 @@ async fn burst_and_segmented_input_share_silent_close_policy() {
                 stream.set_nodelay(true).unwrap();
                 let mut next_write = Instant::now();
                 for bytes in vec![0xff; size].chunks(chunk) {
-                    stream.write_all(bytes).await.unwrap();
+                    // The server may already have closed after the first full
+                    // prelude: writes racing that close are allowed to fail.
+                    if stream.write_all(bytes).await.is_err() {
+                        break;
+                    }
                     if chunk < size {
                         next_write += Duration::from_millis(1);
                         tokio::time::sleep_until(next_write).await;
                     }
                 }
-                if fin {
-                    stream.shutdown().await.unwrap();
-                }
+                let _ = stream.shutdown().await;
+                let _ = fin;
                 let mut bytes = Vec::new();
                 let result = tokio::time::timeout(
                     timeout + Duration::from_secs(2),
@@ -37,7 +40,8 @@ async fn burst_and_segmented_input_share_silent_close_policy() {
                 .unwrap();
                 assert_silent_close(result);
                 assert!(bytes.is_empty());
-                assert!(start.elapsed() >= timeout);
+                // Raw garbage fails the HMAC and must not hold a slot.
+                assert!(start.elapsed() < timeout);
             });
         }
     }

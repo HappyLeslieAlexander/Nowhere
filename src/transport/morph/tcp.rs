@@ -157,14 +157,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MorphTcpStream<S> {
         if let Err(error) = inner.read_exact(&mut nonce).await {
             return Err((error, inner));
         }
-        let Some(authentication) = keys
-            .decode_prelude(&prelude, &nonce)
-            .filter(|authentication| authentication.is_valid())
+        let decoded = keys.decode_prelude(&prelude, &nonce);
+        let Some(authentication) = decoded.filter(|authentication| authentication.is_valid())
         else {
-            return Err((
-                io::Error::new(io::ErrorKind::InvalidData, "invalid Morph prelude"),
-                inner,
-            ));
+            // Distinguish "does not hold the key" (decode failed) from "holds
+            // the key but presented an invalid counter" so the Portal can
+            // close the former immediately while still parking the latter.
+            let kind = if decoded.is_some() {
+                io::ErrorKind::PermissionDenied
+            } else {
+                io::ErrorKind::InvalidData
+            };
+            return Err((io::Error::new(kind, "invalid Morph prelude"), inner));
         };
         Ok((
             Self::initialized(inner, &keys, nonce, false),

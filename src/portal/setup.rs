@@ -133,7 +133,10 @@ impl Portal {
                         .is_some_and(|e| e.family == crate::common::AddressFamily::Any),
                 tls_server_config,
                 quic_server_config,
-                unauthenticated_admission: Arc::new(admission::UnauthenticatedAdmission::new()),
+                unauthenticated_admission: Arc::new(admission::UnauthenticatedAdmission::new(
+                    runtime.unauthenticated_max,
+                    runtime.unauthenticated_per_source,
+                )),
                 connection_admission: Arc::new(Semaphore::new(1024)),
                 forward,
                 egress_registry: registry,

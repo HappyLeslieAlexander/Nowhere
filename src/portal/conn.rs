@@ -28,6 +28,11 @@ pub(super) enum TcpOutcome {
     SilentPreHello,
 }
 
+/// A definitive HMAC failure proves the peer does not hold the URL secret, so
+/// holding an admission slot until the deadline only serves connection
+/// exhaustion. Ambiguous failures (EOF, truncation) still park.
+const PRE_AUTH_DATAGRAM_BUDGET: usize = 1024 * 1024;
+
 pub(super) async fn tcp(
     portal: Arc<PortalInner>,
     stream: tokio::net::TcpStream,
@@ -47,13 +52,20 @@ pub(super) async fn tcp(
         let (mut stream, authentication) =
             match MorphTcpStream::accept_bootstrap(stream, portal.morph_keys.clone()).await {
                 Ok(bootstrap) => bootstrap,
+                Err((error, _stream)) if morph && error.kind() == ErrorKind::InvalidData => {
+                    // HMAC failure already proves the peer lacks the URL secret;
+                    // close silently instead of parking on the deadline.
+                    return Ok(None);
+                }
                 Err((error, _stream))
                     if morph
                         && matches!(
                             error.kind(),
-                            ErrorKind::UnexpectedEof | ErrorKind::InvalidData
+                            ErrorKind::PermissionDenied | ErrorKind::UnexpectedEof
                         ) =>
                 {
+                    // A validly-authenticated peer with a bad counter, or an
+                    // ambiguous truncation, keeps the silent park.
                     return pending().await;
                 }
                 Err((error, _stream)) => return Err(error.into()),
@@ -251,11 +263,22 @@ async fn quic_authenticated(
             Ok::<_, anyhow::Error>((send, recv, role))
         };
         tokio::pin!(authentication);
-        let mut discarded = 0;
+        let mut discarded = 0u64;
+        let mut discarded_bytes = 0usize;
         loop {
             tokio::select! {
                 biased;
-                datagram=connection.read_datagram()=>{datagram?;discarded+=1;if discarded%64==0 {tokio::task::yield_now().await;}},
+                datagram=connection.read_datagram()=>{
+                    let datagram = datagram?;
+                    discarded_bytes = discarded_bytes.saturating_add(datagram.len());
+                    if discarded_bytes > PRE_AUTH_DATAGRAM_BUDGET {
+                        bail!("pre-authentication datagram budget exhausted");
+                    }
+                    discarded += 1;
+                    if discarded.is_multiple_of(64) {
+                        tokio::task::yield_now().await;
+                    }
+                },
                 result=&mut authentication=>break result,
             }
         }

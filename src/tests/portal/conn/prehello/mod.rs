@@ -71,7 +71,12 @@ async fn write_segments(stream: &mut (impl tokio::io::AsyncWrite + Unpin), bytes
     for end in [1, 63, 64, 75, 76, 77, bytes.len()] {
         let end = end.min(bytes.len());
         if end > offset {
-            stream.write_all(&bytes[offset..end]).await.unwrap();
+            // Garbage probes race the server's immediate close; a failed
+            // segment write only means the server already hung up, which the
+            // caller's read assertions still verify.
+            if stream.write_all(&bytes[offset..end]).await.is_err() {
+                return;
+            }
             offset = end;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }

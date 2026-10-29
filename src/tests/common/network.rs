@@ -175,11 +175,11 @@ async fn failed_explicit_source_tries_the_other_family_without_auto_fallback() {
         v6: Some("2001:db8::dead".parse().unwrap()),
     };
     let failed = SocketAddr::new("::1".parse().unwrap(), target.port());
-    let stream = connect_tcp_candidates(&policy, vec![failed, target])
+    let stream = connect_tcp_candidates(&policy, vec![failed, target], Duration::from_secs(5))
         .await
         .unwrap();
     assert_eq!(stream.peer_addr().unwrap(), target);
-    let socket = connect_udp_candidates(&policy, vec![failed, udp_target])
+    let socket = connect_udp_candidates(&policy, vec![failed, udp_target], Duration::from_secs(5))
         .await
         .unwrap();
     assert_eq!(socket.peer_addr().unwrap(), udp_target);
@@ -187,9 +187,13 @@ async fn failed_explicit_source_tries_the_other_family_without_auto_fallback() {
         v4: Some("192.0.2.254".parse().unwrap()),
         v6: None,
     };
-    assert!(connect_tcp_candidates(&policy, vec![target]).await.is_err());
     assert!(
-        connect_udp_candidates(&policy, vec![udp_target])
+        connect_tcp_candidates(&policy, vec![target], Duration::from_secs(1))
+            .await
+            .is_err()
+    );
+    assert!(
+        connect_udp_candidates(&policy, vec![udp_target], Duration::from_secs(1))
             .await
             .is_err()
     );
@@ -234,4 +238,39 @@ async fn dual_stack_udp_domain_binds_source_for_the_resolved_family() {
         .unwrap()
         .unwrap();
     assert_eq!(source.ip(), peer.ip());
+}
+
+#[test]
+fn candidates_alternate_address_families_starting_with_ipv6() {
+    let v4a = SocketAddr::from(([10, 0, 0, 1], 443));
+    let v4b = SocketAddr::from(([10, 0, 0, 2], 443));
+    let v6a = SocketAddr::new("2001:db8::a".parse().unwrap(), 443);
+    let v6b = SocketAddr::new("2001:db8::b".parse().unwrap(), 443);
+    assert_eq!(
+        interleave_address_families(vec![v4a, v6a, v4b, v6b]),
+        vec![v6a, v4a, v6b, v4b]
+    );
+    assert_eq!(interleave_address_families(vec![v4a, v4b]), vec![v4a, v4b]);
+    assert_eq!(interleave_address_families(vec![v6a, v6b]), vec![v6a, v6b]);
+    assert!(interleave_address_families(Vec::new()).is_empty());
+}
+
+#[tokio::test]
+async fn a_blackholed_candidate_cannot_starve_a_reachable_one() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+    // TEST-NET-3 never routes; the share budget must move on to loopback.
+    let candidates = vec![
+        SocketAddr::from(([203, 0, 113, 1], 443)),
+        SocketAddr::from(([127, 0, 0, 1], port)),
+    ];
+    let started = std::time::Instant::now();
+    let policy = DialPolicy::default();
+    let stream = connect_tcp_candidates(&policy, candidates, Duration::from_secs(2))
+        .await
+        .expect("reachable candidate must win after the blackholed share");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    drop(stream);
+    accept.abort();
 }
