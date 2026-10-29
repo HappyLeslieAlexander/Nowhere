@@ -230,7 +230,8 @@ async fn growth_obeys_max_and_disconnects_only_reseed_when_empty() {
             .await
             .is_err()
     );
-    let replacement = tokio::time::timeout(Duration::from_secs(4), rx.recv())
+    // Cooldown plus jitter can stretch a reseed to 1.5 × NOW_SERVICE_COOLDOWN.
+    let replacement = tokio::time::timeout(Duration::from_secs(6), rx.recv())
         .await
         .unwrap()
         .unwrap();
@@ -315,11 +316,30 @@ async fn expired_standby_without_flow_start_expires_but_eof_still_fails() {
             .unwrap(),
         None
     );
+    // EOF far from expires_at is a real disconnect.
     let mut stream = &[][..];
     assert!(
-        wait_flow_start(&mut stream, &shutdown, deadline)
-            .await
-            .is_err()
+        wait_flow_start(
+            &mut stream,
+            &shutdown,
+            Instant::now() + Duration::from_secs(60)
+        )
+        .await
+        .is_err()
+    );
+    // EOF landing on our own expiry is a normal expiry: the Portal starts its
+    // timer when it sends ACCEPTED and this side when ACCEPTED arrives, so a
+    // server close racing our timer lands on the same instant.
+    let mut stream = &[][..];
+    assert_eq!(
+        wait_flow_start(
+            &mut stream,
+            &shutdown,
+            Instant::now() + Duration::from_millis(200)
+        )
+        .await
+        .unwrap(),
+        None
     );
 }
 

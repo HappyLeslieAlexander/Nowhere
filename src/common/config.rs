@@ -185,6 +185,21 @@ pub fn service_cooldown() -> Duration {
     env_duration("NOW_SERVICE_COOLDOWN", Duration::from_secs(3))
 }
 
+/// Failed-reconnect cooldown with up to 50% extra jitter so a Portal restart
+/// does not synchronize every Egress reconnect onto the same instant.
+pub fn service_cooldown_with_jitter() -> Duration {
+    let cooldown = service_cooldown();
+    let jitter = (cooldown / 2).as_millis() as u64;
+    if jitter == 0 {
+        return cooldown;
+    }
+    let mut bytes = [0u8; 8];
+    if getrandom::fill(&mut bytes).is_err() {
+        return cooldown;
+    }
+    cooldown + Duration::from_millis(u64::from_le_bytes(bytes) % (jitter + 1))
+}
+
 pub fn shutdown_timeout() -> Duration {
     env_duration("NOW_SHUTDOWN_TIMEOUT", Duration::from_secs(5))
 }

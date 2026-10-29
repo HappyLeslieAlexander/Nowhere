@@ -68,6 +68,9 @@ pub(super) fn listen_tcp(addr: SocketAddr) -> Result<TcpListener> {
     } else {
         Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?
     };
+    // SO_REUSEADDR is the TIME_WAIT rebinding idiom on Unix; on Windows it
+    // would let any other process bind the same port.
+    #[cfg(not(windows))]
     socket.set_reuse_address(true)?;
     socket.set_nonblocking(true)?;
     socket.bind(&addr.into())?;

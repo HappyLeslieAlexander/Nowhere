@@ -157,3 +157,49 @@ async fn concurrent_release_and_cancellation_reclaim_every_processing_permit() {
         assert_eq!(admission.active(), 0);
     }
 }
+
+#[tokio::test]
+async fn release_after_enable_wakes_a_waiter_that_has_not_been_polled() {
+    let admission = Arc::new(UnauthenticatedAdmission::new());
+    let source: IpAddr = "127.0.0.1".parse().unwrap();
+    let guard = admission.try_acquire(source).unwrap();
+    let mut notified = std::pin::pin!(admission.released.notified());
+    notified.as_mut().enable();
+    drop(guard);
+    tokio::time::timeout(std::time::Duration::from_secs(1), &mut notified)
+        .await
+        .expect("release must wake a waiter registered before notify_waiters");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cascading_releases_drain_every_waiter_despite_stolen_slots() {
+    let admission = Arc::new(UnauthenticatedAdmission::new());
+    let source: IpAddr = "127.0.0.1".parse().unwrap();
+    let mut held: Vec<_> = (0..MAX_UNAUTHENTICATED_PER_SOURCE)
+        .map(|_| admission.try_acquire(source).unwrap())
+        .collect();
+    let mut waiters = tokio::task::JoinSet::new();
+    for _ in 0..MAX_UNAUTHENTICATED_PER_SOURCE {
+        let admission = admission.clone();
+        waiters.spawn(async move {
+            let _guard = admission.acquire(source).await;
+        });
+    }
+    // Let every waiter register before the releases begin.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // Each round steals one slot from another source, releases one held slot,
+    // and drops the steal: every waiter must still be promoted despite the
+    // interleaved acquisitions competing for the same wakeups.
+    for _ in 0..MAX_UNAUTHENTICATED_PER_SOURCE {
+        let stolen = admission.try_acquire("192.0.2.1".parse().unwrap());
+        drop(held.pop());
+        drop(stolen);
+        tokio::time::timeout(std::time::Duration::from_millis(500), waiters.join_next())
+            .await
+            .expect("waiters starved despite releases")
+            .unwrap()
+            .expect("waiter task finished");
+    }
+    drop(held);
+    assert_eq!(admission.active(), 0);
+}

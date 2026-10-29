@@ -15,7 +15,7 @@ mod tls;
 
 pub use config::{
     DEFAULT_RATE_LIMIT, flow_setup_timeout, handshake_timeout, query_first,
-    rate_limit_bytes_per_second, service_cooldown, shutdown_timeout, tcp_data_buf_size,
+    rate_limit_bytes_per_second, service_cooldown_with_jitter, shutdown_timeout, tcp_data_buf_size,
     tcp_read_timeout, udp_idle_timeout,
 };
 pub(crate) use config::{

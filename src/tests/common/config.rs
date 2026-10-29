@@ -57,6 +57,20 @@ fn rate_limit_converts_mbps_to_bytes_per_second() {
 }
 
 #[test]
+fn service_cooldown_jitter_stays_in_range_and_varies() {
+    let cooldown = service_cooldown();
+    let upper = cooldown + cooldown / 2;
+    let mut values = std::collections::HashSet::new();
+    for _ in 0..64 {
+        let value = service_cooldown_with_jitter();
+        assert!(value >= cooldown);
+        assert!(value <= upper);
+        values.insert(value);
+    }
+    assert!(values.len() > 1, "jitter produced identical cooldowns");
+}
+
+#[test]
 fn duration_defaults_overrides_and_invalid_values() {
     assert_eq!(
         read_duration(

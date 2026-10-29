@@ -68,11 +68,11 @@ impl Egress {
                             if !self.forward.shutdown.is_cancelled() {
                                 self.forward.logger.error(format_args!("egress TLS connection failed: {error:#}"));
                             }
-                            if pending.is_empty() { seed_at = Instant::now() + crate::common::service_cooldown(); }
+                            if pending.is_empty() { seed_at = Instant::now() + crate::common::service_cooldown_with_jitter(); }
                         },
                         Some(Err(error)) => {
                             self.forward.logger.error(format_args!("egress TLS task failed: {error}"));
-                            if pending.is_empty() { seed_at = Instant::now() + crate::common::service_cooldown(); }
+                            if pending.is_empty() { seed_at = Instant::now() + crate::common::service_cooldown_with_jitter(); }
                         },
                         None => {},
                     }
@@ -154,7 +154,17 @@ async fn wait_flow_start(
         _ = shutdown.cancelled() => bail!("Egress shutting down"),
         result = crate::protocol::read_flow_start(stream) => match result? {
             Some(kind) => Ok(Some(kind)),
-            None => bail!("Egress TLS standby disconnected"),
+            None => {
+                // The Portal starts its expiry timer when it sends ACCEPTED and
+                // this side starts it when ACCEPTED arrives, so a server close
+                // racing our own expiry lands on the same instant. EOF close to
+                // expires_at is a normal expiry, not a failure.
+                if Instant::now() + Duration::from_secs(1) >= expires_at {
+                    Ok(None)
+                } else {
+                    bail!("Egress TLS standby disconnected")
+                }
+            }
         },
         _ = tokio::time::sleep_until(expires_at) => Ok(None),
     }

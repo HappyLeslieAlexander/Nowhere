@@ -49,6 +49,10 @@ impl UnauthenticatedAdmission {
     pub(super) async fn acquire(self: &Arc<Self>, source: IpAddr) -> UnauthenticatedGuard {
         loop {
             let released = self.released.notified();
+            tokio::pin!(released);
+            // notify_waiters only wakes waiters that already registered, so the
+            // future must be enabled before try_acquire can observe a full table.
+            released.as_mut().enable();
             if let Some(guard) = self.try_acquire(source) {
                 return guard;
             }

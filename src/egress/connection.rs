@@ -29,7 +29,7 @@ impl Egress {
             }
             tokio::select! {
                 _ = self.forward.shutdown.cancelled() => return,
-                _ = tokio::time::sleep(crate::common::service_cooldown()) => {},
+                _ = tokio::time::sleep(crate::common::service_cooldown_with_jitter()) => {},
             }
         }
     }
@@ -40,6 +40,10 @@ impl Egress {
             _ = self.forward.shutdown.cancelled() => return Ok(()),
             result = connect_quic(&self.config, &self.tls) => result?,
         };
+        // Resolved before registration: after register() succeeds the connection
+        // is already queued on the Portal, and this call must never be able to
+        // drop it without an application-level close.
+        let limits = crate::transport::transport_flow_control()?;
         tokio::select! {
             biased;
             _ = self.forward.shutdown.cancelled() => {
@@ -52,7 +56,6 @@ impl Egress {
                 tokio::time::Instant::now() + self.forward.runtime.handshake_timeout,
             ) => result?,
         }
-        let limits = crate::transport::transport_flow_control()?;
         connection.set_receive_window(limits.connection_receive_window.into());
         connection.set_max_concurrent_bi_streams(1024u32.into());
         let q = QuicConnection::new(
