@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use url::Url;
 
-use crate::common::Logger;
+use crate::common::{Logger, udp_idle_timeout};
 use crate::vector::VectorRuntime as Vector;
 
 use super::*;
@@ -159,6 +159,7 @@ async fn relay_finish(blocked_send: bool, cancel_carrier: bool) {
                     .acquire_many_owned(128)
                     .await
                     .unwrap(),
+                _flow_permit: None,
             })
             .await
             .unwrap();
@@ -166,7 +167,7 @@ async fn relay_finish(blocked_send: bool, cancel_carrier: bool) {
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
     let stats = vector.inner.stats.clone();
     let task = tokio::spawn(relay_udp_target(
-        vector.inner,
+        vector.inner.clone(),
         UdpClientSide {
             socket,
             endpoint: Arc::new(StdMutex::new(Some("127.0.0.1:10000".parse().unwrap()))),
@@ -180,6 +181,7 @@ async fn relay_finish(blocked_send: bool, cancel_carrier: bool) {
         tunnel,
         receiver,
         CancellationToken::new(),
+        Arc::new(AssociationActivity::new()),
     ));
     tokio::task::yield_now().await;
     if blocked_send {
@@ -228,13 +230,16 @@ async fn invalid_udp_target_does_not_publish_access() {
     tokio::time::timeout(
         Duration::from_secs(1),
         open_and_relay_udp_target(
-            vector.inner.clone(),
-            socket,
-            Arc::new(StdMutex::new(Some("127.0.0.1:10000".parse().unwrap()))),
+            UdpTargetTask {
+                vector: vector.inner.clone(),
+                socket,
+                client_endpoint: Arc::new(StdMutex::new(Some("127.0.0.1:10000".parse().unwrap()))),
+                target_admission: permit,
+                activity: Arc::new(AssociationActivity::new()),
+            },
             SocksAddress::Domain("-bad".to_owned(), 53),
             receiver,
             CancellationToken::new(),
-            permit,
         ),
     )
     .await
@@ -283,4 +288,58 @@ async fn idle_association_exits_on_control_close_and_cancellation() {
             4 * 1024 * 1024
         );
     }
+}
+
+#[tokio::test]
+async fn association_closes_after_idle_timeout_and_traffic_extends_it() {
+    let mut vector = Vector::new(
+        Url::parse("vector://0123456789abcdef0123456789abcdef@127.0.0.1:9?in=127.0.0.1:1080")
+            .unwrap(),
+        Logger,
+    )
+    .unwrap();
+    Arc::get_mut(&mut vector.inner).unwrap().socks_udp_idle = Duration::from_millis(250);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (control, peer) = listener.accept().await.unwrap();
+    let task = tokio::spawn(run_udp_association(
+        vector.inner.clone(),
+        control,
+        peer,
+        SocksAddress::unspecified(),
+        CancellationToken::new(),
+    ));
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).await.unwrap();
+    assert_eq!(reply[1], REPLY_SUCCEEDED);
+    let udp_endpoint = SocketAddr::from((
+        [reply[4], reply[5], reply[6], reply[7]],
+        u16::from_be_bytes([reply[8], reply[9]]),
+    ));
+    let local_udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let mut packet = Vec::new();
+    encode_udp_packet_into(
+        &mut packet,
+        &SocksAddress::Ip("192.0.2.1:53".parse().unwrap()),
+        b"ping",
+    )
+    .unwrap();
+    // Traffic every 100ms keeps the association alive past the idle window.
+    for _ in 0..4 {
+        local_udp.send_to(&packet, udp_endpoint).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!task.is_finished(), "association closed despite traffic");
+    }
+    // With traffic stopped the association closes on its own.
+    tokio::time::timeout(Duration::from_secs(2), task)
+        .await
+        .expect("association did not close after going idle")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        vector.inner.local_udp_budget.available_permits(),
+        4 * 1024 * 1024
+    );
 }

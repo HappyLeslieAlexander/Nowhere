@@ -33,7 +33,7 @@ pub use logger::Logger;
 pub use network::bind_udp_addrs;
 pub(crate) use network::{
     dial_tcp_with_policy, dial_udp_with_policy, filter_addrs_for_family, is_normal_close,
-    resolve_bind_addrs,
+    resolve_bind_addrs, tcp_keepalive,
 };
 pub(crate) use socks::{
     COMMAND_BIND, COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, OutboundDialer, OutboundUdpSocket,

@@ -67,7 +67,7 @@ fn all_durations_reject_zero_and_invalid_syntax() {
 fn values_are_parsed_once_into_typed_fields() {
     let config = parse(&[
         ("NOW_PORTAL_TLS_IDLE_MAX", "64"),
-        ("NOW_QUIC_UDP_QUEUE_BYTES", "8192"),
+        ("NOW_QUIC_UDP_QUEUE_BYTES", "65536"),
         ("NOW_TCP_DATA_BUF_SIZE", "4096"),
         ("NOW_TCP_DIAL_TIMEOUT", "1100ms"),
         ("NOW_UDP_DIAL_TIMEOUT", "1200ms"),
@@ -80,7 +80,7 @@ fn values_are_parsed_once_into_typed_fields() {
     .unwrap();
 
     assert_eq!(config.egress_tls_pending_max, 64);
-    assert_eq!(config.udp_queue_bytes, 8192);
+    assert_eq!(config.udp_queue_bytes, 65536);
     assert_eq!(config.tcp_data_buf_size, 4096);
     assert_eq!(config.tcp_dial_timeout, Duration::from_millis(1100));
     assert_eq!(config.udp_dial_timeout, Duration::from_millis(1200));

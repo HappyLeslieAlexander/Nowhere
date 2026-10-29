@@ -33,6 +33,7 @@ pub(crate) struct EgressRegistry {
     queue: Mutex<VecDeque<Entry>>,
     available: Notify,
     pending: Arc<Semaphore>,
+    quic_pending: Arc<Semaphore>,
 }
 
 impl EgressRegistry {
@@ -41,6 +42,7 @@ impl EgressRegistry {
             queue: Mutex::new(VecDeque::new()),
             available: Notify::new(),
             pending: Arc::new(Semaphore::new(pending_max)),
+            quic_pending: Arc::new(Semaphore::new(pending_max)),
         }
     }
 
@@ -48,11 +50,16 @@ impl EgressRegistry {
         self.pending.clone().try_acquire_owned().ok()
     }
 
+    pub(in crate::portal) fn reserve_quic(&self) -> Option<OwnedSemaphorePermit> {
+        self.quic_pending.clone().try_acquire_owned().ok()
+    }
+
     pub(in crate::portal) fn register_quic(
         self: &Arc<Self>,
         q: Arc<QuicConnection>,
+        permit: OwnedSemaphorePermit,
     ) -> Registration {
-        self.register(EntryKind::Quic(q))
+        self.register(EntryKind::Quic(q), Some(permit))
     }
 
     pub(in crate::portal) fn register_tls(
@@ -60,20 +67,36 @@ impl EgressRegistry {
         sender: oneshot::Sender<Transfer>,
         expires_at: Instant,
     ) -> Registration {
-        self.register(EntryKind::Tls { sender, expires_at })
+        self.register(EntryKind::Tls { sender, expires_at }, None)
     }
 
-    fn register(self: &Arc<Self>, kind: EntryKind) -> Registration {
+    fn register(
+        self: &Arc<Self>,
+        kind: EntryKind,
+        permit: Option<OwnedSemaphorePermit>,
+    ) -> Registration {
         let identity = Arc::new(());
-        self.queue.lock().unwrap().push_back(Entry {
-            identity: identity.clone(),
-            kind,
-        });
+        {
+            let mut queue = self.queue.lock().unwrap_or_else(|err| err.into_inner());
+            prune_locked(&mut queue);
+            queue.push_back(Entry {
+                identity: identity.clone(),
+                kind,
+            });
+        }
         self.available.notify_waiters();
         Registration {
             registry: self.clone(),
             identity,
+            _permit: permit,
         }
+    }
+
+    /// Drop dead QUIC entries and expired TLS standbys without waiting for a
+    /// claim, so an idle Portal does not pin closed connections forever.
+    pub(in crate::portal) fn prune(&self) {
+        let mut queue = self.queue.lock().unwrap_or_else(|err| err.into_inner());
+        prune_locked(&mut queue);
     }
 
     pub(super) async fn claim(&self) -> Result<Selected> {
@@ -82,7 +105,7 @@ impl EgressRegistry {
             tokio::pin!(notified);
             notified.as_mut().enable();
             let selected = {
-                let mut queue = self.queue.lock().unwrap();
+                let mut queue = self.queue.lock().unwrap_or_else(|err| err.into_inner());
                 loop {
                     let Some(entry) = queue.pop_front() else {
                         break None;
@@ -120,9 +143,21 @@ impl EgressRegistry {
     }
 }
 
+fn prune_locked(queue: &mut VecDeque<Entry>) {
+    queue.retain(|entry| match &entry.kind {
+        EntryKind::Quic(q) => {
+            q.connection.close_reason().is_none()
+                && !q.cancel.is_cancelled()
+                && !q.draining.is_cancelled()
+        }
+        EntryKind::Tls { expires_at, .. } => Instant::now() < *expires_at,
+    });
+}
+
 pub(in crate::portal) struct Registration {
     registry: Arc<EgressRegistry>,
     identity: Arc<()>,
+    _permit: Option<OwnedSemaphorePermit>,
 }
 
 impl Drop for Registration {
@@ -130,7 +165,7 @@ impl Drop for Registration {
         self.registry
             .queue
             .lock()
-            .unwrap()
+            .unwrap_or_else(|err| err.into_inner())
             .retain(|entry| !Arc::ptr_eq(&entry.identity, &self.identity));
     }
 }

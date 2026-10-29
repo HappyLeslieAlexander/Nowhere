@@ -11,6 +11,7 @@ pub(crate) mod tls;
 pub(crate) mod udp_flow;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tokio::sync::Semaphore;
@@ -21,6 +22,7 @@ use url::Url;
 
 use crate::common::{
     Logger, ShutdownSignals, rate_limit_bytes_per_second, shutdown_timeout, tcp_data_buf_size,
+    udp_idle_timeout,
 };
 use crate::protocol::Credentials;
 use crate::telemetry::{InstanceRole, TelemetryServer};
@@ -36,6 +38,9 @@ pub(crate) use self::udp_flow::{ReceivedUdpPacket, UdpTunnel, UdpTunnelReceiver,
 
 const SOCKS_CLIENT_RESOURCE_LIMIT: usize = 1024;
 const SOCKS_UDP_TARGET_RESOURCE_LIMIT: usize = 1024;
+/// One maximum-size SOCKS UDP payload: the floor for the per-target budget so
+/// large packets can always be queued at least once.
+const SOCKS_UDP_PACKET_MIN_BUDGET: usize = 65535;
 
 pub struct Vector {
     runtime: VectorRuntime,
@@ -63,6 +68,12 @@ pub(super) struct VectorInner {
     rate_limiter: Option<Arc<RateLimiter>>,
     client: Arc<PortalClient>,
     local_udp_budget: Arc<Semaphore>,
+    /// Per-target in-flight packet cap, derived from the byte budget: one busy
+    /// target must not be able to drain the whole `local_udp_budget`.
+    local_udp_flow_budget: usize,
+    /// SOCKS UDP associations without any traffic for this long are closed;
+    /// there is no liveness signal on a UDP association to do it earlier.
+    socks_udp_idle: Duration,
     socks_client_admission: Arc<Semaphore>,
     socks_udp_target_admission: Arc<Semaphore>,
     shutdown: CancellationToken,
@@ -105,6 +116,10 @@ impl VectorRuntime {
                 rate_limiter,
                 client,
                 local_udp_budget: Arc::new(Semaphore::new(udp_queue_bytes)),
+                local_udp_flow_budget: ((udp_queue_bytes / 4).max(SOCKS_UDP_PACKET_MIN_BUDGET)
+                    / SOCKS_UDP_PACKET_MIN_BUDGET)
+                    .max(1),
+                socks_udp_idle: udp_idle_timeout(),
                 socks_client_admission: Arc::new(Semaphore::new(SOCKS_CLIENT_RESOURCE_LIMIT)),
                 socks_udp_target_admission: Arc::new(Semaphore::new(
                     SOCKS_UDP_TARGET_RESOURCE_LIMIT,

@@ -287,6 +287,17 @@ async fn quic_authenticated(
                 result.context("Egress authentication Stream timeout")??;
             },
         }
+        // Reserved before ACCEPTED so an over-full registry can reject the
+        // Egress with BUSY instead of silently queueing a doomed registration.
+        let Some(quic_permit) = registry.reserve_quic() else {
+            let _ = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+                send.write_all(&[1]).await?;
+                send.finish()?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await;
+            return Ok(());
+        };
         tokio::select! {
             biased;
             _ = portal.forward.shutdown.cancelled() => return Ok(()),
@@ -296,7 +307,7 @@ async fn quic_authenticated(
                 Ok::<_, anyhow::Error>(())
             }) => result.context("Egress registration timeout")??,
         }
-        Some(registry.register_quic(q.clone()))
+        Some(registry.register_quic(q.clone(), quic_permit))
     } else {
         let forward = portal.forward.clone();
         let q = q.clone();

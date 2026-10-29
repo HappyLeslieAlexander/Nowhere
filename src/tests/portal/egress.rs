@@ -17,7 +17,7 @@ fn configured_udp_budget_is_consumed_by_each_quic_role() {
             .env("NOW_TEST_UDP_BUDGET_ROLE", role)
             .env(
                 "NOW_QUIC_UDP_QUEUE_BYTES",
-                if role == "egress" { "1" } else { "8192" },
+                if role == "egress" { "65535" } else { "65536" },
             )
             .output()
             .unwrap();
@@ -72,20 +72,34 @@ async fn configured_udp_budget_child() {
         .await
         .unwrap();
     let mut buffer = Vec::new();
-    assert!(tunnel.send(b"xx").await.unwrap());
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), tunnel.recv_into(&mut buffer))
+    if role == "egress" {
+        // The Egress budget is env-driven and now has a 65535 floor, so the
+        // tiny-budget drop behavior is out of reach here; it stays covered by
+        // the direct runtime overrides in the portal and vector roles below.
+        assert!(tunnel.send(b"x").await.unwrap());
+        let packet = tokio::time::timeout(Duration::from_secs(2), tunnel.recv_into(&mut buffer))
             .await
-            .is_err()
-    );
-    assert!(tunnel.send(b"x").await.unwrap());
-    let packet = tokio::time::timeout(Duration::from_secs(2), tunnel.recv_into(&mut buffer))
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(packet.payload(&buffer), b"x");
-    drop(packet);
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(packet.payload(&buffer), b"x");
+        drop(packet);
+    } else {
+        assert!(tunnel.send(b"xx").await.unwrap());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), tunnel.recv_into(&mut buffer))
+                .await
+                .is_err()
+        );
+        assert!(tunnel.send(b"x").await.unwrap());
+        let packet = tokio::time::timeout(Duration::from_secs(2), tunnel.recv_into(&mut buffer))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(packet.payload(&buffer), b"x");
+        drop(packet);
+    }
     tunnel.close().await;
     client
         .close(tokio::time::Instant::now() + Duration::from_secs(1))

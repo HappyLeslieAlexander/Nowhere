@@ -146,6 +146,15 @@ pub(crate) fn filter_addrs_for_family(
         .collect()
 }
 
+/// Liveness probing for long-lived relay legs: a silent peer is detected even
+/// when no application data flows, so half-open connections cannot pin
+/// admission slots forever.
+pub(crate) fn tcp_keepalive() -> socket2::TcpKeepalive {
+    socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(15))
+        .with_interval(Duration::from_secs(15))
+}
+
 pub(super) async fn connect_tcp_addr(
     local_ip: Option<IpAddr>,
     target: SocketAddr,

@@ -58,7 +58,7 @@ async fn client_prefers_fixed_nw3_alpn() {
         .await
         .unwrap();
     assert!(
-        !socket2::SockRef::from(stream.get_ref().0.get_ref())
+        socket2::SockRef::from(stream.get_ref().0.get_ref())
             .keepalive()
             .unwrap()
     );

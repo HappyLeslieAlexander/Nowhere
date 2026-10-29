@@ -107,7 +107,9 @@ impl ClientTls {
         dial_policy: &crate::common::DialPolicy,
         family: AddressFamily,
     ) -> Result<(TlsStream<MorphTcpStream<TcpStream>>, TlsExporter)> {
-        self.connect_tcp_with_keepalive(endpoint, dial_policy, family, None)
+        // Half-open Portal connections must not pin Vector resources forever.
+        let keepalive = crate::common::tcp_keepalive();
+        self.connect_tcp_with_keepalive(endpoint, dial_policy, family, Some(&keepalive))
             .await
     }
 
@@ -127,7 +129,7 @@ impl ClientTls {
         if let Some(keepalive) = keepalive {
             SockRef::from(&stream)
                 .set_tcp_keepalive(keepalive)
-                .context("Egress TLS: failed to configure TCP keepalive")?;
+                .context("vector::tls::connect_tcp: failed to configure TCP keepalive")?;
         }
         let connector = TlsConnector::from(self.rustls.clone());
         let tls = timeout(handshake_timeout(), async {

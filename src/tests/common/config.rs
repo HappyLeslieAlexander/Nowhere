@@ -118,7 +118,7 @@ fn quic_udp_queue_bytes_defaults_and_bounds_are_strict() {
         4 * 1024 * 1024
     );
     let max = Semaphore::MAX_PERMITS.min(u32::MAX as usize);
-    for bytes in [1, 8192, max] {
+    for bytes in [65535, 4 * 1024 * 1024, max] {
         assert_eq!(
             read_quic_udp_queue_bytes(&mut |name| {
                 assert_eq!(name, "NOW_QUIC_UDP_QUEUE_BYTES");
@@ -130,6 +130,7 @@ fn quic_udp_queue_bytes_defaults_and_bounds_are_strict() {
     }
     for raw in [
         "0",
+        "65534",
         "-1",
         "",
         "invalid",

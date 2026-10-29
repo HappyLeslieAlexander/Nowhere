@@ -6,7 +6,6 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use socket2::TcpKeepalive;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -116,7 +115,7 @@ async fn pending_connection(
         .tcp_endpoint()
         .context("TLS Egress endpoint missing")?;
     let address = config.remote.carrier_addr(endpoint);
-    let keepalive = tcp_keepalive();
+    let keepalive = crate::common::tcp_keepalive();
     let (mut stream, exporter) = tokio::select! {
         biased;
         _ = shutdown.cancelled() => bail!("Egress shutting down"),
@@ -168,12 +167,6 @@ async fn wait_flow_start(
         },
         _ = tokio::time::sleep_until(expires_at) => Ok(None),
     }
-}
-
-fn tcp_keepalive() -> TcpKeepalive {
-    TcpKeepalive::new()
-        .with_time(Duration::from_secs(15))
-        .with_interval(Duration::from_secs(15))
 }
 
 #[cfg(test)]

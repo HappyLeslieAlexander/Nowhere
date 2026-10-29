@@ -84,6 +84,9 @@ pub(crate) fn read_quic_udp_queue_bytes<F>(source: &mut F) -> Result<usize>
 where
     F: FnMut(&str) -> Result<Option<String>>,
 {
+    // One maximum-size SOCKS UDP payload: below this floor every large packet
+    // would be dropped by the byte budget with no way to recover.
+    const MIN: usize = 65535;
     let name = "NOW_QUIC_UDP_QUEUE_BYTES";
     let Some(raw) = source(name)? else {
         return Ok(4 * 1024 * 1024);
@@ -92,8 +95,8 @@ where
     let bytes = raw
         .parse::<usize>()
         .with_context(|| format!("invalid {name}={raw:?}"))?;
-    if bytes == 0 || bytes > max {
-        bail!("{name} must be in 1..={max}: {raw:?}");
+    if bytes < MIN || bytes > max {
+        bail!("{name} must be in {MIN}..={max}: {raw:?}");
     }
     Ok(bytes)
 }

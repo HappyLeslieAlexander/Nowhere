@@ -5,6 +5,7 @@
 
 mod deadlines;
 mod quic;
+mod reconnect;
 
 use std::sync::atomic::Ordering;
 

@@ -59,9 +59,55 @@ impl PortalClient {
             .map(|(_, q)| q.clone())
         {
             drop(state);
-            let (flow, result) = self.start_quic_flow(&q, kind, target, None).await?;
-            return ready_quic_flow(flow, result);
+            match self.start_quic_flow(&q, kind, target, None).await {
+                Ok((flow, result)) => return ready_quic_flow(flow, result),
+                // The health check raced the connection dying or the Portal
+                // breaking mid-setup: invalidate the cache and rebuild below.
+                Err(OpenFlowError::Transport(_) | OpenFlowError::Protocol(_)) => {
+                    let mut latest = self.quic.lock().await;
+                    if latest
+                        .as_ref()
+                        .is_some_and(|(_, cached)| Arc::ptr_eq(cached, &q))
+                    {
+                        *latest = None;
+                    }
+                    drop(latest);
+                    q.close();
+                    state = self.quic.lock().await;
+                }
+                Err(error) => return Err(error),
+            }
         }
+        // Establishments hold the cache lock: one handshake at a time, so a
+        // downed Portal meets a queue rather than a storm, and the cooldown
+        // turns that queue into fast failures after the first failure.
+        if self.quic_cooldown_active() {
+            return Err(OpenFlowError::Transport(anyhow!(
+                "Portal reconnect cooling down after a failed handshake"
+            )));
+        }
+        let result = self.connect_and_start_flow(kind, target, &mut state).await;
+        match result {
+            // Both classes mean the exchange with the Portal itself failed;
+            // a per-target rejection (Setup) does not.
+            Err(OpenFlowError::Transport(error)) => {
+                self.arm_quic_cooldown();
+                Err(OpenFlowError::Transport(error))
+            }
+            Err(OpenFlowError::Protocol(error)) => {
+                self.arm_quic_cooldown();
+                Err(OpenFlowError::Protocol(error))
+            }
+            other => other,
+        }
+    }
+
+    async fn connect_and_start_flow(
+        &self,
+        kind: FlowKind,
+        target: &Target,
+        state: &mut tokio::sync::MutexGuard<'_, Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
+    ) -> std::result::Result<QuicFlow, OpenFlowError> {
         let (endpoint, connection) = connect_quic(&self.config, &self.tls)
             .await
             .map_err(OpenFlowError::Transport)?;
@@ -88,7 +134,7 @@ impl PortalClient {
                     .close(1u32.into(), b"role direction violation");
             }
         });
-        *state = Some((endpoint, q));
+        **state = Some((endpoint, q));
         attempt.0 = None;
         ready_quic_flow(flow, result)
     }

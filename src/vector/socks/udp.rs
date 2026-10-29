@@ -3,6 +3,11 @@
 
 //! SOCKS5 UDP association routing and relay.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+
+use tokio::sync::Semaphore;
+
 use super::*;
 
 pub(super) async fn run_udp_association(
@@ -48,15 +53,26 @@ pub(super) async fn run_udp_association(
     let client_endpoint = Arc::new(StdMutex::new(
         requested_port.map(|port| SocketAddr::new(control_peer.ip(), port)),
     ));
-    let mut flows: HashMap<SocksAddress, mpsc::Sender<QueuedLocalPacket>> = HashMap::new();
+    let mut flows: HashMap<SocksAddress, UdpFlowQueue> = HashMap::new();
     let mut tasks = JoinSet::new();
     let active_targets = vector.socks_udp_target_admission.clone();
+    // A UDP association has no liveness signal of its own, so the association
+    // and every target flow close after this long without any traffic.
+    let idle_after = vector.socks_udp_idle;
+    let activity = Arc::new(AssociationActivity::new());
     let mut packet = Vec::new();
     let mut control_byte = [0u8; 1];
+    let mut idle_deadline = Instant::now() + idle_after;
 
     let outcome = loop {
         tokio::select! {
             _ = association_shutdown.cancelled() => break Ok(()),
+            _ = tokio::time::sleep_until(idle_deadline) => {
+                if activity.is_idle(idle_after) {
+                    break Ok(());
+                }
+                idle_deadline = activity.next_deadline(idle_after);
+            }
             result = control.read(&mut control_byte) => {
                 match result {
                     Ok(0) => break Ok(()),
@@ -79,13 +95,15 @@ pub(super) async fn run_udp_association(
                 if source.ip() != control_peer.ip() {
                     continue;
                 }
+                if !accept_udp_source(&client_endpoint, control_peer.ip(), source) {
+                    continue;
+                }
+                activity.touch();
+                idle_deadline = activity.next_deadline(idle_after);
                 let Ok((target, fragment, payload)) = decode_udp_packet(&packet[..size]) else {
                     continue;
                 };
                 if fragment != 0 || target.port() == 0 {
-                    continue;
-                }
-                if !accept_udp_source(&client_endpoint, control_peer.ip(), source) {
                     continue;
                 }
                 let Ok(permit) = vector
@@ -98,35 +116,39 @@ pub(super) async fn run_udp_association(
                 let mut payload = QueuedLocalPacket {
                     payload: payload.to_vec(),
                     _permit: permit,
+                    _flow_permit: None,
                 };
-                if let Some(sender) = flows.get(&target) {
-                    match sender.try_send(payload) {
-                        Ok(()) | Err(TrySendError::Full(_)) => continue,
-                        Err(TrySendError::Closed(returned)) => payload = returned,
+                if let Some(queue) = flows.get(&target) {
+                    match queue.try_send(payload) {
+                        FlowSend::Queued | FlowSend::Full => continue,
+                        FlowSend::Closed(returned) => payload = returned,
                     }
                     flows.remove(&target);
                 }
-                flows.retain(|_, sender| !sender.is_closed());
+                flows.retain(|_, queue| !queue.sender.is_closed());
                 let Some(target_admission) = try_admit_udp_target(&active_targets) else {
                     continue;
                 };
-                let (sender, receiver) = mpsc::channel(64);
-                if sender.try_send(payload).is_err() {
+                let (queue, receiver) = UdpFlowQueue::new(vector.local_udp_flow_budget);
+                if matches!(queue.try_send(payload), FlowSend::Closed(_)) {
                     continue;
                 }
-                flows.insert(target.clone(), sender);
+                flows.insert(target.clone(), queue);
                 tasks.spawn(open_and_relay_udp_target(
-                    vector.clone(),
-                    udp.clone(),
-                    client_endpoint.clone(),
+                    UdpTargetTask {
+                        vector: vector.clone(),
+                        socket: udp.clone(),
+                        client_endpoint: client_endpoint.clone(),
+                        target_admission,
+                        activity: activity.clone(),
+                    },
                     target,
                     receiver,
                     association_shutdown.clone(),
-                    target_admission,
                 ));
             }
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {
-                flows.retain(|_, sender| !sender.is_closed());
+                flows.retain(|_, queue| !queue.sender.is_closed());
             }
         }
     };
@@ -136,15 +158,28 @@ pub(super) async fn run_udp_association(
     outcome
 }
 
-async fn open_and_relay_udp_target(
+/// Everything one target relay task holds for the association it serves.
+struct UdpTargetTask {
     vector: Arc<VectorInner>,
     socket: Arc<UdpSocket>,
     client_endpoint: Arc<StdMutex<Option<SocketAddr>>>,
+    target_admission: OwnedSemaphorePermit,
+    activity: Arc<AssociationActivity>,
+}
+
+async fn open_and_relay_udp_target(
+    task: UdpTargetTask,
     target: SocksAddress,
     outbound: mpsc::Receiver<QueuedLocalPacket>,
     shutdown: CancellationToken,
-    _target_admission: OwnedSemaphorePermit,
 ) {
+    let UdpTargetTask {
+        vector,
+        socket,
+        client_endpoint,
+        target_admission: _target_admission,
+        activity,
+    } = task;
     let Ok(protocol_target) = to_target(&target) else {
         return;
     };
@@ -163,16 +198,17 @@ async fn open_and_relay_udp_target(
         },
     };
     relay_udp_target(
-        vector,
+        vector.clone(),
         UdpClientSide {
             socket,
             endpoint: client_endpoint,
-            idle_timeout: udp_idle_timeout(),
+            idle_timeout: vector.socks_udp_idle,
         },
         target,
         tunnel,
         outbound,
         shutdown,
+        activity,
     )
     .await;
 }
@@ -229,6 +265,7 @@ async fn relay_udp_target(
     mut tunnel: UdpTunnel,
     mut outbound: mpsc::Receiver<QueuedLocalPacket>,
     shutdown: CancellationToken,
+    activity: Arc<AssociationActivity>,
 ) {
     let mut inbound = Vec::new();
     let mut local_packet = Vec::new();
@@ -254,6 +291,7 @@ async fn relay_udp_target(
                     } => result,
                 };
                 if let Err(error) = sent { break Err(error); }
+                activity.touch();
                 idle.as_mut().reset(Instant::now() + client.idle_timeout);
             }
             received = tunnel.recv_into(&mut inbound) => {
@@ -283,6 +321,7 @@ async fn relay_udp_target(
                     } => result,
                 };
                 if let Err(error) = sent { break Err(error.into()); }
+                activity.touch();
                 idle.as_mut().reset(Instant::now() + client.idle_timeout);
             }
         }
@@ -297,9 +336,84 @@ async fn relay_udp_target(
     }
 }
 
+/// Liveness clock for one UDP association: packets from the locked source or
+/// successful relay transfers push the idle deadline out.
+struct AssociationActivity {
+    started: Instant,
+    last_millis: AtomicU64,
+}
+
+impl AssociationActivity {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            last_millis: AtomicU64::new(0),
+        }
+    }
+
+    fn touch(&self) {
+        self.last_millis.store(
+            self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn next_deadline(&self, idle_after: Duration) -> Instant {
+        self.started + Duration::from_millis(self.last_millis.load(Ordering::Relaxed)) + idle_after
+    }
+
+    fn is_idle(&self, idle_after: Duration) -> bool {
+        Instant::now() >= self.next_deadline(idle_after)
+    }
+}
+
+/// Outbound queue for one target with its own in-flight packet budget, so a
+/// single busy target cannot drain the association-wide byte budget.
+struct UdpFlowQueue {
+    sender: mpsc::Sender<QueuedLocalPacket>,
+    budget: Arc<tokio::sync::Semaphore>,
+}
+
+enum FlowSend {
+    Queued,
+    Full,
+    Closed(QueuedLocalPacket),
+}
+
+impl UdpFlowQueue {
+    fn new(budget_packets: usize) -> (Self, mpsc::Receiver<QueuedLocalPacket>) {
+        let (sender, receiver) = mpsc::channel(64);
+        (
+            Self {
+                sender,
+                budget: Arc::new(Semaphore::new(budget_packets.max(1))),
+            },
+            receiver,
+        )
+    }
+
+    fn try_send(&self, payload: QueuedLocalPacket) -> FlowSend {
+        let Ok(flow_permit) = self.budget.clone().try_acquire_owned() else {
+            drop(payload);
+            return FlowSend::Full;
+        };
+        let mut payload = payload;
+        payload._flow_permit = Some(flow_permit);
+        match self.sender.try_send(payload) {
+            Ok(()) => FlowSend::Queued,
+            Err(TrySendError::Full(returned)) => {
+                drop(returned);
+                FlowSend::Full
+            }
+            Err(TrySendError::Closed(returned)) => FlowSend::Closed(returned),
+        }
+    }
+}
+
 struct QueuedLocalPacket {
     payload: Vec<u8>,
     _permit: OwnedSemaphorePermit,
+    _flow_permit: Option<OwnedSemaphorePermit>,
 }
 
 #[cfg(test)]

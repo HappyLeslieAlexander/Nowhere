@@ -56,10 +56,10 @@ async fn mixed_fifo_rotates_quic_and_consumes_tls_once() {
     let (s1, e1, _server1, q1) = quic_pair().await;
     let (s2, e2, _server2, q2) = quic_pair().await;
     let registry = Arc::new(EgressRegistry::new(2));
-    let _q1 = registry.register_quic(q1.clone());
+    let _q1 = registry.register_quic(q1.clone(), registry.reserve_quic().unwrap());
     let (t1, r1) = oneshot::channel();
     let _t1 = registry.register_tls(t1, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL);
-    let _q2 = registry.register_quic(q2.clone());
+    let _q2 = registry.register_quic(q2.clone(), registry.reserve_quic().unwrap());
     let (t2, r2) = oneshot::channel();
     let _t2 = registry.register_tls(t2, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL);
     assert!(matches!(registry.claim().await.unwrap(), Selected::Quic(q) if Arc::ptr_eq(&q, &q1)));
@@ -163,7 +163,7 @@ async fn failed_tls_dispatch_skips_to_the_next_live_tls_or_quic() {
         drop(receiver);
         let (live, receiver) = oneshot::channel();
         let _live = if use_quic {
-            registry.register_quic(quic.clone())
+            registry.register_quic(quic.clone(), registry.reserve_quic().unwrap())
         } else {
             registry.register_tls(live, Instant::now() + crate::common::EGRESS_TLS_IDLE_TTL)
         };
@@ -204,4 +204,56 @@ async fn failed_tls_dispatch_waits_for_a_new_registration_when_queue_is_empty() 
         Selected::Tls(_)
     ));
     assert!(receiver.await.is_ok());
+}
+
+#[tokio::test]
+async fn quic_registrations_are_capped_like_tls_ones() {
+    let (s1, e1, _server1, q1) = quic_pair().await;
+    let registry = Arc::new(EgressRegistry::new(1));
+    let permit = registry.reserve_quic().unwrap();
+    assert!(registry.reserve_quic().is_none());
+    let registration = registry.register_quic(q1.clone(), permit);
+    assert!(registry.reserve_quic().is_none());
+    drop(registration);
+    assert!(registry.reserve_quic().is_some());
+    q1.close();
+    e1.close(0u32.into(), b"test");
+    s1.close(0u32.into(), b"test");
+}
+
+#[tokio::test]
+async fn prune_drops_dead_quic_entries_without_a_claim() {
+    let (s1, e1, _server1, q1) = quic_pair().await;
+    let registry = Arc::new(EgressRegistry::new(4));
+    let permit = registry.reserve_quic().unwrap();
+    let registration = registry.register_quic(q1.clone(), permit);
+    assert!(registry.online());
+    q1.close();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if q1.connection.close_reason().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    registry.prune();
+    assert!(!registry.online());
+    drop(registration);
+    assert!(registry.reserve_quic().is_some());
+    e1.close(0u32.into(), b"test");
+    s1.close(0u32.into(), b"test");
+}
+
+#[tokio::test]
+async fn prune_drops_expired_tls_standbys_without_a_claim() {
+    let registry = Arc::new(EgressRegistry::new(4));
+    let (sender, _receiver) = oneshot::channel();
+    let _registration =
+        registry.register_tls(sender, Instant::now() - std::time::Duration::from_millis(1));
+    assert!(registry.online());
+    registry.prune();
+    assert!(!registry.online());
 }

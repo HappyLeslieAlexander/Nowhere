@@ -6,6 +6,7 @@
 mod quic;
 
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -35,6 +36,9 @@ pub(crate) struct PortalClient {
     flow_setup_timeout: Duration,
     udp_queue_bytes: usize,
     quic: Mutex<Option<(quinn::Endpoint, Arc<QuicConnection>)>>,
+    /// After a failed QUIC establishment, new attempts wait out this cooldown
+    /// instead of handing the Portal a synchronized handshake storm.
+    quic_cooldown_until: StdMutex<Option<Instant>>,
     pub(super) shutdown: CancellationToken,
 }
 
@@ -67,8 +71,24 @@ impl PortalClient {
             flow_setup_timeout: crate::common::flow_setup_timeout(),
             udp_queue_bytes,
             quic: Mutex::new(None),
+            quic_cooldown_until: StdMutex::new(None),
             shutdown,
         }))
+    }
+
+    pub(super) fn quic_cooldown_active(&self) -> bool {
+        self.quic_cooldown_until
+            .lock()
+            .unwrap_or_else(|lock| lock.into_inner())
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    pub(super) fn arm_quic_cooldown(&self) {
+        let until = Instant::now() + crate::common::service_cooldown_with_jitter();
+        *self
+            .quic_cooldown_until
+            .lock()
+            .unwrap_or_else(|lock| lock.into_inner()) = Some(until);
     }
 
     pub(crate) async fn open_tcp(

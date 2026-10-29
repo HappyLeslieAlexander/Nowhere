@@ -17,6 +17,8 @@ use crate::telemetry::TelemetryServer;
 
 use super::{Portal, PortalInner, conn};
 
+const EGRESS_REGISTRY_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+
 impl Portal {
     pub async fn run(self) -> Result<()> {
         let forward = &self.inner.forward;
@@ -35,6 +37,17 @@ impl Portal {
             let stop = stop.clone();
             let endpoint = endpoint.clone();
             listeners.spawn(async move { quic_loop(portal, endpoint, stop).await });
+        }
+        if let Some(registry) = self.inner.egress_registry.clone() {
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                while !stop.is_cancelled() {
+                    tokio::select! {
+                        _ = stop.cancelled() => break,
+                        _ = tokio::time::sleep(EGRESS_REGISTRY_SWEEP_INTERVAL) => registry.prune(),
+                    }
+                }
+            });
         }
         let telemetry_stop = CancellationToken::new();
         let mut observation = JoinSet::new();

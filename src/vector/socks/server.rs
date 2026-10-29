@@ -11,7 +11,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::{Context, Result, anyhow};
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::{Domain, Protocol, SockRef, Socket, Type};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc::error::TrySendError;
@@ -24,7 +24,7 @@ use crate::common::{
     COMMAND_BIND, COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, REPLY_ADDRESS_NOT_SUPPORTED,
     REPLY_COMMAND_NOT_SUPPORTED, REPLY_CONNECTION_NOT_ALLOWED, REPLY_SUCCEEDED, SocksAddress,
     authenticate, bind_udp_addrs, decode_udp_packet, encode_udp_packet_into, handshake_timeout,
-    read_request, udp_idle_timeout, write_reply,
+    read_request, tcp_keepalive, write_reply,
 };
 
 use self::udp::run_udp_association;
@@ -115,6 +115,9 @@ async fn handle_client(
     peer: SocketAddr,
     shutdown: CancellationToken,
 ) -> Result<()> {
+    // Best-effort: a silent local client must not hold its admission slot
+    // forever once its connection half-dies.
+    let _ = SockRef::from(&stream).set_tcp_keepalive(&tcp_keepalive());
     let request = tokio::select! {
         biased;
         _ = shutdown.cancelled() => return Ok(()),

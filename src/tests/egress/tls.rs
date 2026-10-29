@@ -5,7 +5,9 @@
 
 use std::time::Duration;
 
-use socket2::SockRef;
+use socket2::{SockRef, TcpKeepalive};
+
+use crate::common::tcp_keepalive;
 use tokio::sync::mpsc;
 use url::Url;
 
