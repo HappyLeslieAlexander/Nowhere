@@ -242,14 +242,21 @@ QUIC's idle-timeout limit. Invalid values fail startup with the variable name.
 Only unset variables use defaults.
 
 `NOW_QUIC_UDP_QUEUE_BYTES` is also validated once at startup by all three roles,
-including TLS-only configurations. It accepts positive integer byte counts up to
-the smaller of `Semaphore::MAX_PERMITS` and `u32::MAX`. The saved value bounds each
-QUIC connection's UDP queue and reassembly reservations, and Vector's separate
-local UDP queue budget. Invalid values fail startup with the variable name.
+including TLS-only configurations. It accepts integer byte counts from `65535`
+(one maximum-size UDP payload) up to the smaller of `Semaphore::MAX_PERMITS` and
+`u32::MAX`; below that floor every large packet would be dropped without
+recovery. The saved value bounds each QUIC connection's UDP queue and
+reassembly reservations, and Vector's separate local UDP queue budget. Invalid
+values fail startup with the variable name.
+
+`NOW_TRANSPORT_MEMORY_PROFILE` and `NOW_MORPH_TCP_PRELUDE` are parsed once at
+startup; a bad value fails boot instead of failing each connection at handshake
+time. Unknown or undecodable URL query parameters are reported on stderr
+instead of being silently ignored.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `NOW_TCP_DATA_BUF_SIZE` | `32768` | TCP copy buffer bytes |
+| `NOW_TCP_DATA_BUF_SIZE` | `32768` | TCP copy buffer bytes, `1`..=`1048576`, identical for all roles |
 | `NOW_TCP_DIAL_TIMEOUT`, `NOW_UDP_DIAL_TIMEOUT` | `15s` | Target dial limits |
 | `NOW_HANDSHAKE_TIMEOUT` | `5s` | Transport/authentication limit |
 | `NOW_FLOW_SETUP_TIMEOUT` | `20s` | Complete Flow setup operation deadline |
@@ -258,11 +265,13 @@ local UDP queue budget. Invalid values fail startup with the variable name.
 | `NOW_QUIC_UDP_QUEUE_BYTES` | `4194304` | Connection-wide queue/reassembly reservation |
 | `NOW_SHUTDOWN_TIMEOUT` | `5s` | Bounded drain |
 | `NOW_RELOAD_INTERVAL` | `1h` | Supplied certificate reload |
-| `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect and failed-seed backoff |
+| `NOW_SERVICE_COOLDOWN` | `3s` | Egress reconnect and failed-seed backoff, with up to 50% jitter |
 | `NOW_EGRESS_TLS_POOL_MAX` | `128` | Maximum TLS Egress pending connections per process |
 | `NOW_PORTAL_TLS_IDLE_MAX` | `128` | Portal-wide TLS Egress pending capacity |
 | `NOW_TRANSPORT_MEMORY_PROFILE` | `throughput` | QUIC window profile |
 | `NOW_MORPH_TCP_PRELUDE` | `fade` | [Morph prelude mode](#tcp-morph-prelude): `fade`, `full8` or `low7` |
+| `NOW_UNAUTH_MAX` | `256` | Portal pre-authentication connections, global |
+| `NOW_UNAUTH_PER_SOURCE` | `32` | Portal pre-authentication connections per source |
 
 ### Timeout semantics
 
@@ -280,7 +289,9 @@ local UDP queue budget. Invalid values fail startup with the variable name.
   restart it; it is not a timeout on every TCP read.
 - **Idle Timeout:** `NOW_UDP_IDLE_TIMEOUT` retains the existing UDP Flow activity
   and QUIC transport idle rules. It does not cap the total lifetime of an active
-  Flow. Fully open TCP Flows have no read-idle timeout.
+  Flow. Fully open TCP Flows have no read-idle timeout; half-open TCP peers are
+  detected by TCP keepalives instead, and a SOCKS UDP association with no
+  traffic for this long is closed.
 - **Fixed TTL:** unused TLS Egress standby connections expire after a fixed
   `120s`, independently at Portal and Egress. Activity does not renew this TTL;
   claimed connections leave standby and follow normal Flow lifetime rules.

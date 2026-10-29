@@ -31,6 +31,13 @@ Exercise both TLS and QUIC with TCP and UDP payloads. Include authentication-onl
 Stream 0, a pipelined first request, partial reads, reserved-bit decoding, TCP
 half-close, rejection before READY and failure isolation after READY.
 
+Target domains arrive as SOCKS5-style wire names. Portal accepts labels up to 63
+bytes of ASCII letters, digits, hyphens and underscores, so operational names
+such as `_dmarc` or `_acme-challenge` resolve; length, hyphen-edge and
+non-ASCII rules still reject malformed names. The target is dialed, never
+parsed for security, and implementations are not required to replicate this
+exact alphabet — treat it as the reference behavior.
+
 A standard Vector uses the same Core protocol when Portal selects Egress as its
 exit. It does not implement registration or reverse Stream initiation. Egress
 peers separately test the [registration barrier](egress.md#registration),

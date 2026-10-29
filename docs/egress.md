@@ -102,7 +102,10 @@ TLS Egress registration requires an updated Portal.
 
 Portal caps the aggregate number of pending TLS registrations with
 `NOW_PORTAL_TLS_IDLE_MAX` (default 128, range 1–1023). Connections
-being accepted count toward that cap. Full capacity returns BUSY. All accepted
+being accepted count toward that cap. Full capacity returns BUSY. QUIC
+registrations share the same cap and return BUSY the same way; a periodic
+sweep plus registration and claim scans discard entries whose connection has
+closed, so an idle Portal does not accumulate stale registrations. All accepted
 connections also hold the existing shared connection permit until they close;
 claiming a TLS connection releases only its pending-registration allowance.
 
@@ -197,6 +200,12 @@ Portal and Egress independently expire idle TLS standby connections after
 120 seconds. On Portal, the timer ends when the connection is claimed; on
 Egress, it ends when a FlowStart is received. An active Flow is not subject to
 this standby TTL. A claim racing expiration may fail directly.
+
+Because the two timers start at opposite ends of the ACCEPTED exchange, a
+server close lands on the same instant as the Egress timer. An Egress that
+observes EOF within a second of its own expiry treats it as a normal
+expiration, not a failed connection, so idle cycles do not log errors or pay
+the reconnect cooldown.
 
 Egress enables kernel TCP keepalive on its TLS connections to Portal before
 the handshake, with a 15-second idle time and a 15-second probe interval.

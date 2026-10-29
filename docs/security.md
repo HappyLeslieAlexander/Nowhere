@@ -104,6 +104,16 @@ the socket and processing permit until the original deadline. Further input,
 FIN or RST does not shorten or extend that wait. Portal sends no filler data
 and introduces no random delays.
 
+A prelude that fails its HMAC check is different: it proves the peer does not
+hold the Shared Key, so holding a slot until the deadline would only serve
+connection exhaustion. Portal closes such connections immediately and
+silently, without responding. Ambiguous truncations, and preludes that carry a
+valid Tag with an invalid Counter, keep the full silent park because the peer
+may hold the key. This trades a small amount of probe timing signal — closure
+now versus closure at the deadline — for resilience against cheap admission
+starvation. The global and per-source pre-authentication limits are
+configurable through `NOW_UNAUTH_MAX` and `NOW_UNAUTH_PER_SOURCE`.
+
 The silent stage ends after ClientHello acceptance, successful replay commit
 and the deadline check. Configuration-dependent ClientHello checks, TLS
 completion and AuthFrame validation follow; TLS processing can send alerts
@@ -152,7 +162,8 @@ input and the stage it reaches:
 
 | Input or stage | Observable behavior |
 |---|---|
-| Rejected Morph TCP bootstrap or ClientHello | No parser response before the original deadline; socket closure remains observable |
+| Rejected Morph TCP bootstrap (HMAC failure) | Immediate silent closure; socket closure remains observable |
+| Ambiguous or Counter-rejected Morph TCP bootstrap | No parser response before the original deadline; socket closure remains observable |
 | Accepted Morph TCP ClientHello with committed replay state | TLS responses and later alerts are possible before AuthFrame succeeds |
 | Unsupported-version Morph UDP long header | Silently discarded before Quinn; no Version Negotiation response |
 | Captured valid QUIC Initial | Can still trigger Retry and address validation |
@@ -181,7 +192,7 @@ these limits before accepting a role:
 
 | Resource | Pre-authentication limit |
 |---|---|
-| Authentication processing | 256 total; 32 per IPv4 source or IPv6 /64, shared by TCP and QUIC |
+| Authentication processing | `NOW_UNAUTH_MAX` (default 256) total; `NOW_UNAUTH_PER_SOURCE` (default 32) per IPv4 source or IPv6 /64, shared by TCP and QUIC |
 | QUIC Stream credit | One client bidirectional Stream; no unidirectional Streams |
 | QUIC connection receive window | 64 KiB |
 | Handshake and authentication | `NOW_HANDSHAKE_TIMEOUT`, default `5s` |
@@ -256,8 +267,9 @@ never logged. IPC metadata exposes validated service endpoints to authorized
 collectors; it includes no configuration summary, client address or transport
 peer identity.
 
-IPC carries instance identity and six statistics. It contains no Flow events,
-error messages or logs.
+IPC carries instance identity and ten statistics, including silent
+pre-authentication rejections and UDP drop counters. It contains no Flow
+events, error messages or logs.
 
 Service errors preserve their original cause chains and can contain addresses
 or paths. Error construction excludes passwords, Shared Keys and complete

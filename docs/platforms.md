@@ -58,6 +58,10 @@ container rules required around the process.
 | `*/tcp4:2006/udp6:2017` | IPv4 TCP 2006 and IPv6 UDP 2017 |
 
 An unrestricted `*` carrier opens separate IPv4 and IPv6 wildcard sockets.
+TCP listeners set `SO_REUSEADDR` on Linux and macOS for TIME_WAIT rebinding.
+Windows keeps its default exclusive binding semantics instead, where
+`SO_REUSEADDR` would allow any local process to bind the same port.
+
 IPv6 sockets use `V6ONLY` on Linux, macOS, and Windows, so an IPv6 firewall
 rule does not replace the corresponding IPv4 rule. If the operating system
 does not support one family, only an unrestricted wildcard carrier may start
