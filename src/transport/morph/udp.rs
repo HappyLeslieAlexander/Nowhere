@@ -127,7 +127,9 @@ pub(crate) fn morph_endpoint_config(enabled: bool) -> anyhow::Result<quinn::Endp
         let maximum = config
             .get_max_udp_payload_size()
             .checked_sub(NONCE_LEN as u64)
-            .expect("Quinn UDP payload limit exceeds Morph overhead");
+            .ok_or_else(|| {
+                anyhow::anyhow!("Quinn UDP payload limit does not cover Morph overhead")
+            })?;
         config.max_udp_payload_size(maximum as u16)?;
     }
     Ok(config)
@@ -277,24 +279,28 @@ impl AsyncUdpSocket for MorphUdpSocket {
             {
                 continue;
             }
-            let segment_count = wire_meta.len.div_ceil(wire_stride);
+            let final_wire_len = wire_meta.len % wire_stride;
+            // A trailing segment shorter than its nonce is garbage padding:
+            // truncate it instead of discarding every decoded segment above.
+            let wire_len = if final_wire_len != 0 && final_wire_len <= NONCE_LEN {
+                wire_meta.len - final_wire_len
+            } else {
+                wire_meta.len
+            };
+            let segment_count = wire_len.div_ceil(wire_stride);
             let Some(nonce_bytes) = segment_count.checked_mul(NONCE_LEN) else {
                 continue;
             };
-            let Some(expected_len) = wire_meta.len.checked_sub(nonce_bytes) else {
+            let Some(expected_len) = wire_len.checked_sub(nonce_bytes) else {
                 continue;
             };
-            let final_wire_len = wire_meta.len % wire_stride;
-            if expected_len == 0
-                || expected_len > bufs[output].len()
-                || (final_wire_len != 0 && final_wire_len <= NONCE_LEN)
-            {
+            if expected_len == 0 || expected_len > bufs[output].len() {
                 continue;
             }
             let target = &mut bufs[output];
             let decoded_stride = wire_stride - NONCE_LEN;
             let mut decoded_len = 0;
-            for wire in storage[..wire_meta.len].chunks(wire_stride) {
+            for wire in storage[..wire_len].chunks(wire_stride) {
                 let (nonce, encrypted) = wire.split_at(NONCE_LEN);
                 let nonce: &[u8; NONCE_LEN] = nonce.try_into().expect("fixed nonce prefix");
                 let mut cipher = ChaCha20::new((&self.rx_key).into(), nonce.into());

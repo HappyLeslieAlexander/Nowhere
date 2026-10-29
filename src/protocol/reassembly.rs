@@ -137,6 +137,7 @@ impl<R> DatagramReassembler<R> {
     where
         F: FnOnce(u16) -> Option<R>,
     {
+        let fragment_count = usize::from(fragment.fragment_count.max(1));
         if flow_id == 0
             || flow_id > crate::protocol::MAX_FLOW_ID
             || fragment.packet_id == 0
@@ -148,10 +149,7 @@ impl<R> DatagramReassembler<R> {
             )
             .is_err()
             || fragment.payload.is_empty()
-            || fragment
-                .payload
-                .len()
-                .saturating_add(fragment.fragment_count as usize - 1)
+            || fragment.payload.len().saturating_add(fragment_count - 1)
                 > fragment.total_len as usize
         {
             return ReassemblyOutcome::Dropped(ReassemblyDropReason::InvalidLength);

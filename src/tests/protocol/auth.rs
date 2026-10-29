@@ -71,9 +71,21 @@ fn replay_transport_role_and_truncation_fail() {
 fn percent_decoding_is_once_and_text_is_not_hex_decoded() {
     let url = Url::parse("vector://a%2520b@localhost:2000").unwrap();
     assert_eq!(Credentials::decode_shared_key(&url).unwrap(), b"a%20b");
-    assert_ne!(
-        Credentials::from_shared_key(b"abcd").unwrap(),
-        Credentials::from_shared_key(&[0xab, 0xcd]).unwrap()
+    // The decoded text is the key material, not its hex interpretation: the
+    // ASCII key "0123456789abcdef0123456789abcdef" and the key that is the
+    // hex encoding OF that text must derive different credentials.
+    let text_key = Credentials::from_shared_key(b"0123456789abcdef0123456789abcdef").unwrap();
+    let hex_of_text_key =
+        Credentials::from_shared_key(b"30313233343536373839616263646566").unwrap();
+    assert_ne!(text_key, hex_of_text_key);
+    // Percent-encoded input decodes to the same text key.
+    let encoded = Url::parse(
+        "portal://%30%31%32%33%34%35%36%37%38%39%61%62%63%64%65%66%30%31%32%33%34%35%36%37%38%39%61%62%63%64%65%66@localhost:2000",
+    )
+    .unwrap();
+    assert_eq!(
+        Credentials::for_service(&encoded, "test").unwrap(),
+        text_key
     );
     for key in [
         "",

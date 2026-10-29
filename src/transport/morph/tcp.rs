@@ -109,6 +109,12 @@ pub(super) struct TcpMorph {
     pub(super) write_cipher: ChaCha20,
     read_offset: u64,
     write_offset: u64,
+    /// Backlog of ciphertext not yet accepted by the inner writer.
+    ///
+    /// Invariant: `cipher_pos == write_offset` for every buffered byte, so
+    /// replaying the ChaCha20 keystream over this buffer resumes exactly where
+    /// the last poll_write stopped. Every write path (partial write, Pending,
+    /// Interrupted, flush) must preserve this or the stream desyncs.
     pub(super) write_buffer: Vec<u8>,
 }
 
@@ -227,7 +233,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for MorphTcpStream<S> {
             return Pin::new(&mut self.inner).poll_read(cx, buf);
         }
         let remaining = TCP_STREAM_LIMIT.saturating_sub(self.morph.as_ref().unwrap().read_offset);
-        if remaining == 0 && buf.remaining() != 0 {
+        if remaining == 0 {
             return Poll::Ready(Err(exhausted()));
         }
         let before = buf.filled().len();

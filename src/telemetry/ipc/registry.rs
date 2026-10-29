@@ -42,6 +42,12 @@ pub(crate) fn discover_instances() -> io::Result<Vec<DiscoveredInstance>> {
         Err(error) => return Err(error),
     };
     for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+        // Crash leftovers from an interrupted publish never become live
+        // entries; sweep them so the registry does not accumulate garbage.
+        if path.extension().and_then(|value| value.to_str()) == Some("pending") {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
         let Ok(payload) = local::read_registry(&path) else {
             continue;
         };

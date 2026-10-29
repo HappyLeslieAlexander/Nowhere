@@ -107,6 +107,9 @@ where
         self.read_frame().await
     }
 
+    /// Reads one framed message. The caller owns the deadline for the first
+    /// byte (`started_at` only bounds a partially read frame); every current
+    /// consumer wraps this in an outer timeout.
     async fn read_frame<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,

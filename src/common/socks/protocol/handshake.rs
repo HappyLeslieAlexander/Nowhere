@@ -56,8 +56,16 @@ where
         .read_exact(&mut header)
         .await
         .context("common::socks::authenticate: failed to read method header")?;
-    if header[0] != SOCKS_VERSION || header[1] == 0 {
+    if header[0] != SOCKS_VERSION {
         bail!("common::socks::authenticate: invalid method negotiation");
+    }
+    if header[1] == 0 {
+        // RFC 1928 §3: a client offering no methods gets 0xFF back.
+        stream
+            .write_all(&[SOCKS_VERSION, 0xFF])
+            .await
+            .context("common::socks::authenticate: failed to write no-acceptable-methods")?;
+        bail!("common::socks::authenticate: client offered no authentication methods");
     }
     let mut methods = [0u8; u8::MAX as usize];
     let methods = &mut methods[..header[1] as usize];
@@ -118,12 +126,9 @@ where
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    let max_len = left.len().max(right.len());
-    let mut diff = left.len() ^ right.len();
-    for index in 0..max_len {
-        diff |= usize::from(
-            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
-        );
+    if left.len() != right.len() {
+        return false;
     }
-    diff == 0
+    use subtle::ConstantTimeEq;
+    left.ct_eq(right).into()
 }

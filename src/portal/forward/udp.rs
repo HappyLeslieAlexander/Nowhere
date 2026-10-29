@@ -146,7 +146,6 @@ impl TargetReceiver<'_> {
     ) -> Result<Option<crate::vector::ReceivedUdpPacket>> {
         match self {
             Self::Network(socket) => {
-                *buffer = Vec::new();
                 *buffer = socket.recv().await?;
                 Ok(Some(crate::vector::ReceivedUdpPacket::Buffered(
                     0..buffer.len(),
@@ -214,15 +213,18 @@ async fn relay_udp(
     tokio::pin!(idle);
     loop {
         tokio::select! {
+            biased;
             _ = cancel.cancelled() => return Ok(()),
             _ = forward.shutdown.cancelled() => return Ok(()),
             _ = input_cancel.cancelled() => return Ok(()),
             _ = target_cancel.cancelled() => return Ok(()),
-            result = &mut upload => return result,
-            result = &mut download => return result,
+            // A packet arriving in the same poll cycle as an expiring idle
+            // timer must win, otherwise active flows get misidentified idle.
             _ = activity.notified() => idle.as_mut().reset(
                 tokio::time::Instant::now() + forward.runtime.udp_idle_timeout,
             ),
+            result = &mut upload => return result,
+            result = &mut download => return result,
             _ = &mut idle => return Ok(()),
         }
     }

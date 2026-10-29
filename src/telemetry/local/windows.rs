@@ -345,8 +345,12 @@ impl Listener {
             .expect("pending pipe")
             .connect()
             .await?;
+        // Replace the listening instance before handing out the connected
+        // one, so a failed recreate cannot drop an already-accepted client
+        // and no connect window opens without a listening instance.
+        let replacement = create(&self.name, false)?;
         let stream = self.pending.take().expect("connected pipe");
-        self.pending = Some(create(&self.name, false)?);
+        self.pending = Some(replacement);
         Ok(Box::new(stream))
     }
 }

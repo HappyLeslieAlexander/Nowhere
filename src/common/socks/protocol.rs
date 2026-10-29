@@ -39,7 +39,6 @@ pub(crate) const REPLY_CONNECTION_NOT_ALLOWED: u8 = 2;
 pub(crate) const REPLY_NETWORK_UNREACHABLE: u8 = 3;
 pub(crate) const REPLY_HOST_UNREACHABLE: u8 = 4;
 pub(crate) const REPLY_COMMAND_NOT_SUPPORTED: u8 = 7;
-pub(crate) const REPLY_ADDRESS_NOT_SUPPORTED: u8 = 8;
 
 pub(crate) const ADDRESS_IPV4: u8 = 1;
 const ADDRESS_DOMAIN: u8 = 3;

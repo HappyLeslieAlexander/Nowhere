@@ -10,7 +10,8 @@ use tokio::time::{Instant, timeout, timeout_at};
 
 use crate::common::handshake_timeout;
 use crate::protocol::{
-    AuthTransport, FlowKind, SetupResult, Target, encode_auth_frame, encode_flow_request_into,
+    AuthTransport, FlowKind, SetupResult, TLS_EXPORTER_LEN, Target, encode_auth_frame,
+    encode_flow_request_into,
 };
 use crate::transport::QuicConnection;
 use crate::vector::tls::{ClientTls, EXPORTER_LABEL, require_quic_nw3};
@@ -111,7 +112,7 @@ impl PortalClient {
         let (endpoint, connection) = connect_quic(&self.config, &self.tls)
             .await
             .map_err(OpenFlowError::Transport)?;
-        let mut exporter = [0; 32];
+        let mut exporter = [0; TLS_EXPORTER_LEN];
         connection
             .export_keying_material(&mut exporter, EXPORTER_LABEL, b"")
             .map_err(|e| OpenFlowError::Transport(anyhow!("exporter failed: {e:?}")))?;

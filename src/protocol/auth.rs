@@ -88,6 +88,17 @@ impl Credentials {
         if shared_key.len() > u8::MAX as usize {
             bail!("shared key exceeds the 255-byte limit");
         }
+        // One validation surface: every constructor enforces the service key
+        // alphabet, so a lenient caller cannot derive weaker credentials.
+        if shared_key.len() != 32
+            || !shared_key
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            bail!(
+                "shared key must be exactly 32 lowercase hexadecimal characters; use nowhere generate-key"
+            );
+        }
         Ok(Self {
             vector_key: derive_key(shared_key, b"vector-authentication"),
             egress_key: derive_key(shared_key, b"egress-authentication"),

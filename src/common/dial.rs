@@ -57,9 +57,15 @@ impl DialPolicy {
             match dial.map(String::as_str) {
                 None | Some("auto") => Ok(Self::default()),
                 Some(value) => {
-                    Ok(Self::SingleSource(Some(value.parse::<IpAddr>().map_err(
-                        |_| anyhow::anyhow!("dial must be auto or an IP literal"),
-                    )?)))
+                    let ip = value
+                        .parse::<IpAddr>()
+                        .map_err(|_| anyhow::anyhow!("dial must be auto or an IP literal"))?;
+                    if let std::net::IpAddr::V6(v6) = ip
+                        && let Some(mapped) = v6.to_ipv4_mapped()
+                    {
+                        bail!("dial must not be an IPv4-mapped IPv6 address: use dial4={mapped}");
+                    }
+                    Ok(Self::SingleSource(Some(ip)))
                 }
             }
         }

@@ -22,10 +22,10 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::common::{
-    COMMAND_BIND, COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, REPLY_ADDRESS_NOT_SUPPORTED,
-    REPLY_COMMAND_NOT_SUPPORTED, REPLY_CONNECTION_NOT_ALLOWED, REPLY_SUCCEEDED, SocksAddress,
-    authenticate, bind_udp_addrs, decode_udp_packet, encode_udp_packet_into, handshake_timeout,
-    read_request, tcp_keepalive, write_reply,
+    COMMAND_BIND, COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, REPLY_COMMAND_NOT_SUPPORTED,
+    REPLY_CONNECTION_NOT_ALLOWED, REPLY_GENERAL_FAILURE, REPLY_SUCCEEDED, SocksAddress,
+    authenticate, decode_udp_packet, encode_udp_packet_into, handshake_timeout, read_request,
+    resolve_listen_addrs, tcp_keepalive, write_reply,
 };
 
 use self::udp::run_udp_association;
@@ -37,7 +37,7 @@ const TCP_LISTEN_BACKLOG: i32 = 1024;
 const SOCKS_UDP_PACKET_MAX: usize = u16::MAX as usize + 3 + 1 + 1 + 255 + 2;
 
 pub(in crate::vector) fn listen(host: &str, port: u16) -> Result<Vec<TcpListener>> {
-    bind_udp_addrs(host, port)?
+    resolve_listen_addrs(host, port)?
         .into_iter()
         .map(listen_one)
         .collect()
@@ -152,7 +152,7 @@ async fn handle_client(
             if request.address.port() == 0 {
                 write_reply(
                     &mut stream,
-                    REPLY_ADDRESS_NOT_SUPPORTED,
+                    REPLY_GENERAL_FAILURE,
                     &SocksAddress::unspecified(),
                 )
                 .await?;

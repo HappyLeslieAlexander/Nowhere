@@ -33,7 +33,11 @@ pub(super) fn bytes(value: u64) -> String {
 }
 
 pub(super) fn panel(title: &str, rows: &[(&str, String)]) -> String {
-    let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+    let width = rows
+        .iter()
+        .map(|(label, _)| label.chars().count())
+        .max()
+        .unwrap_or(0);
     let mut output = format!("{title}\n{}\n", "─".repeat(title.chars().count()));
     for (label, value) in rows {
         output.push_str(&format!("{label:>width$}  {value}\n"));

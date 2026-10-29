@@ -40,7 +40,7 @@ impl Egress {
                 s.parse::<i32>()
                     .ok()
                     .filter(|n| *n >= 0)
-                    .context("invalid rate limit")
+                    .with_context(|| format!("invalid {name}={s:?}"))
             })
         };
         let upload = rate("rate")?;

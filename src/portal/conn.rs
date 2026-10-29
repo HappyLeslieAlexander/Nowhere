@@ -226,13 +226,16 @@ pub(super) async fn quic(
     incoming: quinn::Incoming,
     admission: UnauthenticatedGuard,
 ) -> Result<()> {
+    // Accept and authentication share one deadline, matching the TCP morph
+    // budget: two full grants would double a slow client's hold time.
+    let deadline = Instant::now() + portal.runtime.handshake_timeout;
     let connection = tokio::select! {
         biased;
         _ = portal.forward.shutdown.cancelled() => return Ok(()),
-        result = tokio::time::timeout(portal.runtime.handshake_timeout, incoming) =>
+        result = tokio::time::timeout_at(deadline, incoming) =>
             result.context("QUIC handshake timeout")??,
     };
-    let result = quic_authenticated(portal, connection.clone(), admission).await;
+    let result = quic_authenticated(portal, connection.clone(), admission, deadline).await;
     connection.close(0u32.into(), b"connection ended");
     result
 }
@@ -241,9 +244,10 @@ async fn quic_authenticated(
     portal: Arc<PortalInner>,
     connection: quinn::Connection,
     admission: UnauthenticatedGuard,
+    deadline: Instant,
 ) -> Result<()> {
     crate::vector::tls::require_quic_nw3(&connection)?;
-    let authentication = tokio::time::timeout(portal.runtime.handshake_timeout, async {
+    let authentication = tokio::time::timeout_at(deadline, async {
         let authentication = async {
             let (send, mut recv) = connection.accept_bi().await?;
             if u64::from(recv.id()) != 0 {
@@ -291,7 +295,13 @@ async fn quic_authenticated(
     drop(admission);
     let limits = crate::transport::transport_flow_control();
     connection.set_receive_window(limits.connection_receive_window.into());
-    connection.set_max_concurrent_bi_streams(1024u32.into());
+    // One connection must not be granted more streams than the Portal's free
+    // flow budget, or it can starve every other connection's new Flows.
+    connection.set_max_concurrent_bi_streams(
+        u32::try_from(portal.forward.flows.available_permits().clamp(1, 1024))
+            .unwrap_or(1024)
+            .into(),
+    );
     let q = QuicConnection::new(
         connection.clone(),
         role == ConnectionRole::Egress,

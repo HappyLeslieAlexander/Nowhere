@@ -56,6 +56,23 @@ pub async fn status() -> Result<()> {
         }
         println!("{}", status_panel(item));
     }
+    if !items.is_empty() && !failures.is_empty() {
+        // One unreachable instance must not hide the statuses that answered;
+        // unreachable instances degrade to their own panel row instead.
+        failures.sort();
+        println!();
+        println!(
+            "{}",
+            panel(
+                "UNREACHABLE",
+                &failures
+                    .iter()
+                    .map(|failure| ("PID", failure.clone()))
+                    .collect::<Vec<_>>(),
+            )
+        );
+        return Ok(());
+    }
     if !failures.is_empty() {
         failures.sort();
         bail!(

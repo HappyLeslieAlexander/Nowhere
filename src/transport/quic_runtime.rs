@@ -69,7 +69,7 @@ impl QuicConnection {
         tokio::spawn(async move {
             task.dispatch().await;
             task.cancel.cancel();
-            let mut state = task.state.lock().unwrap();
+            let mut state = task.state.lock().unwrap_or_else(|lock| lock.into_inner());
             for route in state.routes.values() {
                 route.cancel.cancel();
             }
@@ -90,7 +90,7 @@ impl QuicConnection {
             }
             let bytes = tokio::select! {
                 _ = self.cancel.cancelled() => break,
-                _ = expiry.tick() => {self.state.lock().unwrap().reassembly.expire(std::time::Instant::now()); continue;},
+                _ = expiry.tick() => {self.state.lock().unwrap_or_else(|lock| lock.into_inner()).reassembly.expire(std::time::Instant::now()); continue;},
                 bytes = self.connection.read_datagram() => match bytes {Ok(bytes) => bytes, Err(_) => break},
             };
             let Ok(frame) = decode_udp_frame_owned(bytes) else {
@@ -101,7 +101,7 @@ impl QuicConnection {
                 | OwnedUdpFrame::Fragment { flow_id, .. }
                 | OwnedUdpFrame::Close { flow_id } => *flow_id,
             };
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(|lock| lock.into_inner());
             let UdpState { routes, reassembly } = &mut *state;
             let Some(route) = routes.get(&id) else {
                 continue;
@@ -171,7 +171,7 @@ impl QuicConnection {
         let (sender, receiver) = mpsc::channel(64);
         let ready = Arc::new(AtomicBool::new(false));
         let cancel = self.cancel.child_token();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|lock| lock.into_inner());
         if state.routes.contains_key(&id) {
             bail!("duplicate UDP route");
         }
@@ -195,7 +195,7 @@ impl QuicConnection {
     }
 
     pub(crate) fn remove(&self, id: u32) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|lock| lock.into_inner());
         if let Some(route) = state.routes.remove(&id) {
             route.cancel.cancel();
         }

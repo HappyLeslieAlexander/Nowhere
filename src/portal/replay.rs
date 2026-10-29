@@ -60,9 +60,7 @@ impl ReplayProtection {
         if !authentication.is_valid() {
             return false;
         }
-        let Ok(state) = self.state.lock() else {
-            return false;
-        };
+        let state = self.state.lock().unwrap_or_else(|lock| lock.into_inner());
         state
             .find(authentication.identity)
             .is_none_or(|index| state.entries[index].accepts(authentication.counter))
@@ -72,9 +70,7 @@ impl ReplayProtection {
         if !authentication.is_valid() {
             return false;
         }
-        let Ok(mut state) = self.state.lock() else {
-            return false;
-        };
+        let mut state = self.state.lock().unwrap_or_else(|lock| lock.into_inner());
         if let Some(index) = state.find(authentication.identity) {
             let entry = &mut state.entries[index];
             if !entry.accepts(authentication.counter) {
@@ -128,6 +124,9 @@ impl ReplayState {
         let mut current = self.buckets[bucket];
         let mut previous = None;
         while current as usize != index {
+            // The bucket chain is an internal invariant; a broken link must
+            // surface as a diagnosable abort, not an out-of-bounds panic.
+            assert!(current != EMPTY, "replay bucket chain is corrupt");
             previous = Some(current as usize);
             current = self.entries[current as usize].next;
         }

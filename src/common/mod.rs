@@ -30,17 +30,16 @@ pub use endpoint::validate_endpoint_url_input;
 pub(crate) use endpoint::{AddressFamily, CarrierEndpoint, ServiceEndpoint};
 pub(crate) use lifecycle::ShutdownSignals;
 pub use logger::Logger;
-pub use network::bind_udp_addrs;
+pub use network::resolve_listen_addrs;
 pub(crate) use network::{
     dial_tcp_with_policy, dial_udp_with_policy, filter_addrs_for_family, is_normal_close,
     resolve_bind_addrs, tcp_keepalive,
 };
 pub(crate) use socks::{
     COMMAND_BIND, COMMAND_CONNECT, COMMAND_UDP_ASSOCIATE, OutboundDialer, OutboundUdpSocket,
-    REPLY_ADDRESS_NOT_SUPPORTED, REPLY_COMMAND_NOT_SUPPORTED, REPLY_CONNECTION_NOT_ALLOWED,
-    REPLY_GENERAL_FAILURE, REPLY_HOST_UNREACHABLE, REPLY_NETWORK_UNREACHABLE, REPLY_SUCCEEDED,
-    SocksAddress, SocksConfig, SocksCredentials, authenticate, decode_udp_packet,
-    encode_udp_packet_into, format_host_port, parse_host_port, parse_socks_value, read_request,
-    write_reply,
+    REPLY_COMMAND_NOT_SUPPORTED, REPLY_CONNECTION_NOT_ALLOWED, REPLY_GENERAL_FAILURE,
+    REPLY_HOST_UNREACHABLE, REPLY_NETWORK_UNREACHABLE, REPLY_SUCCEEDED, SocksAddress, SocksConfig,
+    SocksCredentials, authenticate, decode_udp_packet, encode_udp_packet_into, format_host_port,
+    parse_host_port, parse_socks_value, read_request, write_reply,
 };
 pub(crate) use tls::{certificate_sha256, new_server_configs_with_reload_interval};

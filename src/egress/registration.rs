@@ -29,18 +29,20 @@ pub(super) async fn register(
             Ok::<_, anyhow::Error>(byte[0])
         };
         tokio::pin!(registration);
-        let mut discarded = 0;
+        let mut discarded: u64 = 0;
         loop {
             tokio::select! {
                 biased;
+                // The registration receipt outranks the datagram drain: a
+                // flood of pre-auth datagrams must not postpone it.
+                result = &mut registration => break result,
                 datagram = connection.read_datagram() => {
                     datagram?;
                     discarded += 1;
-                    if discarded % 64 == 0 {
+                    if discarded.is_multiple_of(64) {
                         tokio::task::yield_now().await;
                     }
                 },
-                result = &mut registration => break result,
             }
         }
     })

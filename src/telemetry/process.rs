@@ -4,19 +4,9 @@
 //! Portable process identity for protected local IPC.
 
 #[cfg(all(not(target_os = "linux"), not(windows)))]
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use anyhow::Result;
 
 #[cfg(all(not(target_os = "linux"), not(windows)))]
-fn now_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(u64::MAX as u128) as u64
-}
-
 pub(super) fn process_uid() -> u32 {
     #[cfg(unix)]
     {
@@ -31,8 +21,10 @@ pub(super) fn process_uid() -> u32 {
 pub(super) fn process_incarnation(pid: u32) -> Result<u64> {
     #[cfg(all(not(target_os = "linux"), not(windows)))]
     {
+        // macOS exposes no portable process start time here; a wall-clock
+        // value would misrepresent the incarnation contract, so store zero.
         let _ = pid;
-        Ok(now_unix_ms())
+        Ok(0)
     }
     #[cfg(windows)]
     return read_process_incarnation(pid)

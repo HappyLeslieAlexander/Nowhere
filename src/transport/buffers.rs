@@ -36,6 +36,9 @@ pub(crate) fn get_udp_buffer() -> BufferLease {
     )
 }
 
+/// Grow the buffer to fit `required` bytes, doubling up to `limit` first.
+/// The limit is soft: a `required` larger than it always wins, so callers
+/// must not rely on it as an upper bound (payloads are validated upstream).
 pub(crate) fn reserve_bounded(buffer: &mut Vec<u8>, required: usize, limit: usize) {
     if required > buffer.capacity() {
         let capacity = buffer.capacity().saturating_mul(2).min(limit).max(required);
@@ -68,7 +71,7 @@ impl BufferPool {
         let mut buffer = pool
             .cached
             .lock()
-            .expect("buffer pool poisoned")
+            .unwrap_or_else(|lock| lock.into_inner())
             .pop()
             .unwrap_or_else(|| vec![0; pool.size]);
         buffer.resize(pool.size, 0);
@@ -110,7 +113,11 @@ impl Drop for BufferLease {
         let Some(buffer) = self.buffer.take() else {
             return;
         };
-        let mut cached = self.pool.cached.lock().expect("buffer pool poisoned");
+        let mut cached = self
+            .pool
+            .cached
+            .lock()
+            .unwrap_or_else(|lock| lock.into_inner());
         if cached.len() < self.pool.cache_limit {
             cached.push(buffer);
         }

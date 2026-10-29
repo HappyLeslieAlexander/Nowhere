@@ -83,8 +83,21 @@ fn hkdf_expand_one(root: MorphKeyBytes, info: &[u8]) -> MorphKeyBytes {
     mac.finalize().into_bytes().into()
 }
 
+/// Terminal state of a direction hitting the 2^38 byte keystream limit.
+/// A dedicated type keeps it distinguishable from arbitrary internal errors.
+#[derive(Debug)]
+pub(crate) struct MorphDirectionExhausted;
+
+impl fmt::Display for MorphDirectionExhausted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Morph ChaCha20 keystream exhausted")
+    }
+}
+
+impl std::error::Error for MorphDirectionExhausted {}
+
 fn exhausted() -> io::Error {
-    io::Error::other("Morph ChaCha20 keystream exhausted")
+    io::Error::other(MorphDirectionExhausted)
 }
 
 #[cfg(test)]

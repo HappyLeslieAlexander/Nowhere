@@ -108,7 +108,9 @@ pub(in crate::telemetry) fn publish(path: &Path, payload: &[u8]) -> Result<()> {
 
 pub(in crate::telemetry) fn endpoint(id: &str) -> String {
     directory()
-        .join(format!("{}.sock", &id[..16]))
+        // Registry ids are validated to at least 16 characters upstream; a
+        // defensive fallback keeps this safe if that invariant ever drifts.
+        .join(format!("{}.sock", id.get(..16).unwrap_or(id)))
         .to_string_lossy()
         .into_owned()
 }

@@ -75,14 +75,13 @@ impl ProbeClient {
                 ("—", result)
             }
         };
-        if tokio::time::timeout(
+        if let Err(error) = tokio::time::timeout(
             shutdown_timeout(),
             client.close(tokio::time::Instant::now() + shutdown_timeout()),
         )
         .await
-        .is_err()
         {
-            cleanup = Err(anyhow::anyhow!("client close timeout"));
+            cleanup = cleanup.and(Err(error.into()));
         }
         Ok(ProbeReport {
             endpoint: self.config.endpoint(),

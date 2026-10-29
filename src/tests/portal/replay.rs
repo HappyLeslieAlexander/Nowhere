@@ -217,7 +217,7 @@ fn maximum_counter_and_new_instance_reset() {
 }
 
 #[test]
-fn poisoned_state_fails_closed() {
+fn poisoned_state_recovers_instead_of_failing_forever() {
     let replay = Arc::new(ReplayProtection::new());
     let worker = replay.clone();
     let _ = std::thread::spawn(move || {
@@ -225,8 +225,10 @@ fn poisoned_state_fails_closed() {
         panic!("test poison");
     })
     .join();
-    assert!(!replay.precheck(authentication(1, 1)));
-    assert!(!replay.commit(authentication(1, 1)));
+    // A poisoned lock no longer rejects every prelude until restart: the
+    // recovered window is an acceptable degradation for a fail-closed denial.
+    assert!(replay.precheck(authentication(1, 1)));
+    assert!(replay.commit(authentication(1, 1)));
 }
 
 #[test]

@@ -43,8 +43,11 @@ pub(crate) fn resolve_bind_addrs(host: &str, endpoint: CarrierEndpoint) -> Resul
     Ok(addrs)
 }
 
-pub fn bind_udp_addrs(host: &str, port: u16) -> Result<Vec<SocketAddr>> {
-    if host.is_empty() {
+/// Resolve a listener host into bind addresses. Despite the UDP-era name of
+/// the scheme, this serves TCP listeners too; `""` and `"*"` both mean the
+/// wildcard dual stack.
+pub fn resolve_listen_addrs(host: &str, port: u16) -> Result<Vec<SocketAddr>> {
+    if host.is_empty() || host == "*" {
         return Ok(vec![
             SocketAddr::from(([0, 0, 0, 0], port)),
             SocketAddr::from(([0u16; 8], port)),

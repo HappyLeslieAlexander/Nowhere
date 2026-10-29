@@ -41,7 +41,7 @@ impl TokenBucket {
         if bytes <= 0 {
             return Duration::ZERO;
         }
-        let mut inner = self.inner.lock().expect("token bucket poisoned");
+        let mut inner = self.inner.lock().unwrap_or_else(|lock| lock.into_inner());
         inner.refill(now);
         if bytes <= inner.budget {
             inner.budget -= bytes;
@@ -56,15 +56,24 @@ impl TokenBucket {
     }
 
     pub fn reset(&self, now: Duration) {
-        let mut inner = self.inner.lock().expect("token bucket poisoned");
+        let mut inner = self.inner.lock().unwrap_or_else(|lock| lock.into_inner());
         inner.budget = inner.capacity;
         inner.updated_at = now;
     }
 
     pub(super) async fn wait(&self, bytes: i64) {
         let sleep = self.reserve(token_bucket_now(), bytes);
-        if !sleep.is_zero() {
-            tokio::time::sleep(sleep).await;
+        if sleep.is_zero() {
+            return;
+        }
+        // A tiny rate can demand a single sleep of hours; shard it so
+        // cancellation and shutdown observations stay responsive.
+        const MAX_SLEEP: Duration = Duration::from_secs(1);
+        let mut remaining = sleep;
+        while !remaining.is_zero() {
+            let step = remaining.min(MAX_SLEEP);
+            tokio::time::sleep(step).await;
+            remaining = remaining.saturating_sub(step);
         }
     }
 }
@@ -75,11 +84,15 @@ impl TokenBucketInner {
             return;
         }
         if self.capacity > 0 {
-            let added = (self.rate as f64 * (now - self.updated_at).as_secs_f64()).trunc() as i64;
-            self.budget += added;
-            if self.budget > self.capacity {
-                self.budget = self.capacity;
-            }
+            let added = (self.rate as f64 * (now - self.updated_at).as_secs_f64()).trunc();
+            // f64->i64 saturates on overflow, which the .min(capacity) below
+            // clamps into range anyway.
+            let added = if added >= 9.223_372_036_854_776E18 {
+                i64::MAX
+            } else {
+                added as i64
+            };
+            self.budget = self.budget.saturating_add(added).min(self.capacity);
         }
         self.updated_at = now;
     }

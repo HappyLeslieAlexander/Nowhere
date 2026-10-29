@@ -33,7 +33,11 @@ impl<R: AsyncRead + Unpin> io::Read for Reader<'_, '_, R> {
 }
 
 pub(super) async fn accept<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<Option<Accepted>> {
+    // A legitimate ClientHello is far below this; rustls would otherwise
+    // buffer up to 16 MB of handshake message per admission slot.
+    const ACCEPTED_BUFFER_MAX: usize = 64 * 1024;
     let mut acceptor = Acceptor::default();
+    let mut buffered = 0usize;
     loop {
         let read = poll_fn(|cx| match acceptor.read_tls(&mut Reader { stream, cx }) {
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => Poll::Pending,
@@ -45,11 +49,17 @@ pub(super) async fn accept<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<O
             Err(error) if error.kind() == io::ErrorKind::InvalidData => return Ok(None),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
-            Ok(_) => match acceptor.accept() {
-                Ok(Some(accepted)) => return Ok(Some(accepted)),
-                Ok(None) => {}
-                Err((_error, _alert)) => return Ok(None),
-            },
+            Ok(count) => {
+                buffered += count;
+                if buffered > ACCEPTED_BUFFER_MAX {
+                    return Ok(None);
+                }
+                match acceptor.accept() {
+                    Ok(Some(accepted)) => return Ok(Some(accepted)),
+                    Ok(None) => {}
+                    Err((_error, _alert)) => return Ok(None),
+                }
+            }
         }
         tokio::task::yield_now().await;
     }

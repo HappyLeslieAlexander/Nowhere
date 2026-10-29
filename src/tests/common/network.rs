@@ -6,36 +6,45 @@
 use super::*;
 
 #[test]
-fn bind_udp_addrs_handles_wildcard_and_ip_literals() {
+fn resolve_listen_addrs_handles_wildcard_and_ip_literals() {
+    // The bare "*" must bind the wildcard dual stack, not go through DNS.
     assert_eq!(
-        bind_udp_addrs("", 8080).unwrap(),
+        resolve_listen_addrs("*", 8080).unwrap(),
+        vec![
+            SocketAddr::from(([0, 0, 0, 0], 8080)),
+            SocketAddr::from(([0u16; 8], 8080)),
+        ]
+    );
+
+    assert_eq!(
+        resolve_listen_addrs("", 8080).unwrap(),
         vec![
             SocketAddr::from(([0, 0, 0, 0], 8080)),
             SocketAddr::from(([0u16; 8], 8080)),
         ]
     );
     assert_eq!(
-        bind_udp_addrs("0.0.0.0", 8080).unwrap(),
+        resolve_listen_addrs("0.0.0.0", 8080).unwrap(),
         vec![SocketAddr::from(([0, 0, 0, 0], 8080))]
     );
     assert_eq!(
-        bind_udp_addrs("::", 8080).unwrap(),
+        resolve_listen_addrs("::", 8080).unwrap(),
         vec![SocketAddr::from(([0u16; 8], 8080))]
     );
     assert_eq!(
-        bind_udp_addrs("[::]", 8080).unwrap(),
+        resolve_listen_addrs("[::]", 8080).unwrap(),
         vec![SocketAddr::from(([0u16; 8], 8080))]
     );
     assert_eq!(
-        bind_udp_addrs("127.0.0.1", 8080).unwrap(),
+        resolve_listen_addrs("127.0.0.1", 8080).unwrap(),
         vec![SocketAddr::from(([127, 0, 0, 1], 8080))]
     );
     assert_eq!(
-        bind_udp_addrs("::1", 8080).unwrap(),
+        resolve_listen_addrs("::1", 8080).unwrap(),
         vec![SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 8080))]
     );
     assert_eq!(
-        bind_udp_addrs("[::1]", 8080).unwrap(),
+        resolve_listen_addrs("[::1]", 8080).unwrap(),
         vec![SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 8080))]
     );
 }

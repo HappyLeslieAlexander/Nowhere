@@ -76,7 +76,8 @@ fn single_sources_restrict_the_family() {
         assert!(!policy.accepts(other.parse().unwrap()));
         assert!(policy.local_ip(other.parse().unwrap()).is_err());
     }
-    assert!(parse("dial=::ffff:192.0.2.1").is_ok());
+    // IPv4-mapped sources are ambiguous; dial4 expresses that intent.
+    assert!(parse("dial=::ffff:192.0.2.1").is_err());
 }
 
 #[test]
